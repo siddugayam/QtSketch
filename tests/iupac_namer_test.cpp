@@ -2028,11 +2028,14 @@ int main() {
         // Test 9: NICOTINE (real drug) - N-methylpyrrolidine (5 atoms) + pyridine (6 atoms)
         // Both rings are eligible (both have N). Pyridine wins by criterion (e) (6 > 5 skeletal atoms).
         // Note: The real IUPAC-ish name is "3-[(2S)-1-methylpyrrolidin-2-yl]pyridine"
-        // However, the N-methyl group causes a separate rejection in the current codebase:
-        // "Branched or ring N-substituents on amines are not supported" (from chain amine handling).
-        // This is a separate gap not addressed by this task. The core disjoint-ring seniority logic
-        // is verified by tests 10-12.
-        {"CN1CCCC1c2cccnc2", "", true, "Branched or ring N-substituents on amines"},
+        // However, the N-methyl group causes a separate rejection in the current codebase.
+        // Message text changed (P-44.1.1 exocyclic-carbon-consuming-group fix, this session):
+        // the pyrrolidine's N-methyl carbon is correctly no longer promoted to ring-side for the
+        // AMINE class, so the disjoint-ring dispatcher's own chain-vs-ring seniority check now
+        // intercepts this case first, before the old acyclic-amine-N-substituent block ever got a
+        // chance to. Still an honest rejection either way -- this is a separate, pre-existing gap
+        // not addressed by this task. The core disjoint-ring seniority logic is verified by tests 10-12.
+        {"CN1CCCC1c2cccnc2", "", true, "A chain-based principal group outranks the ring"},
         // Test 10: Pyridine (6 atoms, 1 N) + pyrrole (5 atoms, 1 N)
         // Both eligible. Pyridine wins by criterion (e) (6 > 5 skeletal atoms).
         // Real output: "2-pyrrol-2-ylpyridine" - pyridine as parent, pyrrol-2-yl as substituent
@@ -6005,15 +6008,26 @@ int main() {
     }
 
     {
-        // Same bug, pirbuterol (pyridine analogue of albuterol).
+        // Same shape as albuterol above, but pyridine instead of benzene. Used to hit the
+        // same defensive rejection -- but pyridine's ring nitrogen makes ringHasHeteroatom
+        // true, which blocks the "chain is senior parent" branch entirely regardless of
+        // count, routing this molecule down the ring-is-parent path instead. There, the
+        // P-44.1.1 exocyclic-carbon-consuming-group fix (this session) correctly excludes
+        // both exocyclic alcohol-class carbons (the CH(OH)-chain branch and the plain
+        // CH2OH) from principalCarbons, leaving only the ring's own genuine -OH (directly
+        // on a ring carbon) as the suffix. The two exocyclic branches are then named as
+        // ordinary substituent prefixes by the general substituent engine -- correctly,
+        // and without dropping anything. Verified by hand against P-31.1.4.2.4 (lowest
+        // locant to the principal-group suffix: N=1, CH2OH=2, OH=3 wins over the other
+        // winding's N=1, OH=5, CH2OH=6).
         int m = indigoLoadMoleculeFromString("CC(C)(C)NCC(O)c1ccc(O)c(CO)n1");
         IupacResult r = IupacNamer::generateName(m);
         indigoFree(m);
-        if (!r.success && !r.error.isEmpty()) {
-            std::cout << "[PASS] pirbuterol vanished-branch now rejected -> " << r.error.toStdString() << "\n";
+        if (r.success && r.name == "6-(2-[(1,1-dimethylethyl)amino]-1-hydroxyethyl)-2-hydroxymethylpyridin-3-ol") {
+            std::cout << "[PASS] pirbuterol correctly named -> " << r.name.toStdString() << "\n";
             passed++;
         } else {
-            std::cout << "[FAIL] pirbuterol vanished-branch -> got success=" << r.success << " name='" << r.name.toStdString() << "'\n";
+            std::cout << "[FAIL] pirbuterol -> got success=" << r.success << " name='" << r.name.toStdString() << "' err='" << r.error.toStdString() << "'\n";
             failed++;
         }
     }

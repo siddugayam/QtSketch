@@ -6983,6 +6983,24 @@ QString nameAcyclicChainParentWithSubstituents(
 }
 
 
+static bool isExocyclicCarbonConsumingGroup(GroupType gt) {
+    switch (gt) {
+        case GroupType::ACID:
+        case GroupType::ESTER:
+        case GroupType::ACYL_HALIDE:
+        case GroupType::AMIDE:
+        case GroupType::THIOAMIDE:
+        case GroupType::HYDRAZIDE:
+        case GroupType::AMIDINE:
+        case GroupType::NITRILE:
+        case GroupType::ALDEHYDE:
+        case GroupType::THIAL:
+            return true;
+        default:
+            return false;
+    }
+}
+
 // Phase 54: the principal GroupType classes for which the chain-as-parent
 // (P-44.1.1 chain-wins) case is implemented via nameChainParentWithRingSubstituent.
 // Shared by both generateName() call sites so the supported-class set cannot
@@ -11950,7 +11968,7 @@ static FunctionalGroupClassification classifyFunctionalGroups(
         int cNode = pair.first;
         GroupType gt = pair.second;
         bool isOnOrExocyclic = ringNodeSet.count(cNode) > 0;
-        if (!isOnOrExocyclic) {
+        if (!isOnOrExocyclic && isExocyclicCarbonConsumingGroup(gt)) {
             for (int nei : g.nodes[cNode].neighbors) {
                 if (ringNodeSet.count(nei) > 0) { isOnOrExocyclic = true; break; }
             }
@@ -19689,8 +19707,10 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
             int cNode = pair.first;
             bool isOnOrExocyclic = ringNodeSet.count(cNode) > 0;
             if (!isOnOrExocyclic) {
-                for (int nei : g.nodes[cNode].neighbors) {
-                    if (ringNodeSet.count(nei) > 0) { isOnOrExocyclic = true; break; }
+                if (isExocyclicCarbonConsumingGroup(combinedWinner)) {
+                    for (int nei : g.nodes[cNode].neighbors) {
+                        if (ringNodeSet.count(nei) > 0) { isOnOrExocyclic = true; break; }
+                    }
                 }
                 if (!isOnOrExocyclic) ++chainDeepCount;
             }
@@ -19761,7 +19781,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
             GroupType gt = pair.second;
             if (gt == winningType) {
                 bool isOnOrExocyclic = ringNodeSet.count(cNode) > 0;
-                if (!isOnOrExocyclic) {
+                if (!isOnOrExocyclic && isExocyclicCarbonConsumingGroup(winningType)) {
                     for (int nei : g.nodes[cNode].neighbors) {
                         if (ringNodeSet.count(nei) > 0) { isOnOrExocyclic = true; break; }
                     }
@@ -21137,8 +21157,10 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                 int cNode = pair.first;
                 bool isOnOrExocyclic = ringNodeSet.count(cNode) > 0;
                 if (!isOnOrExocyclic) {
-                    for (int nei : g.nodes[cNode].neighbors) {
-                        if (ringNodeSet.count(nei) > 0) { isOnOrExocyclic = true; break; }
+                    if (isExocyclicCarbonConsumingGroup(combinedWinner)) {
+                        for (int nei : g.nodes[cNode].neighbors) {
+                            if (ringNodeSet.count(nei) > 0) { isOnOrExocyclic = true; break; }
+                        }
                     }
                     if (!isOnOrExocyclic) ++chainDeepCount;
                 }
@@ -21209,7 +21231,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                 GroupType gt = pair.second;
                 if (gt == winningType) {
                     bool isOnOrExocyclic = ringNodeSet.count(cNode) > 0;
-                    if (!isOnOrExocyclic) {
+                    if (!isOnOrExocyclic && isExocyclicCarbonConsumingGroup(winningType)) {
                         for (int nei : g.nodes[cNode].neighbors) {
                             if (ringNodeSet.count(nei) > 0) { isOnOrExocyclic = true; break; }
                         }
@@ -27913,8 +27935,10 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                             int cNode = pair.first;
                             bool isOnOrExocyclic = ringNodeSet.count(cNode) > 0;
                             if (!isOnOrExocyclic) {
-                                for (int nei : g.nodes[cNode].neighbors) {
-                                    if (ringNodeSet.count(nei) > 0) { isOnOrExocyclic = true; break; }
+                                if (isExocyclicCarbonConsumingGroup(combinedWinner)) {
+                                    for (int nei : g.nodes[cNode].neighbors) {
+                                        if (ringNodeSet.count(nei) > 0) { isOnOrExocyclic = true; break; }
+                                    }
                                 }
                                 if (!isOnOrExocyclic) ++chainDeepCount;
                             }
@@ -27996,8 +28020,10 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                             int cNode = pair.first;
                             bool isOnOrExocyclic = ringNodeSet.count(cNode) > 0;
                             if (!isOnOrExocyclic) {
-                                for (int nei : g.nodes[cNode].neighbors) {
-                                    if (ringNodeSet.count(nei) > 0) { isOnOrExocyclic = true; break; }
+                                if (isExocyclicCarbonConsumingGroup(combinedWinner)) {
+                                    for (int nei : g.nodes[cNode].neighbors) {
+                                        if (ringNodeSet.count(nei) > 0) { isOnOrExocyclic = true; break; }
+                                    }
                                 }
                                 if (!isOnOrExocyclic) ++chainDeepCount;
                             }

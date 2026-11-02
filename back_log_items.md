@@ -1,0 +1,164 @@
+# SESSION UPDATE — 2026-11-02 (verified against live code + git log, not re-derived from the audit below)
+
+The audit below is a point-in-time snapshot. It is now stale in parts — substantial work has shipped since, and one recommendation was deliberately rejected with documented reasoning. Status per item, confirmed by grepping the exact message strings in the current `src/app/IupacNamer.cpp` and cross-checking against `git log`:
+
+## Fully fixed (message/guard removed from code)
+- Theme 4: "Indicated hydrogen for odd-membered carbocycles in 4-ring chains is not yet supported." — gone (`3d6a55a`).
+- Theme 4: "Large heterocycles with triple bonds are not supported." — gone (`3d6a55a`).
+- Theme 4: "Partially saturated large heterocycles are not supported." — gone (`3d6a55a`).
+- Theme 3: "Substituents on bridgehead atoms of fused ring systems are not yet supported." — gone (`d278442`).
+- Theme 3: "Hydro-prefix locant is letter-suffixed; bridgehead saturation is not yet supported." — gone (`d278442`).
+- Theme 5: "Amides with coexisting halogens on the acyl carbon are not supported" (doc's claimed dead code) — confirmed dead, removed (`3d6a55a`). Doc was right.
+- Theme 9: azo/nitrosamine competing-group `nullopt` handling — implemented (`9cdc5b9`), now threaded through many more call sites than the doc's 6 line numbers.
+
+## Partially addressed (doc's fix was applied, but a narrower residual guard still fires — do not assume these messages are dead without a fresh repro)
+- Theme 2: P-44.2.1 disjoint-ring equal-seniority fallback — tiebreak added (`64e44dc`); "Two ring systems of equal seniority..." still fires at (shifted) line ~28256 for genuinely-still-tied cases.
+- Theme 2: nameBranchingFusion RingType whitelist synced with nameLinearChainFusion (`08b6e4d`) — "Ring type not supported..." messages (×4) still present for ring types outside both tables.
+- Theme 2: Phase 31 chain-wins check widened from `ACID`-only to `isChainParentWithRingSubstituentSupported` — done, used pervasively across ~7 call sites; "A chain-based principal group outranks the ring..." message remains only for classes that function still excludes.
+- Theme 1 / Wave 2: narrow-block unification onto `nameBranchGraph`/`nameAcyclicChainParentWithSubstituents` — done (`e125d23`) for amides/thioamides/sulfonamides/sulfinamides/hydrazides/ureas/carbamate esters/imines/amidines/guanidines. **Correction to the doc's claim**: this did NOT eliminate the 21 listed rejection messages — every one of them is still present in code as a residual guard for sub-cases the generalized engines still can't resolve. Treat "eliminates 21 distinct rejection messages in one pass" as disproven; re-test each message individually before relying on it being fixed.
+- Theme 3 / Wave 3 part 2: fused-ring principal group threaded as a suffix instead of auto-rejecting (`1ba5ab7`) — done; "Substituents on fused/branching fused ring systems named via this mechanism are not yet supported" messages remain live, now explicitly checked upstream (not always terminal) rather than eliminated.
+- Theme 5: acid-anhydride chain-length guard raised 20 → 100 — NOT to 120 as the doc speculated. Doc's specific number was wrong.
+
+## Stale / false (doc's claim doesn't match current code)
+- Theme 3: doc's recommendation to upgrade `simpleRingSubstituentName` to `nameBranchGraph` for linear/branching fusion substituents — explicitly reconsidered and **rejected**, not implemented. See `f172fc5` ("document why simpleRingSubstituentName's alkyl/halogen-only scope stays as is") — a deliberate, documented scope decision. Drop this as a live recommendation unless that decision gets revisited with new justification.
+
+## Confirmed still open, unexplored this session (doc's description re-verified accurate)
+- Theme 2: rGrpCnt exocyclic-carbon overreach — "Ring substituent bearing the principal group also carries additional substituent structure..." (line ~20097) — confirmed still present, still an accurately-described open bug.
+- Theme 1D: "Branched, ring, or unsaturated chains on N-substituted amines/diamines/exocyclic amines" (×4) — untouched.
+- Theme 1D: "N-substituted amino ring substituents are not supported" (×4) — untouched.
+- Theme 3: "Combining hydro-prefix carbocycle saturation with a saturated heterocyclic ring in the same fused system..." (line ~9070) — untouched.
+- Theme 5 (Acyl/Acid-Derivative Corners) — **verified 2026-11-02, agy-delegate audit + independent spot-check (see table below).** Net result: every one of the 12 rootless/poly-acid-derivative rejections is intentional, correctly pinned, and correct as-is. No bug found. Not a priority item anymore — would only become one if the user wants real naming support for carbonic/carbamic/carbamimidic acid derivatives added (new feature, needs Blue Book P-65.x design first), not a fix for broken behavior.
+- Theme 6 (Element-Scope B/As/P/S) — **verified 2026-11-02, agy-delegate audit + 5/5 independent spot-check.** Net result: all 4 element-whitelist rejections (S, P, As, B) are intentional, correctly pinned, correct as-is. The doc's named "N-sulfonyl heterocycle gap" repro (`CS(=O)(=O)N1CCCCC1`) is **stale/already-fixed**: commit `c067ab4` (earlier this session, predates this doc's audit) relaxed the sulfonamide classifier (`sglN_unsub==1` → `sglN==1` at line 18338), so this case no longer even reaches the element whitelist — it now correctly classifies as SULFONAMIDE and gets rejected at the chain-vs-ring seniority gate instead (line 19752, pinned at tests/iupac_namer_test.cpp:939), as an honestly-unimplemented P-44.1.1 case, not a whitelist bug. No fix needed. Element whitelist code itself lives at lines 18309-18543 now (B/As/P/S all 4 checks there; Sb/Se/Te fall through unflagged, unexplored).
+- Theme 7: ester-chain stereo item is fixed (see below, not in this doc's original scope); the other two Theme 7 entries (stereocenters/E-Z on substituent branches, lines 4894/5052 pre-shift) not reverified this session.
+- Theme 8 (Structural Classes Rejected Outright) — not touched/verified this session.
+
+## Theme 5 verification table (2026-11-02, agy-delegate audit, independently spot-checked — 7/7 corroborated via live `smiles_driver_v72.exe` runs)
+
+| Item | Lines (classifyFunctionalGroups / generateNameImpl inline) | Pinned? | Repro | Verified output |
+|---|---|---|---|---|
+| 1. Carbonic acid derivatives | 11615/11654/11675/11710 / 22149/22188/22209/22246 | Yes (test L163, L597, L1715) | `COC(=O)O` | REJECTED — confirmed live |
+| 2. Carbamic acid derivatives | same lines as #1 (shared message) | Yes (test L597, L1715) | `NC(=O)Cl` | REJECTED (not independently re-run, shares exact code path with #1) |
+| 3. Carbonic acid halides | 11662 / 22196 | Yes (test L595-596) | `ClC(=O)Cl` | REJECTED "multiple halogens" — confirmed live |
+| 4. Carbonothioyl/thiocarbamoyl halide | 11759 / 22305 | Yes (test L606-608) | `ClC(=S)Cl` | REJECTED (not independently re-run) |
+| 5. Carbonimidic/carbamimidic acid halide | 11773 / 22319 | Yes (test L643-644, L1705) | `ClC(Cl)=N` | REJECTED (not independently re-run) |
+| 6. Cyanic acid halide | 11734 / 22270 | Yes (test L610-611) | `ClC#N` | REJECTED (not independently re-run) |
+| 7. Esters with coexisting halogen on acyl carbon | 11527 / 22061 | Yes (test L604) | `COC(=O)Cl` | REJECTED — confirmed live; `COC(=O)CCl` (halogen NOT on acyl carbon) names fine as "methyl 2-chloroethanoate" — confirmed live. **Doc's original wording ("elsewhere in molecule") was wrong; actual scope is acyl-carbon-only, correctly narrow.** |
+| 8. Acyl cyanide | 11739 / 22275 | Yes (test L1747) | `CCCC(=O)C#N` | REJECTED (not independently re-run) |
+| 9. Peroxycarboxylic acids | 11658 / 22192 | Yes (test L1766-1767) | `CC(=O)OO` | REJECTED (not independently re-run) |
+| 10. Dialkyl peroxides | 11813 / 22360 | Yes (test L659) | `CCOOCC` | REJECTED (not independently re-run) |
+| 11. Multiple ester groups | 22453 only (no classifyFunctionalGroups copy) | Yes (test L1009) | `COC(=O)C(=O)OC` | REJECTED — confirmed live |
+| 12. Di-N-substituted carbamate esters | 11590 / 22124 | Yes (test L1734) | `CN(C)C(=O)Oc1ccccc1` | REJECTED — confirmed live |
+
+Diester control confirmed working (not rejected): `COC(=O)OC` → NAME "dimethyl carbonate".
+
+**Duplicated classification blocks** (doc's original claim, now confirmed real): `classifyFunctionalGroups` (src/app/IupacNamer.cpp:11420, shared helper used by 8+ ring dispatchers) vs. an inlined legacy copy inside `generateNameImpl` (~21840-22460, acyclic-path-only). Confirmed via direct line read: `classifyFunctionalGroups` starts exactly at 11420; the `esterCount > 1` terminal guard sits exactly at 22452-22454 in the inline copy only (not present in the shared helper — item 11 above). Divergence per agy, not independently re-verified line-by-line beyond the two anchors just named: inline copy carries a ~170-line anhydride-naming engine (~21884-22055) the shared helper lacks; shared helper carries a ring-ring-junction amine fix (~11824-11838) and an oxygen-neighbor carbon-count check (~11516-11521, agy mislabeled this "isRingBond" — it's actually a plain neighbor-counting loop) that the inline copy lacks. Recommended single-source-of-truth: `classifyFunctionalGroups`, with anhydride naming and the multi-ester count moved out into callers. **This is a refactor opportunity, not a bug** — both copies currently reject/accept consistently per the table above.
+
+**Conclusion: Theme 5 closed, no fix needed.** All 12 items are deliberate, pinned, correct rejections of genuinely unsupported IUPAC classes. The only real finding is the code-duplication / single-source-of-truth opportunity, which is cleanup, not correctness — park it, don't action without the user prioritizing it.
+
+## Major fixes this session that predate/aren't covered by this audit at all
+- Ring-reached-through-ether misnamed as a straight alkyl chain (`2f0a143`)
+- Substituted-phenoxy contraction, swept across all duplicate sites (`cebfe7f`, `4ceba12`)
+- Stereodescriptors on an ester's acyl chain (`76e65bd`) — covers Theme 7's ester item
+- Heterobicyclic (quinoline-shaped etc.) functional-group-on-exocyclic-carbon gem-diol bug — new guard inside `namePhase31BenzoFusion` (`ebccb08`)
+- Phase 31 sibling-dispatch audit (Purine/Pentalene/general two-heterocycle-fusion blocks) — independently verified clean, no shared vulnerability found, no fix needed
+
+---
+
+## Original audit (point-in-time, see corrections above before trusting any individual claim)
+
+I've audited all **94 distinct rejection messages** in src/app/IupacNamer.cpp (plus 1 in FusedRingOrientation.cpp, 1 in IndigoService.cpp, and the dynamic class-name interpolations in checkPrincipalHeteroatomsUnsubstituted at lines 4516, 4555, 4567\) and cross-referenced every single one against tests/iupac\_namer\_test.cpp.
+
+### **1\. High-Level Audit Summary: Test Pinning vs. Architectural Leverage**
+
+Two cross-cutting findings immediately stand out across the 94 messages:
+
+* **50 messages are explicitly pinned by negative tests (expectError \= true) in tests/iupac\_namer\_test.cpp, while 44 are unpinned** (defensive guards with zero tests asserting failure). Any fix that removes a pinned rejection will intentionally flip those negative test assertions into positive IUPAC name assertions.  
+* **More than 30 of the 94 messages are artifacts of a single repeated legacy pattern**: early "narrow-case" blocks (lines 13320–15367, 6632, 7869\) still call countPlainAlkylChain(...) or simpleRingSubstituentName(...) instead of the general substituent and chain engines (nameBranchGraph, nameRingAsSubstituent, and nameAcyclicChainParentWithSubstituents) that were built in later phases.
+
+| Theme | Distinct Messages | Pinned in iupac\_namer\_test.cpp | Unpinned | Primary Architectural Bottleneck (src/app/IupacNamer.cpp) |
+| :---- | :---- | :---- | :---- | :---- |
+| **1\. Substituent-Branch Gaps on Principal Groups** | 25 | 11 | 14 | 9 narrow blocks (:14280–15367) use countPlainAlkylChain \+ isAcyclic \+ expectedC \== countC instead of nameBranchGraph \+ nameAcyclicChainParentWithSubstituents. |
+| **2\. Ring / Parent-Seniority Edge Cases** | 6 | 1 | 5 | rGrpCnt misclassifies non-suffix exocyclic carbons (Ar-CH(OH)-R) as ring groups (:16910); compareRingSeniority \== 0 lacks tie-break fallback (:24431); nameBranchingFusion uses a stale RingType whitelist (:7746). |
+| **3\. Fusion Nomenclature Gaps** | 12 | 6 | 6 | simpleRingSubstituentName gate in linear/branching fusion (:6632, :7869); toInt() rejecting letter-suffixed bridgehead locants (:7402, :7481, :8382); level \>= 2 non-hydrocarbon attached locants (:8226). |
+| **4\. Heterocycle Scope Limits** | 5 | 1 | 4 | Unconditional N \== 4 odd-membered carbocycle guard (:7229) blocking already-written N \>= 3 ihNodes code (:7296); partially saturated monocyclic heterocycles (:1636). |
+| **5\. Acyl / Acid-Derivative Corners** | 18 | 13 | 5 | Duplicated classification blocks (:8575–8915 and :19085–19425); rootless carbonic/carbamic/cyanic derivatives and multi-ester/mixed-acyl-halide guards. |
+| **6\. Element-Scope Limits (B, As, P, S)** | 4 | 4 | 0 | Element whitelists (:15555–15722); N-sulfonyl heterocycles (CS(=O)(=O)N1CCCCC1) miss the acyclic sulfonamide block (:14485). |
+| **7\. Stereo / Unsaturation on Substituents** | 3 | 3 | 0 | Call sites passing nullptr for handledBranchStereoIds (:4894); branch E/Z not collected (:5052); ester path skipping formatStereoPrefix (:19786). |
+| **8\. Structural Classes Rejected Outright** | 19 | 11 | 8 | Phase 1 / Phase 2 out-of-scope guards (allenes :12510, cycloalkynes :16700, charged atoms :10486, multi-word isotopes :12317, radicals :12218, reactions). |
+| **9\. Competing-Group Ambiguity (Azo / Nitrosamine)** | 2 | 0 | 2 | tryNameAzoCompound / tryNameNitrosamine return std::optional\<QString\>("") on competing groups instead of std::nullopt (:8897, :8902). |
+
+### **2\. Detailed Breakdown by Theme**
+
+#### **Theme 1: Substituent-Branch Gaps on Principal Groups (\~25 Messages)**
+
+All 9 narrow blocks in IupacNamer.cpp:14283–15367 (carbamate esters, amides, sulfonamides/sulfinamides, imines, amidines, guanidines, ureas, thioamides, hydrazides), plus amines/diamines/exocyclic amines (lines 13320–14130) and checkPrincipalHeteroatomsUnsubstituted (lines 4505–4575), share the exact same three-part bottleneck:
+
+> 1. They require isAcyclic \== true (numEdges \== g.nodes.size() \- 1), which immediately excludes any ring on either the parent or the N-substituent.  
+> 2. They measure each N-substituent and parent chain with countPlainAlkylChain(startNode, fromNode, g), which returns \-1 if any carbon is branched, unsaturated, ring-attached, or halogen-substituted.  
+> 3. They enforce expectedC \== countC, rejecting any substituent on the parent chain with "\<Class\> with additional substituents or functional groups are not supported in this phase".
+
+| Sub-group | Exact Messages & Line Numbers (src/app/IupacNamer.cpp) | Test Pin Status | Unification Path |
+| :---- | :---- | :---- | :---- |
+| **1A. Branched / Ring N-Substituents** | • "Branched or ring substituents on carbamate esters..." (:14308) • "Branched or ring N-substituents on amides..." (:4516, :14397, :14447) • "Branched or ring N-substituents on sulfonamides/sulfinamides..." (:4567, :14574, :14666) • "Branched or ring substituents on imines..." (:14748) • "Branched or ring N'-substituents on amidines..." (:14827) • "Branched or ring N'-substituents on guanidine..." (:14907) • "Branched or ring N-substituents on ureas..." (:14978) • "Branched or ring N-substituents on thioamides..." (:4516, :15082, :15125) • "Branched or ring \[N-\]substituents on hydrazides..." (:4528, :4531, :15241, :15291, :15349) | **Pinned** for amides (L443–444), thioamides (L456–457), hydrazides (L469), guanidine (L1481), ureas (L1491), carbamates (L1500–1501). **Unpinned** for sulfonamides, sulfinamides, imines, amidines. | Replace countPlainAlkylChain(cSub, nNode, g) with nameBranchGraph(g, cSub, nNode, allSSSRRings, {nNode}, stereoByGraphId, \&handledBranchStereoIds, mol). Notably, classifyFunctionalGroups (lines 8639–8647) **already** does this for carbamate esters when rings are present, whereas the narrow block at :14308 intercepts acyclic branched carbamates earlier and rejects them\! |
+| **1B. Ring or Branched Acyl / Sulfonyl Parents** | • "Ring or branched acyl parents on amides..." (:14399, :14449) • "Ring or branched alkyl parents on sulfonamides/sulfinamides..." (:14576, :14668) • "Ring or branched acyl parents on thioamides..." (:15084, :15127) • "Ring or branched acyl parents on hydrazides..." (:15243, :15293, :15351) | **All 4 Unpinned** | Instead of countPlainAlkylChain(cR, c0, g), delegate the parent side (with the N atom and its N-substituent subtrees in excludeNodes) to nameAcyclicChainParentWithSubstituents (or ring-parent suffix assembly when cR is in a ring), then prepend the formatted N-... prefix. |
+| **1C. "Additional Substituents or Functional Groups" Guards** | • "Carbamate esters with additional substituents..." (:14312) • "Amides with additional substituents..." (:14404, :14454, :14464) • "N,N-disubstituted / N-substituted sulfonamides/sulfinamides with additional substituents..." (:14582, :14674) • "Imines / Amidines / Guanidines / Ureas / Thioamides / Hydrazides with additional substituents..." (:14752, :14830, :14910, :14981, :15088, :15132, :15142, :15247, :15297, :15356) • "Amines with additional substituents..." (:13700) | **All 10 Unpinned** | Automatically resolved for substituted chains/rings once 1A and 1B use nameBranchGraph \+ nameAcyclicChainParentWithSubstituents (which traverse and account for all branch atoms). |
+| **1D. Amine / Diamine / Exocyclic Amine & Ring Amino Gaps** | • "Branched, ring, or unsaturated chains on N-substituted amines..." (:13662, pinned L247, 251–252, 276\) • "Branched, ring, or unsaturated chains on N-substituted diamines..." (:13341, pinned L1549–1552, 1626\) • "Branched, ring, or unsaturated chains on N-substituted exocyclic amines..." (:14083, :14111, **unpinned**) • "N-substituted amino ring substituents are not supported" (:15943, :15945, :16421, :17348, pinned L514 on \-N(Me)-N=O) • "Substituted amine/hydrazine substituents..." (:20190, pinned L1452, 5173\) | Mixed (see left) | nameAmineSubstituentPrefix (:5491) **already** supports \-NHR and \-NRR' on rings (:17346) and chains. Line 17348 only fires when nameAmineSubstituentPrefix returns "" (e.g., when N is bonded to another heteroatom like \-N(Me)N=O in L514 or \-NH-NH-C(=O)- in L1452). |
+
+#### **Theme 2: Ring / Parent-Seniority Edge Cases**
+
+* **"A chain-based principal group outranks the ring in this structure; chain-as-parent seniority (P-44.1.1) for this ring/class combination is not yet supported." (lines 16950, 18243, pinned at L275)**:  
+  * **Hidden bug found at line 13726**: Test L275 (c1cc(Cl)cc(Cl)c1NC, 2,6-dichloro-N-methylaniline) is a **ring-parent aniline**, not a chain-parent. In the N-substituted amine block (line 13725), cleanName is "2,6-dichlorophenyl", which has prefix \= "2,6-dichloro-". Because line 13726 checks if (prefix.count("-") \== 1\) (which only matches monosubstituted phenyls like "4-chlorophenyl" and rejects disubstituted "2,6-dichloro-" because it has two hyphens), execution bails out via goto skip\_n\_substituted\_amines, reaches Phase 2 monocyclic (line 16910), sees the N-CH3 carbon classified as GroupType::AMINE outside the ring (cGrpCnt \= 1, rGrpCnt \= 0), and falsely reports that a chain-based principal group outranks the ring\!  
+  * **Second trigger (line 18243\)**: In namePhase31BenzoFusion, when a chain outranks a heterobicyclic benzo-fused ring (e.g., 2-(quinolin-2-yl)ethan-1-ol), Phase 31 only calls nameChainParentWithRingSubstituent when winningType \== GroupType::ACID (line 18228), instead of isChainParentWithRingSubstituentSupported(combinedWinner) as Phase 30 and Phase 44/48 do.  
+* **"Ring substituent bearing the principal group also carries additional substituent structure beyond the principal group itself; this is not supported." (line 17276, Unpinned)**:  
+  * **Root cause (lines 16906–16918)**: When computing rGrpCnt vs. cGrpCnt for [IUPAC P-44.1.1](https://www.google.com/search?q=https://iupac.qmul.ac.uk/BlueBook/P4.html%234401), any carbon cNode directly bonded to ringNodeSet is counted as isOnOrExocyclic \= true (++rGrpCnt). That is only valid for suffixes that consume an exocyclic carbon (ACID \-carboxylic acid, ALDEHYDE \-carbaldehyde, NITRILE \-carbonitrile, AMIDE \-carboxamide, ACYL\_HALIDE \-carbonyl halide, ESTER \-carboxylate). For ALCOHOL, THIOL, KETONE, and AMINE, a carbon outside the ring (Ar-CH(OH)-R) is **never** a ring suffix—it is an acyclic chain carrying the principal group\! Treating isOnOrExocyclic as ringNodeSet.count(cNode) \> 0 (strictly in-ring) for ALCOHOL/THIOL/KETONE/AMINE routes Ar-CH(OH)-R directly to nameChainParentWithRingSubstituent.  
+* **"Two ring systems of equal seniority (P-44.2.1) are not yet supported as parent vs. substituent." (line 24431, Unpinned)**:  
+  * When two disjoint rings tie on compareRingSeniority(g, ring1Nodes, ring2Nodes) \== 0 (line 24430, e.g., 2-(pyridin-2-yl)pyridine or two identical heterocycles with different substituent positions), try naming ring1 as parent with ring2 as substituent (via nameRingAsSubstituent) and vice versa, picking the assignment yielding the lexicographically lower locant / alphabetical citation per [IUPAC P-44.2.1](https://www.google.com/search?q=https://iupac.qmul.ac.uk/BlueBook/P4.html%234402) / [P-45.2](https://www.google.com/search?q=https://iupac.qmul.ac.uk/BlueBook/P4.html%234502).  
+* **"Ring type not supported in branching system." (lines 7761, 7768), "Parent ring type not supported for branching system." (line 8011), "Ring type not supported for attached component at level %1." (line 8211\) — All Unpinned**:  
+  * nameBranchingFusion's local isAllowedType, getBaseName, and getFusionPrefix lambdas (lines 7746, 7884, 7973\) omit the 7-membered heterocycles (AZEPINE..TELLUREPINE), 5/7-membered carbocycles (CYCLOPENTADIENE, CYCLOHEPTATRIENE), and the 10 saturated monocyclic heterocycles that nameLinearChainFusion (line 6202\) already supports.
+
+#### **Theme 3: Fusion Nomenclature Gaps**
+
+* **"Substituents on bridgehead atoms of fused ring systems are not yet supported." (lines 7402, 8382, Pinned at L6946) & "Hydro-prefix locant is letter-suffixed; bridgehead saturation is not yet supported." (line 7481, Unpinned)**:  
+  * Both nameLinearChainFusion (lines 7400, 7480\) and nameBranchingFusion (line 8381\) call locStr.toInt(\&okInt) and reject when locStr has a letter suffix ("4a", "8a"). Replacing toInt with locantLess sorting (already defined at line 6605\) allows letter-suffixed bridgehead locants for both hydro prefixes and bridgehead substituents.  
+* **"Substituents on branching fused ring systems are not yet supported." (lines 7880, 24165, Unpinned) & "Substituents on fused ring systems named via this mechanism are not yet supported." (lines 6747, 6755, 24097, Pinned at L992)**:  
+  * nameLinearChainFusion (line 6632\) and nameBranchingFusion (line 7869\) only call simpleRingSubstituentName (plain alkyl or halogen) and reject N \== 2 substituents (line 6747). Upgrading simpleRingSubstituentName to nameBranchGraph \+ the standard functional-group prefix helpers (tryNameAmidoSubstituent, nameAmineSubstituentPrefix, tryNameAcyloxySubstituent, ether, sulfo) unlocks general substituents on linear and branching fused systems.  
+* **"Branching fused ring systems with more than 2 levels of attachment..." (line 8066, Unpinned) & "Fusion of a non-hydrocarbon component to another attached component (level %1)..." (line 8226, Unpinned)**:  
+  * At level \>= 2, nameBranchingFusion only emits host peripheral locants (\[c,e\] or \[8a,12a\]) for BENZENE (locantOmittable \== true). Supporting non-hydrocarbon components at level \>= 2 requires deriving the attached component's own local fusion bond locants and priming higher-order locant sets (\[2',3':4,5\]) per [IUPAC P-25.3.4.1](https://www.google.com/search?q=https://iupac.qmul.ac.uk/BlueBook/P2.html%232503).  
+* **"Combining hydro-prefix carbocycle saturation with a saturated heterocyclic ring in the same fused system..." (line 6197, Pinned at L1148–1165)**:  
+  * Requires reclassifying the saturated heterocycle in the fused system to its mancude Hantzsch-Widman / retained parent \+ hydroPositionNodes (rather than its standalone saturated retained name like piperidine/morpholine) so all saturation across the fused system is cited uniformly as a single hydro prefix per [IUPAC P-53.2.2](https://www.google.com/search?q=https://iupac.qmul.ac.uk/BlueBook/P5.html%235302).  
+* **"ortho- and peri-fused ring systems (P-25.3.1.1.2)" (line 22130, Pinned), "three-component ortho- and peri-fused systems (P-25.5)" (line 22126, Pinned), and "Non-tree ring systems..." (FusedRingOrientation.cpp:58, 319, Unpinned)**:  
+  * Standalone engine requiring perimeter-cycle extraction (V\_periph \< V\_total), interior-atom numbering (9b, 9c, etc. per [FR-5.4](https://www.google.com/search?q=https://iupac.qmul.ac.uk/fusedring/FR54.html)), and [P-25.3.1.1.2](https://www.google.com/search?q=https://iupac.qmul.ac.uk/BlueBook/P2.html%232503) multi-letter fusion descriptors (\[cd\], \[def\]).
+
+#### **Theme 4: Heterocycle Scope Limits**
+
+* **"Indicated hydrogen for odd-membered carbocycles in 4-ring chains is not yet supported." (line 7229, Unpinned — \~10 LoC Win)**:  
+  * At IupacNamer.cpp:7226–7323, if (N \== 4\) explicitly aborts on CYCLOPENTADIENE / CYCLOHEPTATRIENE at line 7229, even though the if (N \>= 3\) block immediately below (lines 7296–7323) **already** finds the $s{p}^{3}$ carbon ihNodes and maps it through periphMapN4Precomp\! Passing ihNodes into computePeripheralNumberingGeneral at line 6701 and removing the 7-line guard at lines 7226–7232 enables 4-ring chains with cyclopentadiene/cycloheptatriene immediately.  
+* **"Large heterocycles with triple bonds are not supported." (line 1355, Unpinned) & "Partially saturated large heterocycles are not supported." (line 1442, Unpinned)**:  
+  * For monocyclic heterocycles with ringSize \> 10 (RingType::LARGE\_HETEROCYCLE, skeletal replacement oxa/thia/aza \+ cycloalkane), recording actual gb.order \== 2 and gb.order \== 3 bond locants in RingSignature (line 17186, matching RingType::CYCLOALKENE at line 17175\) replaces both guards cleanly.  
+* **"Saturated or partially unsaturated heterocycles are not yet supported..." (line 1636, Pinned at L679–680, 3681\)**:  
+  * Fully saturated 1- and 2-heteroatom rings are already handled above line 1636\. What reaches line 1636 are **partially saturated** monocycles (e.g., 1,2-dihydropyridine C1C=CNC=C1 at L680) and **6-membered saturated 1,2-/1,3-diheterocycles** (hexahydropyridazine, hexahydropyrimidine, 1,3-oxazinane).
+
+#### **Theme 5 & Theme 6: Acyl/Acid-Derivative Corners, Element Whitelists, Stereo on Branches, and Competing Groups**
+
+* **Competing-Group Ambiguity (tryNameAzoCompound / tryNameNitrosamine at lines 8897, 8902, 19408, 19413, 20723, 20728, Unpinned)**:  
+  * Currently, when tryNameAzoCompound or tryNameNitrosamine sees another principal functional group in the molecule, it returns std::optional\<QString\>("") (an engaged empty string), forcing an immediate error return. Returning std::nullopt when a senior principal group (-COOH, \-SO3H, etc.) is present allows the senior group to win as parent while citing the azo/nitroso group as a prefix.  
+* **Acyl Corners (lines 8575–8915 duplicated at lines 19085–19425)**:  
+  * **Unreachable dead code (lines 8774, 19284, Unpinned)**: "Amides with coexisting halogens on the acyl carbon are not supported" sits after if (singleC \== 0\) return ... (line 8770). A neutral tetravalent carbon cannot simultaneously have singleC \>= 1 ($\geq 1$ bond), \=O (2 bonds), \-N (1 bond), and \-X (1 bond) ($\geq 5$ bonds total).  
+  * **Trivial unpinned limit (line 19023\)**: "Acid anhydrides with chain length \> 20 are not supported" can be lifted directly since chainRoot supports lengths up to 120\.  
+  * **Pinned rootless/poly-ester guards**: The remaining 13 acyl/rootless messages (Carbonic/carbamic acid derivatives, Carbonic acid halides, Carbonothioyl/thiocarbamoyl halide, Carbonimidic/carbamimidic acid halide, Cyanic acid halide, Esters with a coexisting halogen, Acyl cyanide, Peroxycarboxylic acids, Dialkyl peroxides, Multiple ester groups, Di-N-substituted carbamate esters) are all explicitly pinned in tests/iupac\_namer\_test.cpp (L161, 518–581, 850, 1484–1526).  
+* **Stereo on Substituent Branches & Esters (lines 4894, 5052, 19786, All 3 Pinned)**:  
+  * **Stereodescriptors combined with ester naming (line 19786, Pinned at L851 on C\[C@H\](Cl)C(=O)OCC)**: The ester block (lines 19750–19810) already has the acyl chain's locantMap and stereoByGraphId; calling formatStereoPrefix(stereoByGraphId, acylLocantMap, handledBranchStereoIds) formats ethyl (2S)-2-chloropropanoate.  
+  * **Stereocenters / E-Z on substituent branches (lines 4894, 5052, Pinned at L1743, 2753\)**: formatBranchStereoPrefix (line 4917\) already handles tetrahedral stereocenters along the primary path of a branch when handledBranchStereoIds is non-null; extending it to inspect internal branch double bonds (bondCIP) and passing \&handledBranchStereoIds to recursive sub-branch/ring calls covers nested branch stereo.
+
+### **3\. Recommended Execution Waves (Independent of Bridged Tiers 1–3)**
+
+> 1. **Wave 1 — Zero-Regression Unpinned Fixes (\~100 LoC, zero negative test conflicts)**:  
+   * Lift N \== 4 odd-membered carbocycle indicated-H guard (line 7229), anhydride $>20$ guard (line 19023), and large heterocycle double/triple bond guards (lines 1355, 1442).  
+   * Fix rGrpCnt exocyclic-carbon overreach (lines 16908, 17276\) so Ar-CH(OH)-R routes to nameChainParentWithRingSubstituent, and widen Phase 31's chain-wins check (line 18228\) from ACID to isChainParentWithRingSubstituentSupported(combinedWinner).  
+   * Implement P-44.2.1 equal-seniority disjoint ring fallback (line 24431\) and sync nameBranchingFusion's RingType tables (lines 7746, 7884, 7973\) with nameLinearChainFusion.  
+> 2. **Wave 2 — Unify the 9 Principal-Group Narrow Blocks (lines 14280–15367, \~250 LoC)**:  
+   * Replace countPlainAlkylChain with nameBranchGraph (for N-substituents) and nameAcyclicChainParentWithSubstituents (for acyl/alkyl parents) across amides, thioamides, sulfonamides/sulfinamides, hydrazides, ureas, carbamates, imines, amidines, and guanidines, eliminating **21 distinct rejection messages** in one pass.  
+> 3. **Wave 3 — Fused-Ring Substituent & Bridgehead Unification (lines 6632, 7402, 7481, 7869, 8382, \~120 LoC)**:  
+   * Replace toInt(\&okInt) with locantLess for letter-suffixed bridgehead hydro and substituent locants, and upgrade nameLinearChainFusion / nameBranchingFusion's substituent scan from simpleRingSubstituentName to nameBranchGraph \+ functional-group prefix dispatch.
+
+Would you like me to append these three independent waves to the backlog plan, or start implementing **Wave 1** while Tiers 2–3 are underway?
