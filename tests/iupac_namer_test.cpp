@@ -6104,6 +6104,67 @@ int main() {
     }
 
     {
+        // Regression guard for a third "silent corruption" bug found via the same
+        // exocyclic-group audit chain as the two fixes above, but in a different
+        // function: nameLinearChainFusion's hydro-prefix/saturated-heterocycle
+        // reclassification block only ran when the chain's own carbocycle ring
+        // needed reclassification (hydroPositionNodes non-empty). When the
+        // carbocycle side was already fully aromatic (plain benzo-fused) but a
+        // DIFFERENT ring in the chain was a genuine saturated heterocycle (e.g. an
+        // azepane), heteroRingHasSaturatedAtom was true but never consulted --
+        // the ring was silently treated as mancude with zero hydro accounting and
+        // no error (e.g. a tetrahydrobenzazepine named as the fully unsaturated
+        // "benzo[...]azepine"). Fixed (4th fix round on this function -- see git
+        // history for rounds 1-3) by widening the gate to also fire when any
+        // heteroatom-bearing ring is genuinely saturated, while adding two new
+        // exclusions this widening exposed: an all-carbon ring must never trip
+        // this check (fixes false rejections on fluorene/cyclopenta/cyclohepta-
+        // fused mancude systems, whose single sp3 CH2 is an inherent indicated-H
+        // requirement, not hydro-prefix saturation), and in this specific
+        // previously-unreachable branch, a ring with its own retained name
+        // (PIPERIDINE, PYRROLIDINE, etc.) must be left on its existing correct
+        // path rather than forcibly reclassified -- confirmed by restoring the
+        // pinned "piperidino" case elsewhere in this file.
+        static const std::pair<const char*, const char*> cases[] = {
+            {"c1ccc2c(c1)nc1c(c2)NCCCC1", "2,3,4,5-tetrahydro-1H-benzo[1',2':5,6]pyrido[3,2-b]azepine"},
+            {"c1ccc2c(c1)nc1c(c2)OCCCC1", "2,3,4,5-tetrahydrobenzo[1,2-b]oxepino[2,3-e]pyridine"},
+            {"c1ccc2cc3c(cc2c1)NCCCC3", "2,3,4,5-tetrahydro-1H-benzo[1',2':4,5]benzo[1,2-b]azepine"},
+            {"c1ccc2cc3c(cc2c1)OCCCC3", "2,3,4,5-tetrahydrobenzo[1',2':4,5]benzo[1,2-b]oxepine"},
+            {"c1ccc2cc3c(cc2c1)SCO3", "2H-benzo[1',2':4,5]benzo[1,2-d]1,3-oxathiole"},
+            {"C1CCNc2cc3c(cc2C1)NCCC3", "7,8,9,10-tetrahydro-6H-piperidino[2',3':4,5]benzo[1,2-b]azepine"},
+        };
+        for (const auto &tc : cases) {
+            int m = indigoLoadMoleculeFromString(tc.first);
+            IupacResult r = IupacNamer::generateName(m);
+            indigoFree(m);
+            if (r.success && r.name == tc.second) {
+                std::cout << "[PASS] benzo-fused saturated-heterocycle fix: " << tc.first << " -> " << r.name.toStdString() << "\n";
+                passed++;
+            } else {
+                std::cout << "[FAIL] benzo-fused saturated-heterocycle fix: " << tc.first << " -> got success=" << r.success << " name='" << r.name.toStdString() << "' err='" << r.error.toStdString() << "'\n";
+                failed++;
+            }
+        }
+    }
+
+    {
+        // Regression guard: a benzo-fused ring with TWO separate saturated
+        // heterocycles (a 1,4-diazepane here) is a topology this fix's
+        // reclassification model doesn't support (oddRuns.size() > 1) -- must
+        // stay an honest rejection, not a guess.
+        int m = indigoLoadMoleculeFromString("c1ccc2cc3c(cc2c1)NCCCNC3");
+        IupacResult r = IupacNamer::generateName(m);
+        indigoFree(m);
+        if (!r.success && !r.error.isEmpty()) {
+            std::cout << "[PASS] benzo-fused diazepane correctly rejected -> " << r.error.toStdString() << "\n";
+            passed++;
+        } else {
+            std::cout << "[FAIL] benzo-fused diazepane -> got success=" << r.success << " name='" << r.name.toStdString() << "'\n";
+            failed++;
+        }
+    }
+
+    {
         // Regression guard for racecadotril's "amide branch silently dropped" bug:
         // when an amide's acyl R-group could not be named as a branch (e.g. it
         // contains another principal-group-class structure, here an S-acetyl

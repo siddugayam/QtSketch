@@ -9029,22 +9029,33 @@ std::vector<RingSystemNameResult> nameLinearChainFusion(
                     if (!classOkN[i]) allClassified = false;
                 }
 
-                // Hydro-prefix fused-ring plan, Task 3 fix round 1 (review finding I4,
-                // and corrected again on re-review): this task's mancude-
-                // reclassification (all-carbon ring -> BENZENE + hydroPositionNodes)
-                // and Task 1's saturated-retained-name mechanism (a different ring in
-                // the same chain genuinely saturated -- PIPERIDINE, TETRAHYDROFURAN,
-                // but ALSO a saturated GENERAL_HETEROCYCLE fallback, e.g. azepane/
-                // oxepane/oxathiolane shapes, which classifyMonocyclicHeteroRing
-                // returns for BOTH its mancude Hantzsch-Widman branches and its
-                // saturated ones -- an enumerated RingType list can't tell those two
-                // uses apart) were never designed to combine. Fixed by checking real
-                // structural saturation (heteroRingHasSaturatedAtom, computed the same
-                // way as hydroPositionNodes itself) instead of enumerating RingType
-                // values -- a mancude GENERAL_HETEROCYCLE ring has heteroRingHasSaturatedAtom[i]
-                // false and is correctly left alone.
-                if (!hydroPositionNodes.empty()) {
+                // Hydro-prefix fused-ring plan, Task 3 fix round 4 (re-re-review):
+                // Handle cases where carbocycle saturation is absent (hydroPositionNodes
+                // was empty), but a saturated heterocyclic ring is present (e.g., azepane).
+                // Treatment of retained-name types differs by branch:
+                // 1) hadCarbocycleHydroBeforeHetero == true (carbocycle side needed
+                //    reclassification): all saturated heterocycles (including retained
+                //    names like PIPERIDINE) are reclassified to mancude + hydro-prefix
+                //    so the whole fused system shares a consistent mancude framework.
+                // 2) hadCarbocycleHydroBeforeHetero == false (carbocycle side fully mancude):
+                //    rings with retained names (e.g. PIPERIDINE) already have a working,
+                //    correct naming path downstream (e.g. piperidino) and must be left alone;
+                //    only GENERAL_HETEROCYCLE rings (lacking retained names) are reclassified.
+                // In both branches, rings without heteroatoms (rHeteroN[i].empty()) are skipped
+                // so indicated-H carbons in all-carbon rings (e.g., fluorene, cyclopenta, cyclohepta)
+                // never wrongly trigger reclassification or rejection.
+                bool hadCarbocycleHydroBeforeHetero = !hydroPositionNodes.empty();
+                bool anyHeteroRingTrulySaturated = false;
+                for (int i = 0; i < N; ++i) {
+                    if (heteroRingHasSaturatedAtom[i] && !rHeteroN[i].empty()) {
+                        anyHeteroRingTrulySaturated = true;
+                        break;
+                    }
+                }
+                if (hadCarbocycleHydroBeforeHetero || anyHeteroRingTrulySaturated) {
                     for (int i = 0; i < N; ++i) {
+                        if (rHeteroN[i].empty()) continue;
+                        if (!hadCarbocycleHydroBeforeHetero && typesN[i] != RingType::GENERAL_HETEROCYCLE) continue;
                         if (heteroRingHasSaturatedAtom[i]) {
                             // Mixed hydro-prefix and heterocycle saturation plan: before
                             // rejecting, try reclassifying this saturated heterocycle to
