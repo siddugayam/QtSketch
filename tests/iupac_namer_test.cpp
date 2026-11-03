@@ -6033,6 +6033,61 @@ int main() {
     }
 
     {
+        // Regression guard for a second "silent corruption" bug found via the same
+        // exocyclic-group audit as the pirbuterol fix above, but in a different
+        // function: ringBestGroup (the ring-vs-chain seniority check used when
+        // deciding whether a ring should be demoted to a substituent) only checked
+        // sulfonic/phosphonic/arsonic/boronic/thiol-family groups directly on ring
+        // atoms -- it never checked the acid/ester/acyl-halide/amide/nitrile/aldehyde
+        // family, which attaches via an exocyclic carbon one bond out (ring-C-C(=O)OH),
+        // not directly on the ring atom. A ring bearing a plain carboxylic acid was
+        // therefore seen as having NO principal group at all, so an unrelated
+        // aminomethyl branch elsewhere on the ring wrongly "won" and demoted the ring
+        // to substituent status -- producing a fabricated duplicate acid and silently
+        // dropping the amine entirely (e.g. "(4-carboxyphenyl)methanoic acid" for
+        // 4-(aminomethyl)benzoic acid, with the -NH2 gone). Fixed by also checking the
+        // carbonGroup map (which holds this exocyclic family) on both the ring loop's
+        // exocyclic neighbors and the chain loop's own members.
+        static const std::pair<const char*, const char*> cases[] = {
+            {"c1cc(C(=O)O)ccc1CN", "4-aminomethylbenzenecarboxylic acid"},
+            {"OC(=O)C1CCC(CN)CC1", "4-aminomethylcyclohexanecarboxylic acid"}, // tranexamic acid
+            {"c1cc(C(=O)N)ccc1CN", "4-aminomethylbenzenecarboxamide"},
+            {"c1cc(C#N)ccc1CN", "4-aminomethylbenzenecarbonitrile"},
+        };
+        for (const auto &tc : cases) {
+            int m = indigoLoadMoleculeFromString(tc.first);
+            IupacResult r = IupacNamer::generateName(m);
+            indigoFree(m);
+            if (r.success && r.name == tc.second) {
+                std::cout << "[PASS] ringBestGroup exocyclic acid-family fix: " << tc.first << " -> " << r.name.toStdString() << "\n";
+                passed++;
+            } else {
+                std::cout << "[FAIL] ringBestGroup exocyclic acid-family fix: " << tc.first << " -> got success=" << r.success << " name='" << r.name.toStdString() << "' err='" << r.error.toStdString() << "'\n";
+                failed++;
+            }
+        }
+    }
+
+    {
+        // Regression guard: the symmetric case where BOTH the ring and the chain
+        // genuinely carry their own acid -- must still correctly pick the chain as
+        // parent (as it did before the fix above) rather than the ring's acid now
+        // always winning. This was caught live: the first attempt at the fix above
+        // only checked exocyclic neighbors OUTSIDE chainNodes, missing that the
+        // chain's own acid carbon is a member of chainNodes, not a neighbor of it.
+        int m = indigoLoadMoleculeFromString("OC(=O)CCC1CCC(C(=O)O)CC1");
+        IupacResult r = IupacNamer::generateName(m);
+        indigoFree(m);
+        if (r.success && r.name == "3-(4-carboxycyclohexyl)propanoic acid") {
+            std::cout << "[PASS] chain-vs-ring both-acid case still picks chain as parent -> " << r.name.toStdString() << "\n";
+            passed++;
+        } else {
+            std::cout << "[FAIL] chain-vs-ring both-acid case -> got success=" << r.success << " name='" << r.name.toStdString() << "' err='" << r.error.toStdString() << "'\n";
+            failed++;
+        }
+    }
+
+    {
         // Regression guard: a plain exocyclic -CH2OH (no further structure beyond
         // its own OH) must still name correctly -- the new albuterol/pirbuterol
         // guard above must not fire on a bare, unextended alcohol substituent.

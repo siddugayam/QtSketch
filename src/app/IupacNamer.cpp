@@ -18827,6 +18827,17 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
         }
     }
 
+    FunctionalGroupClassification fgcSubScan;
+    if (!allSSSRRings.empty()) {
+        fgcSubScan = classifyFunctionalGroups(g, mol, allSSSRNodes, allSSSRRings,
+            carbonAzide, carbonSulfonicAcid, carbonSulfonamide, carbonSulfonylHalide, carbonSulfinylHalide,
+            carbonSulfinicAcid, carbonSulfinamide, carbonThiol, carbonSelenol, carbonTellurol,
+            carbonBoronicAcid, carbonBorinicAcid, carbonPhosphonicAcid, carbonPhosphinicAcid,
+            carbonPhosphonicDihalide, carbonArsonicAcid, carbonArsinicAcid, carbonArsonicDihalide,
+            carbonStibonicAcid, carbonStibinicAcid, carbonPhosphine);
+    }
+    const std::map<int, GroupType> &carbonGroup = fgcSubScan.carbonGroup;
+
     for (const auto &rNodes : allSSSRRings) {
         bool isFusedOrBridged = false;
         for (const auto &otherR : allSSSRRings) {
@@ -19171,6 +19182,17 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                         ringBestGroup = gt;
                     }
                 }
+
+                for (int nei : g.nodes[rNode].neighbors) {
+                    if (!rNodes.count(nei)) {
+                        if (carbonGroup.count(nei) && isExocyclicCarbonConsumingGroup(carbonGroup.at(nei))) {
+                            GroupType cgt = carbonGroup.at(nei);
+                            if (ringBestGroup == GroupType::NONE || groupRank(cgt) < groupRank(ringBestGroup)) {
+                                ringBestGroup = cgt;
+                            }
+                        }
+                    }
+                }
             }
             
             bool hasPrincipalGroupOrMultipleRings = false;
@@ -19234,10 +19256,22 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                     else if (carbonSelenol.count(cNode)) gt = GroupType::SELENOL;
                     else if (carbonTellurol.count(cNode)) gt = GroupType::TELLUROL;
                     else if (carbonPhosphine.count(cNode)) gt = GroupType::PHOSPHINE;
-                    
+                    else if (carbonGroup.count(cNode) && isExocyclicCarbonConsumingGroup(carbonGroup.at(cNode))) gt = carbonGroup.at(cNode);
+
                     if (gt != GroupType::NONE) {
                         if (chainBestGroup == GroupType::NONE || groupRank(gt) < groupRank(chainBestGroup)) {
                             chainBestGroup = gt;
+                        }
+                    }
+
+                    for (int nei : g.nodes[cNode].neighbors) {
+                        if (!chainNodes.count(nei) && !rNodes.count(nei)) {
+                            if (carbonGroup.count(nei) && isExocyclicCarbonConsumingGroup(carbonGroup.at(nei))) {
+                                GroupType cgt = carbonGroup.at(nei);
+                                if (chainBestGroup == GroupType::NONE || groupRank(cgt) < groupRank(chainBestGroup)) {
+                                    chainBestGroup = cgt;
+                                }
+                            }
                         }
                     }
                 }

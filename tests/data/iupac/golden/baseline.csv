@@ -1106,3 +1106,4 @@ id,smiles,pinned_name,pinned_success,actual_name,actual_success,expected_status,
 1105,O=C(CCC1C2CC3C1C3C2)Oc4ccccc4,"phenyl 3-(tricyclo[2.2.1.0^{2,6}]heptan-3-yl)propanoate",true,"phenyl 3-(tricyclo[2.2.1.0^{2,6}]heptan-3-yl)propanoate",true,,
 1106,OCC1C2CC3C1C3C2,"(tricyclo[2.2.1.0^{2,6}]heptan-3-yl)methanol",true,"(tricyclo[2.2.1.0^{2,6}]heptan-3-yl)methanol",true,,
 1107,OC(=O)CC1C2CC3C1C3C2,"2-(tricyclo[2.2.1.0^{2,6}]heptan-3-yl)ethanoic acid",true,"2-(tricyclo[2.2.1.0^{2,6}]heptan-3-yl)ethanoic acid",true,,
+1108,OC(=O)C1CCC(CN)CC1,"4-aminomethylcyclohexanecarboxylic acid",true,"4-aminomethylcyclohexanecarboxylic acid",true,,"tranexamic acid, WHO essential medicine -- ringBestGroup exocyclic acid-family regression"
