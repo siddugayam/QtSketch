@@ -2184,6 +2184,7 @@ QString nameAcyclicChainParentWithSubstituents(
 // marks if the name is already parenthesized/bracketed (a complex/substituted
 // substituent), mirroring the equivalent logic already used for "-oxy" fusion.
 QString wrapCompoundSuffix(QString name, const QString &suffix) {
+    if (name.isEmpty()) return "";
     if ((name.startsWith("(") && name.endsWith(")")) || (name.startsWith("[") && name.endsWith("]"))) {
         return "[(" + name.mid(1, name.length() - 2) + ")" + suffix + "]";
     }
@@ -2194,6 +2195,7 @@ QString wrapCompoundSuffix(QString name, const QString &suffix) {
 // preferred prefix e.g. "hydroxy(methyl)boranyl"), pre-wrapped in its own
 // enclosure since the name always contains an internal paren pair around R.
 QString wrapBorinicSubstituent(QString otherName) {
+    if (otherName.isEmpty()) return "";
     if ((otherName.startsWith("(") && otherName.endsWith(")")) || (otherName.startsWith("[") && otherName.endsWith("]"))) {
         otherName = otherName.mid(1, otherName.length() - 2);
     }
@@ -5850,6 +5852,23 @@ QString nameBranchGraph(const Graph &g, int rootIdx, int parentIdx, const std::v
                          int mol) {
     if (forbiddenNodes.count(rootIdx)) return "";
 
+    // Point 6: Reject if attachment bond between rootIdx and parentIdx is not a single bond.
+    // Carbonyl oxygen (=O) back to parent is retained as "oxo".
+    if (parentIdx >= 0 && parentIdx < static_cast<int>(g.nodes.size())) {
+        for (size_t k = 0; k < g.nodes[rootIdx].neighbors.size(); ++k) {
+            if (g.nodes[rootIdx].neighbors[k] == parentIdx) {
+                int bo = g.nodes[rootIdx].bondOrders[k];
+                if (bo != 1) {
+                    if (g.nodes[rootIdx].atomicNumber == 8 && bo == 2) {
+                        return "oxo";
+                    }
+                    return "";
+                }
+                break;
+            }
+        }
+    }
+
     if (!allIndependentRings.empty()) {
         // Naphthalene-as-substituent (along with every other fused/bridged
         // ring system reached this way) is now handled generally by
@@ -6040,163 +6059,366 @@ QString nameBranchGraph(const Graph &g, int rootIdx, int parentIdx, const std::v
     // immediately-previous node is excluded from re-visiting (not the whole walked
     // path), it loops around the ring's cycle forever -- a real, confirmed infinite
     // hang (e.g. "COC(c1ccccc1)c2ccccc2", benzhydryl methyl ether).
+    if (g.nodes[rootIdx].atomicNumber != 6) {
+        return "";
+    }
+
     std::set<int> allRingAtoms;
     for (const auto &rNodes : allIndependentRings) {
         allRingAtoms.insert(rNodes.begin(), rNodes.end());
     }
 
-    std::vector<int> path;
-    int curr = rootIdx;
-    int prev = parentIdx;
-    path.push_back(curr);
-    std::set<int> visitedPath = {curr};
+    std::vector<std::vector<int>> allPaths;
+    std::vector<int> currentPath = {rootIdx};
+    std::set<int> visitedNodes = {rootIdx};
 
-    while (true) {
-        int nextC = -1;
-        int maxDist = -1;
-
-        for (size_t i = 0; i < g.nodes[curr].neighbors.size(); ++i) {
-            int nei = g.nodes[curr].neighbors[i];
-            if (nei == prev) continue;
-            if (visitedPath.count(nei)) continue;
+    std::function<void(int)> dfs = [&](int u) {
+        bool extended = false;
+        for (size_t i = 0; i < g.nodes[u].neighbors.size(); ++i) {
+            int nei = g.nodes[u].neighbors[i];
+            if (nei == parentIdx && u == rootIdx) continue;
+            if (visitedNodes.count(nei)) continue;
             if (g.nodes[nei].atomicNumber == 6 && !forbiddenNodes.count(nei) && !allRingAtoms.count(nei)) {
-                std::vector<int> stack = {nei};
-                std::map<int, int> dist;
-                dist[nei] = 1;
-                dist[curr] = 0;
-                int localMax = 1;
-                while (!stack.empty()) {
-                    int u = stack.back();
-                    stack.pop_back();
-                    int d = dist[u];
-                    if (d > localMax) localMax = d;
-                    for (int nxt : g.nodes[u].neighbors) {
-                        if (g.nodes[nxt].atomicNumber == 6 && dist.find(nxt) == dist.end() && nxt != prev &&
-                            !forbiddenNodes.count(nxt) && !allRingAtoms.count(nxt)) {
-                            dist[nxt] = d + 1;
-                            stack.push_back(nxt);
-                        }
-                    }
-                }
-                if (localMax > maxDist) {
-                    maxDist = localMax;
-                    nextC = nei;
-                }
+                extended = true;
+                visitedNodes.insert(nei);
+                currentPath.push_back(nei);
+                dfs(nei);
+                currentPath.pop_back();
+                visitedNodes.erase(nei);
             }
         }
-        if (nextC == -1) break;
-        prev = curr;
-        curr = nextC;
-        path.push_back(curr);
-        visitedPath.insert(curr);
+        if (!extended) {
+            allPaths.push_back(currentPath);
+        }
+    };
+    dfs(rootIdx);
+
+    if (allPaths.empty()) return "";
+
+    size_t maxLen = 0;
+    for (const auto &p : allPaths) {
+        if (p.size() > maxLen) maxLen = p.size();
+    }
+    std::vector<std::vector<int>> maxPaths;
+    for (const auto &p : allPaths) {
+        if (p.size() == maxLen) maxPaths.push_back(p);
     }
 
-    int bLen = static_cast<int>(path.size());
-    std::set<int> pathSet(path.begin(), path.end());
+    struct CandidatePath {
+        std::vector<int> path;
+        int totalMultipleBonds = 0;
+        int doubleBonds = 0;
+        std::vector<int> multipleBondLocants; // sorted
+        std::vector<int> doubleBondLocants;   // sorted
+    };
 
-    std::map<int, QStringList> locantPrefixes;
-    for (int i = 0; i < bLen; ++i) {
-        int cNode = path[i];
-        int locant = i + 1;
+    auto getCandidate = [&](const std::vector<int> &p) -> CandidatePath {
+        CandidatePath cp;
+        cp.path = p;
+        for (size_t i = 0; i + 1 < p.size(); ++i) {
+            int u = p[i];
+            int v = p[i + 1];
+            int bo = 1;
+            for (size_t k = 0; k < g.nodes[u].neighbors.size(); ++k) {
+                if (g.nodes[u].neighbors[k] == v) {
+                    bo = g.nodes[u].bondOrders[k];
+                    break;
+                }
+            }
+            int locant = static_cast<int>(i + 1); // 1-based locant from rootIdx = position 1
+            if (bo == 2) {
+                cp.totalMultipleBonds++;
+                cp.doubleBonds++;
+                cp.multipleBondLocants.push_back(locant);
+                cp.doubleBondLocants.push_back(locant);
+            } else if (bo == 3) {
+                cp.totalMultipleBonds++;
+                cp.multipleBondLocants.push_back(locant);
+            }
+        }
+        std::sort(cp.multipleBondLocants.begin(), cp.multipleBondLocants.end());
+        std::sort(cp.doubleBondLocants.begin(), cp.doubleBondLocants.end());
+        return cp;
+    };
 
-        for (size_t j = 0; j < g.nodes[cNode].neighbors.size(); ++j) {
-            int nei = g.nodes[cNode].neighbors[j];
-            if (nei == parentIdx && i == 0) continue;
-            if (pathSet.count(nei)) continue;
+    std::vector<CandidatePath> candidates;
+    for (const auto &p : maxPaths) {
+        candidates.push_back(getCandidate(p));
+    }
 
-            int z = g.nodes[nei].atomicNumber;
-            if (z == 9 || z == 17 || z == 35 || z == 53) {
-                locantPrefixes[locant].append(halogenPrefix(z));
-            } else if (z == 6 || z == 8 || z == 7) {
-                QString subBranch = nameBranchGraph(g, nei, cNode, allIndependentRings, {}, {}, nullptr, mol);
-                if (subBranch.isEmpty()) return "";
-                locantPrefixes[locant].append(subBranch);
-            } else {
+    // IUPAC P-44.4.1 (chain/path selection criteria) and P-31.1.1.1 (lowest-locants-as-a-set comparison rule):
+    // For eligible equal-length candidate paths during the longest-path search, prefer (in this exact order):
+    // 1. more multiple bonds total
+    // 2. more double bonds specifically
+    // 3. lowest locant set for multiple bonds as a whole
+    // 4. lowest locant set for double bonds specifically
+    auto isBetter = [](const CandidatePath &a, const CandidatePath &b) -> int {
+        if (a.totalMultipleBonds != b.totalMultipleBonds) {
+            return (a.totalMultipleBonds > b.totalMultipleBonds) ? 1 : -1;
+        }
+        if (a.doubleBonds != b.doubleBonds) {
+            return (a.doubleBonds > b.doubleBonds) ? 1 : -1;
+        }
+        if (a.multipleBondLocants != b.multipleBondLocants) {
+            return (a.multipleBondLocants < b.multipleBondLocants) ? 1 : -1;
+        }
+        if (a.doubleBondLocants != b.doubleBondLocants) {
+            return (a.doubleBondLocants < b.doubleBondLocants) ? 1 : -1;
+        }
+        return 0;
+    };
+
+    CandidatePath bestCand = candidates[0];
+    for (size_t i = 1; i < candidates.size(); ++i) {
+        if (isBetter(candidates[i], bestCand) > 0) {
+            bestCand = candidates[i];
+        }
+    }
+
+    std::vector<CandidatePath> tiedBest;
+    for (const auto &c : candidates) {
+        if (isBetter(c, bestCand) == 0) {
+            tiedBest.push_back(c);
+        }
+    }
+
+    auto nameGivenPath = [&](const std::vector<int> &candPath) -> QString {
+        int bLen = static_cast<int>(candPath.size());
+        std::set<int> pathSet(candPath.begin(), candPath.end());
+
+        // Check for cumulated bonds (allenes, cumulenes) on any node in candPath (Point 4)
+        for (int cNode : candPath) {
+            int dblCount = 0;
+            int trplCount = 0;
+            for (size_t j = 0; j < g.nodes[cNode].neighbors.size(); ++j) {
+                int bo = g.nodes[cNode].bondOrders[j];
+                if (bo == 2) dblCount++;
+                else if (bo == 3) trplCount++;
+            }
+            if (dblCount >= 2 || (dblCount >= 1 && trplCount >= 1) || trplCount >= 2) {
                 return "";
             }
         }
-    }
 
-    QString root = chainRoot(bLen);
+        // Collect double and triple bond locants along candPath
+        std::vector<int> dbLocs;
+        std::vector<int> tbLocs;
+        for (size_t i = 0; i + 1 < candPath.size(); ++i) {
+            int u = candPath[i];
+            int v = candPath[i + 1];
+            int bo = 1;
+            for (size_t k = 0; k < g.nodes[u].neighbors.size(); ++k) {
+                if (g.nodes[u].neighbors[k] == v) {
+                    bo = g.nodes[u].bondOrders[k];
+                    break;
+                }
+            }
+            int locant = static_cast<int>(i + 1);
+            if (bo == 2) dbLocs.push_back(locant);
+            else if (bo == 3) tbLocs.push_back(locant);
+            else if (bo != 1) return "";
+        }
 
-    if (!locantPrefixes.empty()) {
-        std::map<QString, std::vector<int>> groupLocants;
-        for (auto it = locantPrefixes.begin(); it != locantPrefixes.end(); ++it) {
-            int loc = it->first;
-            for (const QString &p : it->second) {
-                groupLocants[p].push_back(loc);
+        // Point 5: Reject nonterminal substituent double bonds inside nameBranchGraph itself
+        // (both ends bonded to at least one other heavy atom)
+        for (size_t i = 0; i + 1 < candPath.size(); ++i) {
+            int u = candPath[i];
+            int v = candPath[i + 1];
+            int bo = 1;
+            for (size_t k = 0; k < g.nodes[u].neighbors.size(); ++k) {
+                if (g.nodes[u].neighbors[k] == v) {
+                    bo = g.nodes[u].bondOrders[k];
+                    break;
+                }
+            }
+            if (bo == 2) {
+                int heavyU = 0;
+                for (int nei : g.nodes[u].neighbors) {
+                    if (nei != v && g.nodes[nei].atomicNumber > 1) heavyU++;
+                }
+                int heavyV = 0;
+                for (int nei : g.nodes[v].neighbors) {
+                    if (nei != u && g.nodes[nei].atomicNumber > 1) heavyV++;
+                }
+                if (heavyU >= 1 && heavyV >= 1) {
+                    return "";
+                }
             }
         }
 
-        QStringList formattedPrefixes;
-        for (auto it = groupLocants.begin(); it != groupLocants.end(); ++it) {
-            QString pName = it->first;
-            std::vector<int> locs = it->second;
-            std::sort(locs.begin(), locs.end());
+        bool isUnsaturated = (!dbLocs.empty() || !tbLocs.empty());
 
-            QString prefixStr;
-            if (bLen == 1) {
-                // A single-carbon branch has only one possible substituent
-                // position -- citing "1-" is redundant and non-standard (e.g.
-                // "hydroxymethyl", not "1-hydroxymethyl"). Still apply the
-                // multiplying prefix for repeated identical groups on that one
-                // carbon (e.g. "dichloromethyl" for -CHCl2), just with no locant.
-                // A recursively-named substituent (e.g. a ring name from
-                // nameRingAsSubstituent) may already be self-wrapped in its own
-                // enclosure marks purely because it contains an internal locant
-                // (e.g. "(thiophen-2-yl)"). Per the enclosing-marks rule, that
-                // wrap is only actually needed when the name STARTS with a
-                // locant digit (e.g. "(4-methoxyphenyl)", which would be
-                // ambiguous if concatenated bare). However, a name that starts
-                // with a letter BUT contains no locant digits (e.g. "methyldiazenyl")
-                // still needs enclosure when used as a substituent to avoid
-                // ambiguity (e.g. "(methyldiazenyl)methyl", not "methyldiazenylmethyl"),
-                // so we only unwrap if the inner name contains at least one digit
-                // (indicating an internal locant that makes it unambiguous).
-                if ((pName.startsWith("(") && pName.endsWith(")")) || (pName.startsWith("[") && pName.endsWith("]"))) {
-                    QString inner = pName.mid(1, pName.length() - 2);
-                    if (!inner.isEmpty() && !inner[0].isDigit()) {
-                        // Only unwrap if inner contains a digit (has an internal locant)
-                        bool hasDigit = false;
-                        for (QChar c : inner) {
-                            if (c.isDigit()) {
-                                hasDigit = true;
-                                break;
-                            }
-                        }
-                        if (hasDigit) {
-                            pName = inner;
+        // Point 4: Reject branched chains where branch point coincides with or is adjacent to unsaturation
+        // (e.g. isopropenyl, 2-methylprop-2-en-1-yl)
+        if (isUnsaturated) {
+            std::set<int> unsaturatedNodes;
+            for (size_t i = 0; i + 1 < candPath.size(); ++i) {
+                int u = candPath[i];
+                int v = candPath[i + 1];
+                for (size_t k = 0; k < g.nodes[u].neighbors.size(); ++k) {
+                    if (g.nodes[u].neighbors[k] == v && g.nodes[u].bondOrders[k] >= 2) {
+                        unsaturatedNodes.insert(u);
+                        unsaturatedNodes.insert(v);
+                    }
+                }
+            }
+
+            for (size_t i = 0; i < candPath.size(); ++i) {
+                int cNode = candPath[i];
+                bool isBranchPoint = false;
+                for (int nei : g.nodes[cNode].neighbors) {
+                    if (nei == parentIdx && i == 0) continue;
+                    if (pathSet.count(nei)) continue;
+                    if (g.nodes[nei].atomicNumber == 6) {
+                        isBranchPoint = true;
+                        break;
+                    }
+                }
+                if (isBranchPoint) {
+                    if (unsaturatedNodes.count(cNode)) {
+                        return "";
+                    }
+                    for (int nei : g.nodes[cNode].neighbors) {
+                        if (unsaturatedNodes.count(nei)) {
+                            return "";
                         }
                     }
                 }
-                prefixStr = (locs.size() > 1) ? (multiPrefix(static_cast<int>(locs.size())) + pName) : pName;
-            } else {
-                QStringList locStrs;
-                for (int l : locs) locStrs.append(QString::number(l));
-                prefixStr = locStrs.join(",");
-                if (locs.size() > 1) {
-                    prefixStr += "-" + multiPrefix(static_cast<int>(locs.size())) + pName;
+            }
+        }
+
+        // Mixed double and triple bonds are out of scope (Point 4)
+        if (!dbLocs.empty() && !tbLocs.empty()) {
+            return "";
+        }
+
+        // Point 3: Recursively inspect side branches so unsaturation cannot disappear
+        std::map<int, QStringList> locantPrefixes;
+        for (int i = 0; i < bLen; ++i) {
+            int cNode = candPath[i];
+            int locant = i + 1;
+
+            for (size_t j = 0; j < g.nodes[cNode].neighbors.size(); ++j) {
+                int nei = g.nodes[cNode].neighbors[j];
+                if (nei == parentIdx && i == 0) continue;
+                if (pathSet.count(nei)) continue;
+
+                int z = g.nodes[nei].atomicNumber;
+                if (z == 9 || z == 17 || z == 35 || z == 53) {
+                    locantPrefixes[locant].append(halogenPrefix(z));
+                } else if (z == 6 || z == 8 || z == 7) {
+                    QString subBranch = nameBranchGraph(g, nei, cNode, allIndependentRings, {}, {}, nullptr, mol);
+                    if (subBranch.isEmpty()) return "";
+                    locantPrefixes[locant].append(subBranch);
                 } else {
-                    prefixStr += "-" + pName;
+                    return "";
                 }
             }
-            formattedPrefixes.append(prefixStr);
         }
 
-        QString pStr = formattedPrefixes.join(bLen == 1 ? "" : "-");
-        if (bLen == 1 && (pStr.contains('(') || pStr.contains('['))) {
-            // Alternate enclosure marks when the (only) nested substituent name
-            // already carries its own parens (e.g. "(4-methoxyphenyl)methyl"
-            // needs the outer wrap to be "[...]", not "(...)", to avoid
-            // ambiguous nesting) -- only reachable for bLen == 1 since that is
-            // the only case where a locant-less substituent name is joined in
-            // directly rather than following a "N-" locant prefix.
-            return "[" + pStr + root + "yl]";
+        // Point 1 & Point 4: Base stem construction
+        QString baseStem;
+        if (dbLocs.empty() && tbLocs.empty()) {
+            baseStem = chainRoot(bLen) + "yl";
+        } else if (!dbLocs.empty() && tbLocs.empty()) {
+            if (bLen == 2) {
+                baseStem = "ethenyl";
+            } else {
+                QString root = chainRoot(bLen);
+                if (dbLocs.size() == 1) {
+                    baseStem = QString("%1-%2-en-1-yl").arg(root).arg(dbLocs[0]);
+                } else {
+                    root += "a";
+                    QStringList lStrs;
+                    for (int l : dbLocs) lStrs.append(QString::number(l));
+                    baseStem = QString("%1-%2-%3en-1-yl").arg(root, lStrs.join(","), multiPrefix(static_cast<int>(dbLocs.size())));
+                }
+            }
+        } else if (dbLocs.empty() && !tbLocs.empty()) {
+            if (bLen == 2) {
+                baseStem = "ethynyl";
+            } else {
+                QString root = chainRoot(bLen);
+                if (tbLocs.size() == 1) {
+                    baseStem = QString("%1-%2-yn-1-yl").arg(root).arg(tbLocs[0]);
+                } else {
+                    root += "a";
+                    QStringList lStrs;
+                    for (int l : tbLocs) lStrs.append(QString::number(l));
+                    baseStem = QString("%1-%2-%3yn-1-yl").arg(root, lStrs.join(","), multiPrefix(static_cast<int>(tbLocs.size())));
+                }
+            }
+        } else {
+            return "";
         }
-        return QString("(%1%2yl)").arg(pStr, root);
+
+        if (!locantPrefixes.empty()) {
+            std::map<QString, std::vector<int>> groupLocants;
+            for (auto it = locantPrefixes.begin(); it != locantPrefixes.end(); ++it) {
+                int loc = it->first;
+                for (const QString &p : it->second) {
+                    groupLocants[p].push_back(loc);
+                }
+            }
+
+            QStringList formattedPrefixes;
+            for (auto it = groupLocants.begin(); it != groupLocants.end(); ++it) {
+                QString pName = it->first;
+                std::vector<int> locs = it->second;
+                std::sort(locs.begin(), locs.end());
+
+                QString prefixStr;
+                if (bLen == 1) {
+                    if ((pName.startsWith("(") && pName.endsWith(")")) || (pName.startsWith("[") && pName.endsWith("]"))) {
+                        QString inner = pName.mid(1, pName.length() - 2);
+                        if (!inner.isEmpty() && !inner[0].isDigit()) {
+                            bool hasDigit = false;
+                            for (QChar c : inner) {
+                                if (c.isDigit()) {
+                                    hasDigit = true;
+                                    break;
+                                }
+                            }
+                            if (hasDigit) {
+                                pName = inner;
+                            }
+                        }
+                    }
+                    prefixStr = (locs.size() > 1) ? (multiPrefix(static_cast<int>(locs.size())) + pName) : pName;
+                } else {
+                    QStringList locStrs;
+                    for (int l : locs) locStrs.append(QString::number(l));
+                    prefixStr = locStrs.join(",");
+                    if (locs.size() > 1) {
+                        prefixStr += "-" + multiPrefix(static_cast<int>(locs.size())) + pName;
+                    } else {
+                        prefixStr += "-" + pName;
+                    }
+                }
+                formattedPrefixes.append(prefixStr);
+            }
+
+            QString pStr = formattedPrefixes.join(bLen == 1 ? "" : "-");
+            if (bLen == 1 && (pStr.contains('(') || pStr.contains('['))) {
+                return "[" + pStr + baseStem + "]";
+            }
+            return QString("(%1%2)").arg(pStr, baseStem);
+        }
+
+        return baseStem;
+    };
+
+    // Point 2: If choice after tiebreaks is genuinely ambiguous, return ""
+    QString firstName = nameGivenPath(tiedBest[0].path);
+    if (firstName.isEmpty()) return "";
+
+    for (size_t i = 1; i < tiedBest.size(); ++i) {
+        QString otherName = nameGivenPath(tiedBest[i].path);
+        if (otherName != firstName) {
+            return "";
+        }
     }
-
-    return root + "yl";
+    return firstName;
 }
 
 // Phase 53 helper: classify an exocyclic branch off a saturated all-carbon
@@ -7788,21 +8010,27 @@ QString nameAmineSubstituentPrefix(int nNode, int fromNode, const Graph &g,
     if (heavyNeighbors.empty()) return "amino";
     if (heavyNeighbors.size() > 2) return "";
 
-    // A heavy neighbor that is itself nitrogen and not nitroso is a
+    // A heavy neighbor that is itself nitrogen and not nitroso/nitro is a
     // hydrazinyl far nitrogen (-N-N<) rather than a plain/secondary/tertiary
     // amine substituent -- delegate to the dedicated hydrazinyl namer.
     for (int r : heavyNeighbors) {
-        if (g.nodes[r].atomicNumber == 7 && !isNitrosoNitrogen(r, nNode, g)) {
+        if (g.nodes[r].atomicNumber == 7 && !isNitrosoNitrogen(r, nNode, g) && !isNitroNitrogen(r, nNode, g)) {
             return tryNameHydrazinylSubstituent(nNode, fromNode, r, g, allIndependentRings, forbiddenNodes, mol);
         }
     }
 
-    // Check that all heavy neighbors are either carbon or nitroso nitrogen
+    // Check that all heavy neighbors are carbon, oxygen, halogen, sulfur, or nitro/nitroso nitrogen
     for (int r : heavyNeighbors) {
-        if (g.nodes[r].atomicNumber != 6 && !isNitrosoNitrogen(r, nNode, g)) return "";
+        int z = g.nodes[r].atomicNumber;
+        if (z == 6 || z == 8 || z == 16 || z == 9 || z == 17 || z == 35 || z == 53) continue;
+        if (isNitrosoNitrogen(r, nNode, g) || isNitroNitrogen(r, nNode, g)) continue;
+        return "";
     }
 
     auto nameOne = [&](int r) -> QString {
+        if (isNitroNitrogen(r, nNode, g)) {
+            return "nitro";
+        }
         // Handle nitroso nitrogen specially
         if (isNitrosoNitrogen(r, nNode, g)) {
             return "nitroso";
@@ -16706,6 +16934,8 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                                     // Convert substituent to parent: "2-chloroethyl" -> "2-chloroethan-1-amine"
                                     parentName = clean.left(clean.length() - 2) + "an-1-amine";
                                 }
+                            } else {
+                                goto skip_n_substituted_amines;
                             }
                         }
                     }
@@ -16726,6 +16956,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                         if (static_cast<int>(i) == maxIdx) {
                             if (!hasDirectRingOnN && branches[i].ringNode != -1) {
                                 QString rName = nameBranchGraph(g, branches[i].ringNode, branches[i].ringAttachCarbon, sssrRings, {}, {}, nullptr, mol);
+                                if (rName.isEmpty()) goto skip_n_substituted_amines;
                                 // Real PubChem confirmed (N-methylbenzylamine -> real official
                                 // name "N-methyl-1-phenylmethanamine"): the "1-" locant on a
                                 // 1-carbon parent chain is NOT elided here, unlike the plain
@@ -16737,6 +16968,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                             }
                         } else {
                             QString subName = nameBranchGraph(g, branches[i].alkylNeighbor, nNode, sssrRings, {}, {}, nullptr, mol);
+                            if (subName.isEmpty()) goto skip_n_substituted_amines;
                             substituents.push_back({"N-" + subName, subName});
                         }
                     }
@@ -16937,54 +17169,10 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                                     b.len = 0;
                                     b.ringNode = curr;
                                     b.ringAttachCarbon = prev;
-                                } else {
-                                    while (true) {
-                                        b.len++;
-                                        int heavyCount = 0;
-                                        int nextC = -1;
-                                        int rNei = -1;
-                                        
-                                        for (size_t j = 0; j < g.nodes[curr].neighbors.size(); ++j) {
-                                            int nei = g.nodes[curr].neighbors[j];
-                                            if (nei == prev) continue;
-                                            if (g.nodes[curr].bondOrders[j] != 1) { invalidBranch = true; break; }
-                                            if (g.nodes[nei].atomicNumber > 1) {
-                                                heavyCount++;
-                                                bool isR = false;
-                                                for (const auto& r : sssrRings) {
-                                                    if (r.count(nei)) { isR = true; break; }
-                                                }
-                                                if (isR) rNei = nei;
-                                                else if (g.nodes[nei].atomicNumber == 6) nextC = nei;
-                                                else { invalidBranch = true; break; }
-                                            }
-                                        }
-                                        if (invalidBranch) break;
-                                        
-                                        if (heavyCount == 0) {
-                                            break;
-                                        } else if (heavyCount == 1) {
-                                            if (rNei != -1) {
-                                                b.ringNode = rNei;
-                                                b.ringAttachCarbon = curr;
-                                                break;
-                                            } else if (nextC != -1) {
-                                                prev = curr;
-                                                curr = nextC;
-                                            }
-                                        } else {
-                                            invalidBranch = true;
-                                            break;
-                                        }
-                                    }
                                 }
-                                
+
                                 if (invalidBranch) break;
-                                
-                                if (b.ringNode != -1 && b.len > 1) {
-                                    invalidBranch = true;
-                                    break;
-                                }
+
                                 branches.push_back(b);
                                 
                                 std::vector<int> q;
@@ -20282,7 +20470,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                             }
                             if (alkylNei != -1) {
                                 QString alkylName = nameBranchGraph(g, alkylNei, nei, allSSSRRings, {}, {}, nullptr, mol);
-                                subName = wrapCompoundSuffix(alkylName, "sulfanyl");
+                                if (!alkylName.isEmpty()) subName = wrapCompoundSuffix(alkylName, "sulfanyl");
                             }
                         } else if (sulfoxideSulfurs.count(nei)) {
                             int alkylNei = -1;
@@ -20317,7 +20505,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                             }
                             if (alkylNei != -1) {
                                 QString alkylName = nameBranchGraph(g, alkylNei, nei, allSSSRRings, {}, {}, nullptr, mol);
-                                subName = wrapCompoundSuffix(alkylName, "selanyl");
+                                if (!alkylName.isEmpty()) subName = wrapCompoundSuffix(alkylName, "selanyl");
                             }
                         } else if (selenoxideSeleniums.count(nei)) {
                             int alkylNei = -1;
@@ -20352,7 +20540,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                             }
                             if (alkylNei != -1) {
                                 QString alkylName = nameBranchGraph(g, alkylNei, nei, allSSSRRings, {}, {}, nullptr, mol);
-                                subName = wrapCompoundSuffix(alkylName, "tellanyl");
+                                if (!alkylName.isEmpty()) subName = wrapCompoundSuffix(alkylName, "tellanyl");
                             }
                         } else if (telluroxideTelluriums.count(nei)) {
                             int alkylNei = -1;
@@ -20475,6 +20663,10 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                     sig.substituentLocants.push_back(locant);
                     sig.namedSubstituents.push_back({subName, locant});
                 } else {
+                    StereoResult ezRes = processDoubleBondStereo(mol, g, ringNodeSet, {}, stereoByGraphId);
+                    if (!ezRes.ok) {
+                        return {false, "", ezRes.error};
+                    }
                     return {false, "", "Unrecognized or unsupported substituent on ring."};
                 }
             }
@@ -21438,7 +21630,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                                 }
                                 if (alkylNei != -1) {
                                     QString alkylName = nameBranchGraph(g, alkylNei, nei, allSSSRRings, {}, {}, nullptr, mol);
-                                    subName = wrapCompoundSuffix(alkylName, "sulfanyl");
+                                    if (!alkylName.isEmpty()) subName = wrapCompoundSuffix(alkylName, "sulfanyl");
                                 }
                             } else if (sulfoxideSulfurs.count(nei)) {
                                 int alkylNei = -1;
@@ -21473,7 +21665,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                                 }
                                 if (alkylNei != -1) {
                                     QString alkylName = nameBranchGraph(g, alkylNei, nei, allSSSRRings, {}, {}, nullptr, mol);
-                                    subName = wrapCompoundSuffix(alkylName, "selanyl");
+                                    if (!alkylName.isEmpty()) subName = wrapCompoundSuffix(alkylName, "selanyl");
                                 }
                             } else if (selenoxideSeleniums.count(nei)) {
                                 int alkylNei = -1;
@@ -21508,7 +21700,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                                 }
                                 if (alkylNei != -1) {
                                     QString alkylName = nameBranchGraph(g, alkylNei, nei, allSSSRRings, {}, {}, nullptr, mol);
-                                    subName = wrapCompoundSuffix(alkylName, "tellanyl");
+                                    if (!alkylName.isEmpty()) subName = wrapCompoundSuffix(alkylName, "tellanyl");
                                 }
                             } else if (telluroxideTelluriums.count(nei)) {
                                 int alkylNei = -1;
@@ -21624,6 +21816,10 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                         sig.substituentLocants.push_back(locant);
                         sig.namedSubstituents.push_back({subName, locant});
                     } else {
+                        StereoResult ezRes = processDoubleBondStereo(mol, g, ringNodeSet, {}, stereoByGraphId);
+                        if (!ezRes.ok) {
+                            return {false, "", ezRes.error};
+                        }
                         return {false, "", "Unrecognized or unsupported substituent on ring."};
                     }
                 }
@@ -26900,7 +27096,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                             for (int sNei : g.nodes[nei].neighbors) { if (sNei != rNode) { alkylNei = sNei; break; } }
                             if (alkylNei != -1) {
                                 QString alkylName = nameBranchGraph(g, alkylNei, nei, allSSSRRings, {}, {}, nullptr, mol);
-                                subName = wrapCompoundSuffix(alkylName, "sulfanyl");
+                                if (!alkylName.isEmpty()) subName = wrapCompoundSuffix(alkylName, "sulfanyl");
                             }
                         }
                     }

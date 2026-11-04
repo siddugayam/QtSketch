@@ -51,6 +51,7 @@ std::map<int, QString> computePeripheralNumberingGeneral(
     bool restrictStartToPredecessorBridgehead = false,
     const std::set<int> &principalGroupBearingNodes = {});
 
+
 // Helper to build Graph from molecule (copied from computePeripheralNumberingForMol)
 static Graph buildGraphFromMol(int mol, std::map<int, int> &indigoToGraphIdx) {
     Graph g;
@@ -8322,6 +8323,20 @@ int main() {
             {"pyrimidine-pyridazine assembly", "c1ccncn1-c1ccnnc1", "4-pyrimidin-1-ylpyridazine"},
             {"pyrimidine-pyrazine assembly", "c1ccncn1-c1cnccn1", "1-pyrazin-2-ylpyrimidine"},
             {"pyridazine-pyrazine assembly", "c1ccnnc1-c1cnccn1", "3-pyrazin-2-ylpyridazine"},
+            // Unsaturation in substituent branch (P-29.3.2.2 / P-57.1.1.1 / P-44.4.1 / P-31.1.1.1)
+            {"ethenylbenzene", "c1ccccc1C=C", "ethenylbenzene"},
+            {"(prop-2-en-1-yl)benzene", "c1ccccc1CC=C", "prop-2-en-1-ylbenzene"},
+            {"ethenylcyclohexane", "C1CCCCC1C=C", "ethenylcyclohexane"},
+            {"1-chloro-4-ethenylbenzene", "Clc1ccc(C=C)cc1", "1-chloro-4-ethenylbenzene"},
+            {"1-chloro-4-(prop-2-en-1-yl)benzene", "Clc1ccc(CC=C)cc1", "1-chloro-4-prop-2-en-1-ylbenzene"},
+            {"1-chloro-4-(prop-2-yn-1-yl)benzene", "Clc1ccc(CC#C)cc1", "1-chloro-4-prop-2-yn-1-ylbenzene"},
+            {"1-methyl-4-(prop-2-en-1-yl)benzene", "Cc1ccc(CC=C)cc1", "1-methyl-4-prop-2-en-1-ylbenzene"},
+            {"ethynylbenzene", "c1ccccc1C#C", "ethynylbenzene"},
+            {"(1-butylpent-4-en-1-yl)benzene", "c1ccccc1C(CCCC)CCC=C", "(1-butylpent-4-en-1-yl)benzene"},
+            {"hexa-2,4-diyn-1-ylbenzene", "c1ccccc1CC#CC#CC", "hexa-2,4-diyn-1-ylbenzene"},
+            {"(1-chloroprop-2-en-1-yl)benzene", "c1ccccc1C(Cl)C=C", "(1-chloroprop-2-en-1-yl)benzene"},
+            {"(prop-2-en-1-yl)oxybenzene", "c1ccccc1OCC=C", "(prop-2-en-1-yl)oxybenzene"},
+            {"prop-2-en-1-yl benzenecarboxylate", "c1ccccc1C(=O)OCC=C", "prop-2-en-1-yl benzenecarboxylate"},
         };
         for (const auto &c : cases) {
             int m = indigoLoadMoleculeFromString(c.smiles);
@@ -8342,6 +8357,39 @@ int main() {
                 failed++;
             }
         }
+
+        // Rejection tests for unsaturated substituent branches
+        struct RejectCase {
+            std::string name;
+            std::string smiles;
+            std::string expectedError;
+        };
+        std::vector<RejectCase> rejectCases = {
+            {"branched-unsaturated chain honest rejection", "c1ccccc1C(=C)C", "Unrecognized or unsupported substituent on ring."},
+            {"internal nonterminal double bond substituent regression control", "Clc1ccc(CC=CC)cc1", "E/Z descriptors on substituent branches are not supported in this phase."},
+            {"attachment bond not single rejection", "C1CCCCC1=C", "Unrecognized or unsupported substituent on ring."},
+        };
+        for (const auto &rc : rejectCases) {
+            int m = indigoLoadMoleculeFromString(rc.smiles.c_str());
+            if (m >= 0) {
+                auto result = IupacNamer::generateName(m);
+                if (!result.success && result.error == QString::fromStdString(rc.expectedError)) {
+                    std::cout << "[PASS] " << rc.name << ": correctly rejected: " << result.error.toStdString() << "\n";
+                    passed++;
+                } else {
+                    std::cout << "[FAIL] " << rc.name << ": expected rejection '" << rc.expectedError
+                              << "', got success=" << result.success << " name='" << result.name.toStdString()
+                              << "' err='" << result.error.toStdString() << "'\n";
+                    failed++;
+                }
+                indigoFree(m);
+            } else {
+                std::cout << "[FAIL] " << rc.name << ": SMILES did not load\n";
+                failed++;
+            }
+        }
+
+
     }
 
     std::cout << "\nSummary: " << passed << " passed, " << failed << " failed.\n";
