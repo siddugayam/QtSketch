@@ -8389,6 +8389,76 @@ int main() {
             }
         }
 
+        // Tests for Bug A (cumulated systems) and Bug B (isotope locants)
+        struct TestCaseAgy {
+            std::string name;
+            std::string smiles;
+            std::string expectedName;
+            bool expectFailure;
+            std::string expectedError;
+        };
+        std::vector<TestCaseAgy> agyCases = {
+            // Bug A must now reject:
+            {"ketene", "C=C=O", "", true, "Ketenes, carbon dioxide/disulfide analogues, and other unsupported cumulated double-bond systems are not supported in this phase."},
+            {"methylketene", "CC=C=O", "", true, "Ketenes, carbon dioxide/disulfide analogues, and other unsupported cumulated double-bond systems are not supported in this phase."},
+            {"thioketene", "C=C=S", "", true, "Ketenes, carbon dioxide/disulfide analogues, and other unsupported cumulated double-bond systems are not supported in this phase."},
+            {"ketenimine", "C=C=N", "", true, "Ketenes, carbon dioxide/disulfide analogues, and other unsupported cumulated double-bond systems are not supported in this phase."},
+            {"carbon dioxide", "O=C=O", "", true, "Ketenes, carbon dioxide/disulfide analogues, and other unsupported cumulated double-bond systems are not supported in this phase."},
+            {"carbonyl sulfide", "O=C=S", "", true, "Ketenes, carbon dioxide/disulfide analogues, and other unsupported cumulated double-bond systems are not supported in this phase."},
+            {"bare isocyanic acid", "N=C=O", "", true, "Ketenes, carbon dioxide/disulfide analogues, and other unsupported cumulated double-bond systems are not supported in this phase."},
+
+            // Bug A must stay unchanged controls:
+            {"allene control", "C=C=C", "", true, "Allenes and cumulated double bonds are not supported in this phase."},
+            {"methyl isocyanate control", "CN=C=O", "isocyanatomethane", false, ""},
+            {"butanoyl isothiocyanate control", "CCCC(=O)N=C=S", "butanoyl isothiocyanate", false, ""},
+            {"benzenecarbonyl isothiocyanate control", "c1ccccc1C(=O)N=C=S", "benzenecarbonyl isothiocyanate", false, ""},
+            {"bare isothiocyanic acid control", "N=C=S", "", true, "Carbonothioyl/thiocarbamoyl halide derivatives (rootless thiocarbonyl carbons) are not supported in this phase."},
+            {"acetaldehyde control", "CC=O", "ethanal", false, ""},
+            {"thioacetaldehyde control", "CC=S", "ethanethial", false, ""},
+            {"formaldehyde control", "C=O", "methanal", false, ""},
+            {"propane generic control", "CCC", "propane", false, ""},
+
+            // Bug B must now reject:
+            {"propane-2-13C", "C[13CH2]C", "", true, "Isotopic labeling requiring a locant on a multi-atom parent is not yet supported in this phase."},
+            {"propane-1-13C", "[13CH3]CC", "", true, "Isotopic labeling requiring a locant on a multi-atom parent is not yet supported in this phase."},
+            {"2-chloropropane-1-13C", "CC(Cl)[13CH3]", "", true, "Isotopic labeling requiring a locant on a multi-atom parent is not yet supported in this phase."},
+
+            // Bug B must stay unchanged controls:
+            {"14C-urea control", "N[14C](N)=O", "[14C]urea", false, ""},
+            {"13C-urea control", "N[13C](N)=O", "[13C]urea", false, ""}
+        };
+        for (const auto &tc : agyCases) {
+            int m = indigoLoadMoleculeFromString(tc.smiles.c_str());
+            if (m >= 0) {
+                auto result = IupacNamer::generateName(m);
+                if (tc.expectFailure) {
+                    if (!result.success && result.error == QString::fromStdString(tc.expectedError)) {
+                        std::cout << "[PASS] " << tc.name << ": correctly rejected: " << result.error.toStdString() << "\n";
+                        passed++;
+                    } else {
+                        std::cout << "[FAIL] " << tc.name << ": expected rejection '" << tc.expectedError
+                                  << "', got success=" << result.success << " name='" << result.name.toStdString()
+                                  << "' err='" << result.error.toStdString() << "'\n";
+                        failed++;
+                    }
+                } else {
+                    if (result.success && result.name == QString::fromStdString(tc.expectedName)) {
+                        std::cout << "[PASS] " << tc.name << ": " << result.name.toStdString() << "\n";
+                        passed++;
+                    } else {
+                        std::cout << "[FAIL] " << tc.name << ": expected '" << tc.expectedName
+                                  << "', got success=" << result.success << " name='" << result.name.toStdString()
+                                  << "' err='" << result.error.toStdString() << "'\n";
+                        failed++;
+                    }
+                }
+                indigoFree(m);
+            } else {
+                std::cout << "[FAIL] " << tc.name << ": SMILES did not load\n";
+                failed++;
+            }
+        }
+
 
     }
 

@@ -1109,3 +1109,5 @@ id,smiles,pinned_name,pinned_success,actual_name,actual_success,expected_status,
 1108,OC(=O)C1CCC(CN)CC1,"4-aminomethylcyclohexanecarboxylic acid",true,"4-aminomethylcyclohexanecarboxylic acid",true,,"tranexamic acid, WHO essential medicine -- ringBestGroup exocyclic acid-family regression"
 1109,c1ccc2cc3c(cc2c1)NCCCC3,"2,3,4,5-tetrahydro-1H-benzo[1',2':4,5]benzo[1,2-b]azepine",true,"2,3,4,5-tetrahydro-1H-benzo[1',2':4,5]benzo[1,2-b]azepine",true,,"benzo-fused tetrahydroazepine -- nameLinearChainFusion exocyclic-saturated-heterocycle regression (fix round 4)"
 1110,c1ccccc1C=C,ethenylbenzene,true,ethenylbenzene,true,,"ethenyl substituent on benzene (unsaturation in substituent branch fix)"
+1111,C=C=O,,false,"Ketenes, carbon dioxide/disulfide analogues, and other unsupported cumulated double-bond systems are not supported in this phase.",false,,"Bug A ketene rejection"
+1112,C[13CH2]C,,false,"Isotopic labeling requiring a locant on a multi-atom parent is not yet supported in this phase.",false,,"Bug B multi-atom isotope rejection"

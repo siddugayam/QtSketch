@@ -15506,6 +15506,36 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                 }
                 QString isotopeDescriptor = QString("[%1%2]").arg(isotopeValue).arg(elementSymbol);
                 
+                // P-82.2.5 requires a locant whenever the isotope-bearing element
+                // occurs more than once in the compound. Computing isotope-position
+                // locants is not yet supported in this phase.
+                int elementCount = 0;
+                int atomCountIter = indigoIterateAtoms(mol);
+                if (atomCountIter >= 0) {
+                    int a = 0;
+                    while ((a = indigoNext(atomCountIter)) != 0) {
+                        if (a == -1) break;
+                        int z = indigoAtomicNumber(a);
+                        if (z == atomicNumber) {
+                            elementCount++;
+                        }
+                        if (atomicNumber == 1 && z > 1) {
+                            int impH = indigoCountImplicitHydrogens(a);
+                            if (impH < 0) {
+                                indigoCanonicalSmiles(mol);
+                                impH = indigoCountImplicitHydrogens(a);
+                                if (impH < 0) impH = 0;
+                            }
+                            if (impH > 0) elementCount += impH;
+                        }
+                        indigoFree(a);
+                    }
+                    indigoFree(atomCountIter);
+                }
+                if (elementCount > 1) {
+                    return {false, "", "Isotopic labeling requiring a locant on a multi-atom parent is not yet supported in this phase."};
+                }
+
                 // For one-word names (P-82.2.5): place descriptor before the name
                 // Simple check: if there are no spaces, it's one word
                 if (!baseName.contains(' ')) {
@@ -15699,9 +15729,11 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
     for (size_t i = 0; i < g.nodes.size(); ++i) {
         if (g.nodes[i].atomicNumber != 6) continue;
         int dblCarbonNeiCount = 0;
+        std::vector<int> dblNeis;
         for (size_t j = 0; j < g.nodes[i].neighbors.size(); ++j) {
             if (g.nodes[i].bondOrders[j] == 2) {
                 int nei = g.nodes[i].neighbors[j];
+                dblNeis.push_back(nei);
                 if (g.nodes[nei].atomicNumber == 6) {
                     dblCarbonNeiCount++;
                 }
@@ -15709,6 +15741,35 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
         }
         if (dblCarbonNeiCount >= 2) {
             return {false, "", "Allenes and cumulated double bonds are not supported in this phase."};
+        }
+        if (dblNeis.size() >= 2) {
+            bool isN = false, isO = false, isS = false;
+            int nNode = -1;
+            int oNode = -1;
+            for (int nei : dblNeis) {
+                int z = g.nodes[nei].atomicNumber;
+                if (z == 7) { isN = true; nNode = nei; }
+                else if (z == 8) { isO = true; oNode = nei; }
+                else if (z == 16) { isS = true; }
+            }
+            // Sulfur-terminated N=C=S (bare or substituted) is handled by pre-existing paths; do not touch.
+            if (dblNeis.size() == 2 && isN && isS) {
+                continue;
+            }
+            // Substituted isocyanate (R-N=C=O): nitrogen has another heavy-atom neighbor besides this carbon
+            if (dblNeis.size() == 2 && isN && isO && nNode >= 0 && oNode >= 0 && g.nodes[oNode].neighbors.size() == 1) {
+                bool nHasOtherHeavyNeighbor = false;
+                for (int nNei : g.nodes[nNode].neighbors) {
+                    if (nNei != static_cast<int>(i)) {
+                        nHasOtherHeavyNeighbor = true;
+                        break;
+                    }
+                }
+                if (nHasOtherHeavyNeighbor) {
+                    continue; // Supported substituted isocyanate path
+                }
+            }
+            return {false, "", "Ketenes, carbon dioxide/disulfide analogues, and other unsupported cumulated double-bond systems are not supported in this phase."};
         }
     }
 
