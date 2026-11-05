@@ -2050,11 +2050,10 @@ int main() {
         // "imidazole-2-yl") -- this test's own prior expected value had
         // pinned that missing chop as if it were correct.
         {"n1ccccc1c2ncnc2", "2-(1,4-diazol-2-yl)pyridine", false, ""},
-        // Test 12: genuine tie - two pyridines connected by single bond
-        // Both have: heterocycle (a, tied), has N (b, tied), skeletal atoms (e, tied: 6=6),
-        // heteroatom count (f, tied: 1=1), heteroatom distribution (g, tied: both have 1 N at same rank)
-        // Should reject with new message
-        {"n1ccccc1C2cccnc2", "", true, "Two ring systems of equal seniority"},
+        // Test 12: P-44.2.1 tiebreak between two 6-membered nitrogen heterocycles
+        // (pyridine and piperidine tie through criteria a-g; piperidine carries the
+        // senior AMINE principal group, winning as parent with pyridine as substituent).
+        {"n1ccccc1C2cccnc2", "3-pyridin-2-ylpiperidine", false, ""},
     };
 
     int passed = 0;

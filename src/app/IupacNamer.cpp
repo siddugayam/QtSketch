@@ -7232,7 +7232,8 @@ static bool isChainParentWithRingSubstituentSupported(GroupType gt) {
     return gt == GroupType::ACID || gt == GroupType::AMIDE || gt == GroupType::THIOAMIDE || gt == GroupType::HYDRAZIDE || gt == GroupType::AMIDINE || gt == GroupType::NITRILE ||
            gt == GroupType::ALDEHYDE || gt == GroupType::KETONE ||
            gt == GroupType::ALCOHOL || gt == GroupType::THIOL || gt == GroupType::SELENOL || gt == GroupType::TELLUROL || gt == GroupType::HYDROPEROXIDE || gt == GroupType::AMINE || gt == GroupType::IMINE || gt == GroupType::THIAL || gt == GroupType::THIONE || gt == GroupType::SULFONIC_ACID ||
-           gt == GroupType::SULFINIC_ACID || gt == GroupType::SULFINYL_HALIDE || gt == GroupType::PHOSPHONIC_ACID || gt == GroupType::PHOSPHONIC_DIHALIDE || gt == GroupType::ARSONIC_ACID || gt == GroupType::ARSONIC_DIHALIDE || gt == GroupType::ESTER || gt == GroupType::ACYL_HALIDE || gt == GroupType::SULFONYL_HALIDE || gt == GroupType::SULFONAMIDE || gt == GroupType::SULFINAMIDE;
+           gt == GroupType::SULFINIC_ACID || gt == GroupType::SULFINYL_HALIDE || gt == GroupType::PHOSPHONIC_ACID || gt == GroupType::PHOSPHONIC_DIHALIDE || gt == GroupType::ARSONIC_ACID || gt == GroupType::ARSONIC_DIHALIDE || gt == GroupType::ESTER || gt == GroupType::ACYL_HALIDE || gt == GroupType::SULFONYL_HALIDE || gt == GroupType::SULFONAMIDE || gt == GroupType::SULFINAMIDE ||
+           gt == GroupType::STIBONIC_ACID;
 }
 
 struct HeteroCompletenessError {
@@ -28581,7 +28582,92 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                         return {false, "", "Fused, bridged, spiro, or multiple ring systems are not supported in Phase 2."};
                     } else {
                         // cmp == 0: complete tie through all criteria (a)-(g)
-                        return {false, "", "Two ring systems of equal seniority (P-44.2.1) are not yet supported as parent vs. substituent."};
+                        // Try both assignments per P-44.2.1/P-45.2
+                        QString subName1 = nameRingAsSubstituent(g, ring2Nodes, attach2, attach1, allSSSRRings, ring1Nodes, {}, nullptr, {}, {}, nullptr, mol);
+                        IupacResult res1;
+                        if (!subName1.isEmpty()) {
+                            phase2ForcedRingNodeSet = ring1Nodes;
+                            phase2ForcedRingSubstituentNames.clear();
+                            phase2ForcedRingSubstituentNames[attach1] = subName1;
+                            phase2ForcedRingSubstituentNames[attach2] = subName1;
+                            res1 = namePhase2Monocyclic();
+                        }
+
+                        QString subName2 = nameRingAsSubstituent(g, ring1Nodes, attach1, attach2, allSSSRRings, ring2Nodes, {}, nullptr, {}, {}, nullptr, mol);
+                        IupacResult res2;
+                        if (!subName2.isEmpty()) {
+                            phase2ForcedRingNodeSet = ring2Nodes;
+                            phase2ForcedRingSubstituentNames.clear();
+                            phase2ForcedRingSubstituentNames[attach1] = subName2;
+                            phase2ForcedRingSubstituentNames[attach2] = subName2;
+                            res2 = namePhase2Monocyclic();
+                        }
+
+                        if (!res1.success && !res2.success) {
+                            return {false, "", "Two ring systems of equal seniority (P-44.2.1) are not yet supported as parent vs. substituent."};
+                        }
+                        if (res1.success && !res2.success) return res1;
+                        if (!res1.success && res2.success) return res2;
+                        if (res1.name == res2.name) return res1;
+
+                        // Both succeeded but produced different names: pick per P-44.2.1 / P-45.2.
+                        // First tiebreak: lowest locant(s) to the substituent ring in the final name.
+                        auto getSubLocants = [](const QString &fullName, const QString &subName) -> std::vector<int> {
+                            std::vector<int> locs;
+                            if (fullName.isEmpty() || subName.isEmpty()) return locs;
+                            QString target = subName;
+                            int idx = fullName.indexOf(target);
+                            if (idx < 0 && target.startsWith('(') && target.endsWith(')')) {
+                                target = target.mid(1, target.length() - 2);
+                                idx = fullName.indexOf(target);
+                            }
+                            if (idx <= 0) return {1};
+                            if (fullName[idx - 1] != '-') return {1};
+                            int start = idx - 2;
+                            while (start >= 0 && (fullName[start].isDigit() || fullName[start] == ',')) {
+                                start--;
+                            }
+                            QString locStr = fullName.mid(start + 1, (idx - 1) - (start + 1));
+                            QStringList parts = locStr.split(',', Qt::SkipEmptyParts);
+                            for (const QString &p : parts) {
+                                bool ok = false;
+                                int val = p.toInt(&ok);
+                                if (ok) locs.push_back(val);
+                            }
+                            std::sort(locs.begin(), locs.end());
+                            if (locs.empty()) locs.push_back(1);
+                            return locs;
+                        };
+
+                        auto getInternalLocants = [](const QString &subName) -> std::vector<int> {
+                            std::vector<int> locs;
+                            QString cur;
+                            for (QChar c : subName) {
+                                if (c.isDigit()) {
+                                    cur += c;
+                                } else {
+                                    if (!cur.isEmpty()) {
+                                        locs.push_back(cur.toInt());
+                                        cur.clear();
+                                    }
+                                }
+                            }
+                            if (!cur.isEmpty()) locs.push_back(cur.toInt());
+                            std::sort(locs.begin(), locs.end());
+                            return locs;
+                        };
+
+                        std::vector<int> locs1 = getSubLocants(res1.name, subName1);
+                        std::vector<int> locs2 = getSubLocants(res2.name, subName2);
+                        if (locs1 != locs2) {
+                            return (locs1 < locs2) ? res1 : res2;
+                        }
+                        std::vector<int> intLocs1 = getInternalLocants(subName1);
+                        std::vector<int> intLocs2 = getInternalLocants(subName2);
+                        if (intLocs1 != intLocs2) {
+                            return (intLocs1 < intLocs2) ? res1 : res2;
+                        }
+                        return (res1.name < res2.name) ? res1 : res2;
                     }
                 } else if (!ring1Eligible && !ring2Eligible) {
                     // Both rings are plain - check for biphenyl case

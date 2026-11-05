@@ -740,7 +740,7 @@ id,smiles,pinned_name,pinned_success,actual_name,actual_success,expected_status,
 739,CN1CCCC1c2cccnc2,,false,A chain-based principal group outranks the ring in this structure; chain-as-parent seniority (P-44.1.1) for this ring/class combination is not yet supported.,false,,
 740,n1ccccc1c2cccn2,2-pyrrol-2-ylpyridine,true,2-pyrrol-2-ylpyridine,true,,
 741,n1ccccc1c2ncnc2,"2-(1,4-diazol-2-yl)pyridine",true,"2-(1,4-diazol-2-yl)pyridine",true,,
-742,n1ccccc1C2cccnc2,,false,Two ring systems of equal seniority (P-44.2.1) are not yet supported as parent vs. substituent.,false,,
+742,n1ccccc1C2cccnc2,3-pyridin-2-ylpiperidine,true,3-pyridin-2-ylpiperidine,true,,
 743,,,true,(1S)-bromochlorofluoromethane vs (1R)-bromochlorofluoromethane,true,,"smiles not extracted, needs follow-up"
 744,,,true,(2S)-2-chlorobutane vs (2R)-2-chlorobutane,true,,"smiles not extracted, needs follow-up"
 745,,,true,(2S)-1-chloro-2-methylcyclohexane vs (2R)-1-chloro-2-methylcyclohexane,true,,"smiles not extracted, needs follow-up"
