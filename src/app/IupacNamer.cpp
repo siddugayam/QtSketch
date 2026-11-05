@@ -8038,6 +8038,20 @@ QString nameAmineSubstituentPrefix(int nNode, int fromNode, const Graph &g,
         }
         for (const auto &ring : allIndependentRings) {
             if (ring.count(r)) {
+                bool isFusedOrBridged = false;
+                for (const auto &otherR : allIndependentRings) {
+                    if (&otherR != &ring) {
+                        for (int n : ring) {
+                            if (otherR.count(n)) { isFusedOrBridged = true; break; }
+                        }
+                    }
+                    if (isFusedOrBridged) break;
+                }
+                if (isFusedOrBridged) {
+                    std::set<int> combinedForbidden = forbiddenNodes;
+                    combinedForbidden.insert(nNode);
+                    return nameRingSystemAsSubstituent(g, mol, r, ring, allIndependentRings, combinedForbidden, {}, nNode);
+                }
                 return nameRingAsSubstituent(g, ring, r, nNode, allIndependentRings, forbiddenNodes, {}, nullptr, {}, {}, nullptr, mol);
             }
         }
@@ -11673,6 +11687,49 @@ struct FunctionalGroupClassification {
     GroupType combinedWinner = GroupType::NONE;
     GroupType winningRingGroup = GroupType::NONE;
 };
+
+// IUPAC P-41 / Table 4.1 Seniority order of classes of principal groups
+static int groupSeniorityRank(GroupType gt) {
+    switch (gt) {
+        case GroupType::ACID: return 1;
+        case GroupType::SULFONIC_ACID: return 2;
+        case GroupType::SULFINIC_ACID: return 3;
+        case GroupType::PHOSPHONIC_ACID: return 4;
+        case GroupType::PHOSPHINIC_ACID: return 5;
+        case GroupType::ARSONIC_ACID: return 6;
+        case GroupType::ARSINIC_ACID: return 7;
+        case GroupType::STIBONIC_ACID: return 8;
+        case GroupType::STIBINIC_ACID: return 9;
+        case GroupType::BORONIC_ACID: return 10;
+        case GroupType::BORINIC_ACID: return 11;
+        case GroupType::ESTER: return 12;
+        case GroupType::ACYL_HALIDE: return 13;
+        case GroupType::SULFONYL_HALIDE: return 14;
+        case GroupType::SULFINYL_HALIDE: return 15;
+        case GroupType::PHOSPHONIC_DIHALIDE: return 16;
+        case GroupType::ARSONIC_DIHALIDE: return 17;
+        case GroupType::AMIDE: return 18;
+        case GroupType::THIOAMIDE: return 19;
+        case GroupType::SULFONAMIDE: return 20;
+        case GroupType::SULFINAMIDE: return 21;
+        case GroupType::HYDRAZIDE: return 22;
+        case GroupType::AMIDINE: return 23;
+        case GroupType::NITRILE: return 24;
+        case GroupType::ALDEHYDE: return 25;
+        case GroupType::THIAL: return 26;
+        case GroupType::KETONE: return 27;
+        case GroupType::THIONE: return 28;
+        case GroupType::ALCOHOL: return 29;
+        case GroupType::THIOL: return 30;
+        case GroupType::SELENOL: return 31;
+        case GroupType::TELLUROL: return 32;
+        case GroupType::HYDROPEROXIDE: return 33;
+        case GroupType::AMINE: return 34;
+        case GroupType::IMINE: return 35;
+        case GroupType::PHOSPHINE: return 36;
+        default: return 99;
+    }
+}
 
 // Helper function to classify functional groups and determine the principal group
 static FunctionalGroupClassification classifyFunctionalGroups(
@@ -27491,6 +27548,10 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                                                 // risk a wrong suffix.
                                                 bool suffixTypeSupported = (winningType == GroupType::NONE || winningType == GroupType::KETONE ||
                                                                              winningType == GroupType::ALCOHOL || winningType == GroupType::AMINE);
+                                                if (winningType == GroupType::AMINE &&
+                                                    groupSeniorityRank(fgcSpiro.combinedWinner) < groupSeniorityRank(winningType)) {
+                                                    suffixTypeSupported = false;
+                                                }
 
                                                 if (suffixTypeSupported) {
                                                     std::set<int> principalCarbons;
@@ -27679,6 +27740,10 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                                                     GroupType winningType = fgcBicyclo.winningRingGroup;
                                                     bool suffixTypeSupported = (winningType == GroupType::NONE || winningType == GroupType::KETONE ||
                                                                                 winningType == GroupType::ALCOHOL || winningType == GroupType::AMINE);
+                                                    if (winningType == GroupType::AMINE &&
+                                                        groupSeniorityRank(fgcBicyclo.combinedWinner) < groupSeniorityRank(winningType)) {
+                                                        suffixTypeSupported = false;
+                                                    }
 
                                                     if (suffixTypeSupported) {
                                                         std::set<int> principalCarbons;
@@ -27858,6 +27923,29 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                                     return {true, mcName, ""};
                                 }
                             }
+                        }
+                    }
+
+                    // If real component was not named as parent (e.g. an isolated ring holds
+                    // a more senior principal group like carboxylic acid per P-41), try each
+                    // isolated ring as the Phase 2 monocyclic parent, senior ring first.
+                    std::vector<std::set<int>> candIsolatedRings;
+                    for (int ri : isolatedRingIndices) {
+                        std::set<int> isoGraph;
+                        for (int a : allRingsIndigo[ri]) {
+                            if (indigoToGraphIdx.count(a)) isoGraph.insert(indigoToGraphIdx.at(a));
+                        }
+                        candIsolatedRings.push_back(isoGraph);
+                    }
+                    std::sort(candIsolatedRings.begin(), candIsolatedRings.end(), [&](const std::set<int> &rA, const std::set<int> &rB) {
+                        return compareRingSeniority(g, rA, rB) > 0;
+                    });
+                    for (const auto &candRing : candIsolatedRings) {
+                        phase2ForcedRingNodeSet = candRing;
+                        IupacResult res = namePhase2Monocyclic();
+                        phase2ForcedRingNodeSet.clear();
+                        if (res.success) {
+                            return res;
                         }
                     }
                 }

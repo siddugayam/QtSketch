@@ -8424,7 +8424,17 @@ int main() {
 
             // Bug B must stay unchanged controls:
             {"14C-urea control", "N[14C](N)=O", "[14C]urea", false, ""},
-            {"13C-urea control", "N[13C](N)=O", "[13C]urea", false, ""}
+            {"13C-urea control", "N[13C](N)=O", "[13C]urea", false, ""},
+
+            // Bridged / spiro secondary amine senior-acid parent selection (P-41 fix):
+            {"bridged repro 1", "OC(=O)c1ccc(NC2(C)CC3CCC2C3)cc1", "4-[(2-methylbicyclo[2.2.1]heptan-2-yl)amino]benzenecarboxylic acid", false, ""},
+            {"bridged repro 2", "OC(=O)c1ccc(NC2CCC3CC2C3)cc1", "4-[(bicyclo[3.1.1]heptan-2-yl)amino]benzenecarboxylic acid", false, ""},
+            {"spiro repro", "OC(=O)c1ccc(NC2CCC3(CCCCC3)CC2)cc1", "4-[(spiro[5.5]undecan-3-yl)amino]benzenecarboxylic acid", false, ""},
+            {"secondary amine control", "OC(=O)c1ccc(NC2CCCCC2)cc1", "4-cyclohexylaminobenzenecarboxylic acid", false, ""},
+            {"primary amine bicyclo repro 1", "NC2(C)CC3CCC2C3", "2-methylbicyclo[2.2.1]heptan-2-amine", false, ""},
+            {"primary amine bicyclo repro 2", "NC2CCC3CC2C3", "bicyclo[3.1.1]heptan-2-amine", false, ""},
+            {"substituted bicyclic amine", "c1ccccc1C2(N)CC3CCC2C3", "2-phenylbicyclo[2.2.1]heptan-2-amine", false, ""},
+            {"substituted bicyclic amine mecamylamine", "CNC1(C)C2CCC(C2)C1(C)C", "N,2,3,3-tetramethylbicyclo[2.2.1]heptan-2-amine", false, ""}
         };
         for (const auto &tc : agyCases) {
             int m = indigoLoadMoleculeFromString(tc.smiles.c_str());
