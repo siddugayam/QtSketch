@@ -247,25 +247,25 @@ int main() {
         {"CCCN", "propan-1-amine"},
         {"CCN", "ethanamine"},
         {"CCCN(CCC)CCC", "N,N-dipropylpropan-1-amine"},
-        {"CN(CC)C(C)C", "", true, "Branched, ring, or unsaturated chains on N-substituted amines are not supported"},
+        {"CN(CC)C(C)C", "N-ethyl-N-methylpropan-2-amine"},
         // Halogen-terminated N-substituent chains
         {"CN(CCCl)CCCl", "N-(2-chloroethyl)-N-methyl-2-chloroethan-1-amine"}, // MECHLORETHAMINE
         {"CNCCCl", "N-methyl-2-chloroethan-1-amine"}, // simple halogen-terminated chain
-        {"CNC(C)C", "", true, "Branched, ring, or unsaturated chains on N-substituted amines are not supported"},
-        {"CNC1(C)C2CCC(C2)C1(C)C", "", true, "Branched, ring, or unsaturated chains on N-substituted amines are not supported"}, // MECAMYLAMINE-shaped
+        {"CNC(C)C", "N-methylpropan-2-amine"},
+        {"CNC1(C)C2CCC(C2)C1(C)C", "N,2,3,3-tetramethylbicyclo[2.2.1]heptan-2-amine"}, // MECAMYLAMINE-shaped
         {"CN(C)C1CCCCC1", "N,N-dimethylcyclohexanamine"}, // existing passing test
         // Unsaturated N-substituent (N-allyl-type): the branch-walk's bond-order
         // check used to be missing here (present in the sibling diamine/
         // exocyclic-amine walkers), so this silently walked through as if
         // saturated instead of hitting the rejection its own message claims.
-        {"CC=CNC", "", true, "Branched, ring, or unsaturated chains on N-substituted amines are not supported"},
+        {"CC=CNC", "N-methylprop-1-en-1-amine"},
         // A substituted ring directly on N used to only tolerate extra
         // substituents on a 6-membered ring (an arbitrary size special-case);
         // an equally valid substituted 5-membered ring was rejected for no
         // real reason. Now trusts nameBranchGraph (which already names this
         // fine) instead of a hand-rolled whitelist.
-        {"CNC1CC(C)CC1", "N-methyl-3-methylcyclopentanamine"},
-        {"CNC1CC(C)CC(C)C1", "N-methyl-3,5-dimethylcyclohexanamine"},
+        {"CNC1CC(C)CC1", "N,3-dimethylcyclopentanamine"},
+        {"CNC1CC(C)CC(C)C1", "N,3,5-trimethylcyclohexanamine"},
         {"CNCCNC", "N1,N2-dimethylethane-1,2-diamine"},
         {"CN(C)CCN(C)C", "N1,N1,N2,N2-tetramethylethane-1,2-diamine"},
         {"CNCCCNC", "N1,N3-dimethylpropane-1,3-diamine"},
@@ -293,7 +293,7 @@ int main() {
         // first shipped this test with the wrong (ungrouped) expected value.
         {"Cc1ccc(NC)cc1", "N,4-dimethylaniline"},
         {"c1cc(Cl)cc(Cl)c1NC", "", true, "A chain-based principal group outranks the ring in this structure; chain-as-parent seniority (P-44.1.1) for this ring/class combination is not yet supported."},
-        {"c1ccc2c(c1)cccc2NC", "", true, "Branched, ring, or unsaturated chains on N-substituted amines are not supported"},
+        {"c1ccc2c(c1)cccc2NC", "N-methylnaphthalen-1-amine"},
         {"CN1CCC(CC1)N(CC2=CC=CC=C2)C3=CC=CC=C3", "N-benzyl-1-methyl-N-phenylpiperidin-4-amine"},
         {"NC1CCNCC1", "piperidin-4-amine"},
         {"CN1CCC(N)CC1", "1-methylpiperidin-4-amine"},
@@ -1768,10 +1768,10 @@ int main() {
         {"OOC(=O)c1ccccc1", "", true, "Peroxycarboxylic acids"},
         {"CN(C)CCN(CC1=CC=CC=C1)C2=CC=CC=N2", "N1-benzyl-N2,N2-dimethyl-N1-(pyridin-2-yl)ethane-1,2-diamine"},
         {"CN(C)CCN(CC1=CC=C(C=C1)OC)C2=CC=CC=N2", "N1-[(4-methoxyphenyl)methyl]-N2,N2-dimethyl-N1-(pyridin-2-yl)ethane-1,2-diamine"},
-        {"C=CCNCCN", "", true, "Branched, ring, or unsaturated chains on N-substituted diamines are not supported"},
-        {"ClN(C)CCN", "", true, "Branched, ring, or unsaturated chains on N-substituted diamines are not supported"},
+        {"C=CCNCCN", "N1-prop-2-en-1-ylethane-1,2-diamine"},
+        {"ClN(C)CCN", "N1-chloro-N1-methylethane-1,2-diamine"},
         {"CN(C)CCNCc1ccc(Cl)cc1", "N2-[(4-chlorophenyl)methyl]-N1,N1-dimethylethane-1,2-diamine"},
-        {"CN(COC)CCN", "", true, "Branched, ring, or unsaturated chains on N-substituted diamines are not supported"},
+        {"CN(COC)CCN", "N1-(methoxymethyl)-N1-methylethane-1,2-diamine"},
 
         // P-69.3 Organometallic compounds (Group 1-2 metals)
         {"[Li]C", "methyllithium"},
@@ -1906,7 +1906,7 @@ int main() {
         // through, not a bug in this mechanism.
         {"CC[N+](c1cc(O)ccc1)(C)C", "", true, "Charged atoms are not supported"},
         // Fallthrough cases for out-of-scope quaternary cations - should still reject
-        {"C[N+](C)(C)C(C)C", "", true, "Charged atoms are not supported"}, // one branch is isopropyl
+        {"C[N+](C)(C)C(C)C", "N,N,N-trimethylpropan-2-aminium"}, // quaternary ammonium, reduced-amine branch now names fine
         {"[NH3+]CCCCCC[NH3+]", "", true, "Charged atoms are not supported"}, // hexane-1,6-diammonium - multi-charged, out of scope
         {"[NH3+]CCCCN", "", true, "Charged atoms are not supported"}, // pentane-1,5-diamine with one N protonated - neutral name ends in diamine
         // TICKET-03 AGY-T1: bare inorganic ion / simple charge-separated-but-net-neutral lookup
