@@ -20,6 +20,8 @@
 #include "EditCommand.h"
 #include "SelectionState.h"
 #include "PlacementEngines.h"
+#include "DrawingStyle.h"
+#include "PageSettings.h"
 #include <vector>
 
 class DocumentState {
@@ -319,6 +321,17 @@ public:
     // already covered by EditableMolecule::name().
     void setMoleculeName(const QString& name);
 
+    // Document-level drawing style
+    const DrawingStyle& drawingStyle() const { return m_drawingStyle; }
+    void setDrawingStyle(const DrawingStyle& style);
+    
+    // Document-level page settings
+    const PageSettings& pageSettings() const { return m_pageSettings; }
+    void setPageSettings(const PageSettings& settings);
+    
+    // Access the fixed physical scale for model-to-mm conversion
+    double modelToMmScale() const { return m_drawingStyle.modelToMmScale; }
+
     // ---- Live-drag gestures ------------------------------------------------
     // Repeated *Live calls during a UI drag mutate positions directly and push
     // NOTHING onto the undo history; the matching commit* call at gesture end
@@ -519,13 +532,11 @@ private:
 
     static constexpr double kBondLength = 1.5;   // chem-core's StandardBondLength
 
-    // Multitail-arrow creation-time constants, immutable for the arrow's lifetime (the real JS
-    // never changes them after _makeMultitailArrow either). Derived exactly as the real defaults:
-    // headOffset = (2*bondLength, 0), height = 3*bondLength, tailLength = 2*bondLength, so
-    // tailX = (headX - headOffsetX) - tailLength = headX - 4*bondLength.
-    static constexpr double kMultitailHeadOffsetX = 2.0 * kBondLength;
-    static constexpr double kMultitailHeight = 3.0 * kBondLength;
-    static constexpr double kMultitailTailInset = 4.0 * kBondLength;
+    // Multitail-arrow creation-time constants, computed from DrawingStyle.
+    // These are now instance methods that use m_drawingStyle.bondLength
+    double getMultitailHeadOffsetX() const { return 2.0 * m_drawingStyle.bondLength; }
+    double getMultitailHeight() const { return 3.0 * m_drawingStyle.bondLength; }
+    double getMultitailTailInset() const { return 4.0 * m_drawingStyle.bondLength; }
 
     // Shared by addRing's alternation step: one bond as it stood BEFORE this
     // operation began, keyed by its endpoint pair. Presence of a pair here
@@ -605,6 +616,8 @@ private:
     bool m_dirty = false;
     bool m_showExplicitH = false;
     SelectionState m_selection;
+    DrawingStyle m_drawingStyle;
+    PageSettings m_pageSettings;
     static constexpr int kHistorySize = 50;
 };
 

@@ -10,6 +10,7 @@
 #include "app/molecule/TemplateLibrary.h"
 #include "app/molecule/SdfBatch.h"
 #include "app/PlacementEngines.h"
+#include "app/molecule/ProjectFile.h"
 
 class V8Process : public QObject {
     Q_OBJECT
@@ -147,6 +148,19 @@ public:
     Q_INVOKABLE void requestClipboardKet();
     // Import KET text as a paste at (cx, cy)
     Q_INVOKABLE void importKetAtPosition(const QString& ket, double cx, double cy);
+    
+    // Project file serialization
+    Q_INVOKABLE void requestProjectSerialization(const QString& reqId);
+    Q_INVOKABLE void loadProject(const QString& filePath);
+    Q_INVOKABLE bool saveProject(const QString& filePath);
+    
+    // Get current drawing style as JSON
+    Q_INVOKABLE QJsonObject getDrawingStyle() const;
+    Q_INVOKABLE void setDrawingStyle(const QJsonObject& style);
+    
+    // Get current page settings as JSON
+    Q_INVOKABLE QJsonObject getPageSettings() const;
+    Q_INVOKABLE void setPageSettings(const QJsonObject& settings);
 
 signals:
     void stateUpdated(const QVariantMap& state, const QVariantMap& selection, bool isDirty, bool canUndo, bool canRedo, const QVariant& result);

@@ -243,12 +243,23 @@ ApplicationWindow {
             let fmt = "mol"
             if (fileStr.endsWith(".sdf")) fmt = "sdf"
             else if (fileStr.endsWith(".ket")) fmt = "ket"
+            else if (fileStr.endsWith(".qtsketch")) fmt = "qtsketch"
             pendingSaveUrl = path
             addRecentFile(path)
-            activeSketch.requestStructure(fmt, "save")
+            if (fmt === "qtsketch") {
+                // Use new project save method for .qtsketch files
+                const success = activeSketch.saveProject(path)
+                if (!success) {
+                    activeSketch.requestStructure("mol", "save")
+                }
+            } else {
+                activeSketch.requestStructure(fmt, "save")
+            }
             if (activeCanvas) activeCanvas.setClean()
             // Clean up recovery file on explicit save
             const appData = StandardPaths.writableLocation(StandardPaths.AppDataLocation)
+            // Try to remove both new and old formats
+            fileIO.remove(appData + "/recovery/autosave_" + DocumentManager.activeDocId + ".qtsketch")
             fileIO.remove(appData + "/recovery/autosave_" + DocumentManager.activeDocId + ".ket")
         } else {
             fileDialogsGroup.saveDialog.open()
@@ -291,8 +302,16 @@ ApplicationWindow {
 
     function restoreRecoveryFiles() {
         const appData = StandardPaths.writableLocation(StandardPaths.AppDataLocation)
-        for (let i = 0; i < window._recoveredFiles.length; i++) {
-            let path = appData + "/recovery/" + window._recoveredFiles[i]
+        // Sort files so .qtsketch files are restored first (newer format)
+        const sortedFiles = window._recoveredFiles.sort((a, b) => {
+            const aIsKet = a.endsWith(".ket")
+            const bIsKet = b.endsWith(".ket")
+            if (aIsKet && !bIsKet) return 1  // ket files last
+            if (!aIsKet && bIsKet) return -1 // qtsketch files first
+            return 0
+        })
+        for (let i = 0; i < sortedFiles.length; i++) {
+            let path = appData + "/recovery/" + sortedFiles[i]
             window.loadFromFile(Qt.url("file:///" + path.replace(/\\/g, "/")))
         }
     }
@@ -357,7 +376,10 @@ ApplicationWindow {
         
         const appData = StandardPaths.writableLocation(StandardPaths.AppDataLocation)
         fileIO.mkpath(appData + "/recovery")
-        var recovered = fileIO.listFiles(appData + "/recovery", "autosave_*.ket")
+        // Look for both new .qtsketch format and legacy .ket format
+        var recoveredQtsketch = fileIO.listFiles(appData + "/recovery", "autosave_*.qtsketch")
+        var recoveredKet = fileIO.listFiles(appData + "/recovery", "autosave_*.ket")
+        var recovered = recoveredQtsketch.concat(recoveredKet)
         if (recovered && recovered.length > 0) {
             window._recoveredFiles = recovered
             // Deferred, not opened inline: MessageDialog is a real top-level
@@ -429,9 +451,12 @@ ApplicationWindow {
         } else {
             // Clean exit
             const appData = StandardPaths.writableLocation(StandardPaths.AppDataLocation)
-            var recovered = fileIO.listFiles(appData + "/recovery", "autosave_*.ket")
-            for (var j = 0; j < recovered.length; j++) {
-                fileIO.remove(appData + "/recovery/" + recovered[j])
+            // Clean up both new and old recovery formats
+            var recoveredQtsketch = fileIO.listFiles(appData + "/recovery", "autosave_*.qtsketch")
+            var recoveredKet = fileIO.listFiles(appData + "/recovery", "autosave_*.ket")
+            var allRecovered = recoveredQtsketch.concat(recoveredKet)
+            for (var j = 0; j < allRecovered.length; j++) {
+                fileIO.remove(appData + "/recovery/" + allRecovered[j])
             }
         }
     }
@@ -772,7 +797,8 @@ ApplicationWindow {
                     if (window.dirtyDocs[docId]) {
                         const sketch = DocumentManager.documentFor(docId)
                         if (sketch) {
-                            sketch.requestStructure("ket", "autosave")
+                            // Use new project serialization format instead of KET
+                            sketch.requestProjectSerialization("autosave")
                         }
                     }
                 }
@@ -783,6 +809,10 @@ ApplicationWindow {
             target: window.activeSketch
             readonly property var structureResponseRoutes: ({
                 save: (data) => fileIO.write(window.pendingSaveUrl, data),
+                autosave: (data) => {
+                    const appData = StandardPaths.writableLocation(StandardPaths.AppDataLocation)
+                    fileIO.write(appData + "/recovery/autosave_" + window.activeSketch.modelData + ".qtsketch", data)
+                },
                 render_svg: (data) => indigoSvc.renderToFile(data, window.pendingRenderUrl, "svg"),
                 render_pdf: (data) => indigoSvc.renderToFile(data, window.pendingRenderUrl, "pdf"),
                 render_png: (data) => indigoSvc.renderToFile(data, window.pendingRenderUrl, "png"),
@@ -1527,8 +1557,10 @@ ApplicationWindow {
                                             target: canvasInstance.sketch
                                             function onStructureReady(reqId, data) {
                                                 if (reqId === "autosave") {
+                                                    // This is for legacy compatibility - new autosave uses requestProjectSerialization
+                                                    // which is handled by the structureResponseRoutes above
                                                     const appData = StandardPaths.writableLocation(StandardPaths.AppDataLocation)
-                                                    fileIO.write(appData + "/recovery/autosave_" + canvasInstance.modelData + ".ket", data)
+                                                    fileIO.write(appData + "/recovery/autosave_" + canvasInstance.modelData + ".qtsketch", data)
                                                 } else if (reqId === "autosave_template") {
                                                     window._finishTemplateSave(data)
                                                 }
@@ -2054,10 +2086,17 @@ ApplicationWindow {
             let fmt = "mol"
             if (fileStr.endsWith(".sdf")) fmt = "sdf"
             else if (fileStr.endsWith(".ket")) fmt = "ket"
+            else if (fileStr.endsWith(".qtsketch")) fmt = "qtsketch"
             
             if (fmt === "sdf" && activeSketch) {
                 pendingSdfBatchUrl = fileUrl
                 activeSketch.sendCommand("deserializeSdfBatch", [data])
+            } else if (fmt === "qtsketch" && activeSketch) {
+                // Use the new project load method - pass the file path as string
+                const filePath = fileUrl.toString()
+                activeSketch.loadProject(filePath)
+                window.centerViewOnPage()
+                setDocFile(DocumentManager.activeDocId, fileUrl)
             } else if (activeCanvas) {
                 activeCanvas.loadStructure(fmt, data)
                 window.centerViewOnPage()

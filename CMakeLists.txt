@@ -10,7 +10,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # development stays as fast as possible -- -O2 on a file the size of IupacNamer.cpp would
 # add real seconds to every single-file rebuild for no benefit to a test binary.
 
-find_package(Qt6 6.6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Concurrent)
+find_package(Qt6 6.6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Concurrent Svg SvgWidgets)
 qt_standard_project_setup(REQUIRES 6.6)
 qt_policy(SET QTP0004 OLD)
 
@@ -175,7 +175,7 @@ qt_add_qml_module(sketch
         icons/search.svg
 )
 
-target_link_libraries(sketch PRIVATE Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Concurrent molecule_model iupac_naming
+target_link_libraries(sketch PRIVATE Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Concurrent Qt6::Svg Qt6::SvgWidgets molecule_model iupac_naming
 )
 
 # Shipped-binary runtime perf: -O2, scoped to only this target (test executables stay
@@ -401,6 +401,18 @@ add_library(molecule_model STATIC
     src/app/molecule/ClipboardPreview.cpp
     src/app/molecule/BiopolymerSequenceView.h
     src/app/molecule/BiopolymerSequenceView.cpp
+    src/app/molecule/DrawingStyle.h
+    src/app/molecule/DrawingStyle.cpp
+    src/app/molecule/PageSettings.h
+    src/app/molecule/PageSettings.cpp
+    src/app/molecule/ProjectFile.h
+    src/app/molecule/ProjectFile.cpp
+    src/app/render/RenderScene.h
+    src/app/render/RenderScene.cpp
+    src/app/render/Exporter.h
+    src/app/render/Exporter.cpp
+    src/app/render/ExportManager.h
+    src/app/render/ExportManager.cpp
     src/app/molecule/RenderPrimitivesToVariant.h
     src/app/molecule/RenderPrimitivesToVariant.cpp
     src/app/BondAngleSuggester.h
@@ -412,11 +424,12 @@ target_include_directories(molecule_model PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app
     ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo
+    ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo-renderer
 )
 if (MSVC)
-    target_link_libraries(molecule_model PUBLIC Qt6::Core ${INDIGO_LIB_DIR}/indigo.lib)
+    target_link_libraries(molecule_model PUBLIC Qt6::Core Qt6::Gui Qt6::Svg Qt6::Concurrent ${INDIGO_LIB_DIR}/indigo.lib ${INDIGO_LIB_DIR}/indigo-renderer.lib)
 else()
-    target_link_libraries(molecule_model PUBLIC Qt6::Core ${INDIGO_LIB_DIR}/indigo.dll)
+    target_link_libraries(molecule_model PUBLIC Qt6::Core Qt6::Gui Qt6::Svg Qt6::Concurrent ${INDIGO_LIB_DIR}/indigo.dll ${INDIGO_LIB_DIR}/indigo-renderer.dll)
 endif()
 
 # Fewer, larger TUs to compile (no optimization-level change, so this is a pure build-time

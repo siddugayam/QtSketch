@@ -132,7 +132,9 @@ static QList<AtomId> bfsShortestRing(const EditableMolecule& mol, BondId bondId)
 }
 
 DocumentState::DocumentState(const QString& initialStructure)
-    : m_molecule(initialStructure) {
+    : m_molecule(initialStructure)
+    , m_drawingStyle(DrawingStyle::defaults())
+    , m_pageSettings(PageSettings::defaults()) {
 }
 
 EditableMolecule& DocumentState::molecule() {
@@ -246,6 +248,24 @@ bool DocumentState::isDirty() const {
 
 void DocumentState::markClean() {
     m_dirty = false;
+}
+
+void DocumentState::setDrawingStyle(const DrawingStyle& style) {
+    // Capture the current bond length as legacy scale if this is the first time
+    // setting a style on an existing document
+    if (m_drawingStyle.bondLength != style.bondLength && m_drawingStyle.modelToMmScale != 0) {
+        // Legacy scale capture: compute the fixed scale from the current bond length
+        // and preserve it when the style changes
+        double legacyBondLengthMm = m_drawingStyle.bondLength * m_drawingStyle.modelToMmScale;
+        m_drawingStyle = style;
+        m_drawingStyle.captureLegacyScale(legacyBondLengthMm);
+    } else {
+        m_drawingStyle = style;
+    }
+}
+
+void DocumentState::setPageSettings(const PageSettings& settings) {
+    m_pageSettings = settings;
 }
 
 bool DocumentState::canUndo() const {
@@ -1278,7 +1298,7 @@ void DocumentState::deleteImage(ImageId id) {
 RxnArrowId DocumentState::addRxnArrow(double cx, double cy, const QString& mode) {
     auto idBox = std::make_shared<RxnArrowId>(-1);
     EditableMolecule& mol = m_molecule;
-    double x2 = cx + kBondLength * 2.5;
+    double x2 = cx + m_drawingStyle.bondLength * 2.5;
     double y2 = cy;
 
     EditCommand cmd;
@@ -1373,7 +1393,7 @@ void DocumentState::deleteRxnPlus(RxnPlusId id) {
 }
 
 MultitailArrowId DocumentState::addMultitailArrow(double cx, double cy) {
-    double headX = cx + kMultitailHeadOffsetX;
+    double headX = cx + getMultitailHeadOffsetX();
     double headY = cy;
 
     auto idBox = std::make_shared<MultitailArrowId>(-1);
@@ -1406,7 +1426,7 @@ void DocumentState::addMultitailArrowTail(MultitailArrowId id) {
     double headX = pts[0], headY = pts[1];
     QList<double> allY;
     allY.append(headY);
-    allY.append(headY + kMultitailHeight);
+    allY.append(headY + getMultitailHeight());
     for (int i = 3; i < pts.size(); i += 2) allY.append(pts[i]);
     std::sort(allY.begin(), allY.end());
 
@@ -1416,7 +1436,7 @@ void DocumentState::addMultitailArrowTail(MultitailArrowId id) {
         if (gap > maxGap) { maxGap = gap; gapY = (allY[i] + allY[i - 1]) / 2.0; }
     }
 
-    double tailX = headX - kMultitailTailInset;
+    double tailX = headX - getMultitailTailInset();
     QList<double> newPts = pts;
     newPts.append(tailX);
     newPts.append(gapY);
@@ -2102,8 +2122,8 @@ void DocumentState::layoutSelectedChain() {
     double px = ax, py = ay;
     for (int k = 0; k < chain.size(); ++k) {
         double ang = theta + ((k % 2 == 0) ? half : -half);
-        px += kBondLength * std::cos(ang);
-        py += kBondLength * std::sin(ang);
+        px += m_drawingStyle.bondLength * std::cos(ang);
+        py += m_drawingStyle.bondLength * std::sin(ang);
         newPositions.append(QPointF(px, py));
     }
 
@@ -2250,7 +2270,7 @@ void DocumentState::addChain(double x1, double y1, double x2, double y2) {
     const double kPi = 3.14159265358979323846;
     double dx = x2 - x1, dy = y2 - y1;
     double dist = std::sqrt(dx * dx + dy * dy);
-    int nBonds = std::max(1, static_cast<int>(std::round(dist / kBondLength)));
+    int nBonds = std::max(1, static_cast<int>(std::round(dist / m_drawingStyle.bondLength)));
     double theta = std::atan2(dy, dx);
     double half = kPi / 6.0;
 
@@ -2258,8 +2278,9 @@ void DocumentState::addChain(double x1, double y1, double x2, double y2) {
     auto createdAtoms = std::make_shared<QList<AtomId>>();
     auto createdBonds = std::make_shared<QList<BondId>>();
 
+    double bondLength = m_drawingStyle.bondLength;
     EditCommand cmd;
-    cmd.execute = [&mol, x1, y1, nBonds, theta, half, createdAtoms, createdBonds]() {
+    cmd.execute = [&mol, x1, y1, nBonds, theta, half, bondLength, createdAtoms, createdBonds]() {
         createdAtoms->clear();
         createdBonds->clear();
 
@@ -2274,8 +2295,8 @@ void DocumentState::addChain(double x1, double y1, double x2, double y2) {
                 if (bid >= 0) createdBonds->append(bid);
             }
             double ang = theta + ((i % 2 == 0) ? half : -half);
-            px += kBondLength * std::cos(ang);
-            py += kBondLength * std::sin(ang);
+            px += bondLength * std::cos(ang);
+            py += bondLength * std::sin(ang);
         }
 
         EditableMolecule::MergeResult mergeResult = mol.mergeOverlappingAtoms();
@@ -2459,7 +2480,7 @@ DocumentState::FunctionalGroupPlacement DocumentState::computeFunctionalGroupPla
         }
     }
 
-    // The point the template's attach atom must actually land at: one bond length (kBondLength)
+    // The point the template's attach atom must actually land at: one bond length (m_drawingStyle.bondLength)
     // away from the target along the placement angle above, NOT exactly on top of the target --
     // sprout semantics, not fusion. Falls back to the target's own position (attachTargetX/Y ==
     // targetX/Y) only if graft is false or somehow no angle at all is available (defensive; in
@@ -2467,8 +2488,8 @@ DocumentState::FunctionalGroupPlacement DocumentState::computeFunctionalGroupPla
     // suggestFallbackAngle never returns nullopt for a known atom).
     double attachTargetX = targetX, attachTargetY = targetY;
     if (graft && suggestedAngle.has_value()) {
-        attachTargetX = targetX + kBondLength * std::cos(*suggestedAngle);
-        attachTargetY = targetY + kBondLength * std::sin(*suggestedAngle);
+        attachTargetX = targetX + m_drawingStyle.bondLength * std::cos(*suggestedAngle);
+        attachTargetY = targetY + m_drawingStyle.bondLength * std::sin(*suggestedAngle);
     }
 
     // Compute the placement offset: align attach-atom-to-attachTarget if grafting,
@@ -2744,10 +2765,10 @@ bool DocumentState::importReaction(const QString& text) {
                 // class can't measure directly (DocumentState is headless/UI-independent, no
                 // QFontMetrics dependency) -- a defensible minimum-width floor keeps the RxnPlus
                 // gap-centering fix (sub-project 7) from placing a "+" sign right on top of a
-                // wide single-atom label. kBondLength * 0.6 is roughly the width a short 2-4
+                // wide single-atom label. m_drawingStyle.bondLength * 0.6 is roughly the width a short 2-4
                 // character label occupies at default zoom, matching a real single-atom-fragment
                 // screenshot inspected in sub-project 7.
-                f.width = std::max(maxX - minX, kBondLength * 0.6);
+                f.width = std::max(maxX - minX, m_drawingStyle.bondLength * 0.6);
                 f.height = maxY - minY;
                 f.minX = minX;
                 f.maxX = maxX;
@@ -2773,8 +2794,8 @@ bool DocumentState::importReaction(const QString& text) {
     // share one vertical center (y=0 here; insertStructureAt's own translate-to-center pattern
     // means each fragment's own internal y-spread is what matters, not an absolute page
     // position -- the whole assembly gets clamped/placed like any other paste).
-    const double gap = kBondLength;
-    const double arrowGap = kBondLength * 2.5;   // matches DocumentState::addRxnArrow's own default span
+    const double gap = m_drawingStyle.bondLength;
+    const double arrowGap = m_drawingStyle.bondLength * 2.5;   // matches DocumentState::addRxnArrow's own default span
     QList<double> reactantCenters, productCenters;
     double x = 0;
     for (int i = 0; i < reactants.size(); ++i) {
@@ -2817,7 +2838,7 @@ bool DocumentState::importReaction(const QString& text) {
     double maxRowHalfHeight = 0.0;
     for (const Fragment& f : reactants) maxRowHalfHeight = std::max(maxRowHalfHeight, f.height / 2.0);
     for (const Fragment& f : products) maxRowHalfHeight = std::max(maxRowHalfHeight, f.height / 2.0);
-    const double catalystYOffset = -(kBondLength * 1.5) - maxCatalystHalfHeight - maxRowHalfHeight;
+    const double catalystYOffset = -(m_drawingStyle.bondLength * 1.5) - maxCatalystHalfHeight - maxRowHalfHeight;
     QList<double> catalystCenters;
     {
         double catalystBlockWidth = 0;

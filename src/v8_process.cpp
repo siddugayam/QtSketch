@@ -1062,3 +1062,78 @@ QVariantList V8Process::getFunctionalGroupPreview(const QString& toolId, double 
     return coords;
 }
 
+// Project file serialization methods
+void V8Process::requestProjectSerialization(const QString& reqId) {
+    QJsonObject json = ProjectFile::toJson(m_docState->molecule(), 
+                                          m_docState->drawingStyle(),
+                                          m_docState->pageSettings());
+    QJsonDocument doc(json);
+    emit structureReady(reqId, doc.toJson(QJsonDocument::Compact));
+}
+
+void V8Process::loadProject(const QString& filePath) {
+    DrawingStyle style = m_docState->drawingStyle();
+    PageSettings page = m_docState->pageSettings();
+    QString error = ProjectFile::loadProject(filePath, m_docState->molecule(), style, page);
+    if (!error.isEmpty()) {
+        emit errorOccurred(QStringLiteral("Failed to load project: ") + error);
+        return;
+    }
+    m_docState->setDrawingStyle(style);
+    m_docState->setPageSettings(page);
+    m_docState->markClean();
+    applyLocalState();
+}
+
+bool V8Process::saveProject(const QString& filePath) {
+    return ProjectFile::saveProject(filePath, m_docState->molecule(),
+                                   m_docState->drawingStyle(),
+                                   m_docState->pageSettings());
+}
+
+QJsonObject V8Process::getDrawingStyle() const {
+    const DrawingStyle& style = m_docState->drawingStyle();
+    QJsonObject obj;
+    obj["bondLength"] = style.bondLength;
+    obj["lineWidth"] = style.lineWidth;
+    obj["fontFamily"] = style.fontFamily;
+    obj["fontSize"] = style.fontSize;
+    obj["monochrome"] = style.monochrome;
+    return obj;
+}
+
+void V8Process::setDrawingStyle(const QJsonObject& style) {
+    DrawingStyle ds;
+    if (style.contains("bondLength")) ds.bondLength = style["bondLength"].toDouble();
+    if (style.contains("lineWidth")) ds.lineWidth = style["lineWidth"].toDouble();
+    if (style.contains("fontFamily")) ds.fontFamily = style["fontFamily"].toString();
+    if (style.contains("fontSize")) ds.fontSize = style["fontSize"].toInt();
+    if (style.contains("monochrome")) ds.monochrome = style["monochrome"].toBool();
+    m_docState->setDrawingStyle(ds);
+    applyLocalState();
+}
+
+QJsonObject V8Process::getPageSettings() const {
+    const PageSettings& settings = m_docState->pageSettings();
+    QJsonObject obj;
+    obj["widthMm"] = settings.widthMm;
+    obj["heightMm"] = settings.heightMm;
+    obj["marginLeftMm"] = settings.marginLeftMm;
+    obj["marginRightMm"] = settings.marginRightMm;
+    obj["marginTopMm"] = settings.marginTopMm;
+    obj["marginBottomMm"] = settings.marginBottomMm;
+    return obj;
+}
+
+void V8Process::setPageSettings(const QJsonObject& settings) {
+    PageSettings ps;
+    if (settings.contains("widthMm")) ps.widthMm = settings["widthMm"].toDouble();
+    if (settings.contains("heightMm")) ps.heightMm = settings["heightMm"].toDouble();
+    if (settings.contains("marginLeftMm")) ps.marginLeftMm = settings["marginLeftMm"].toDouble();
+    if (settings.contains("marginRightMm")) ps.marginRightMm = settings["marginRightMm"].toDouble();
+    if (settings.contains("marginTopMm")) ps.marginTopMm = settings["marginTopMm"].toDouble();
+    if (settings.contains("marginBottomMm")) ps.marginBottomMm = settings["marginBottomMm"].toDouble();
+    m_docState->setPageSettings(ps);
+    applyLocalState();
+}
+

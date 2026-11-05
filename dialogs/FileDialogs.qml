@@ -44,7 +44,7 @@ Item {
         id: saveDialog
         title: "Save Molecule"
         fileMode: FileDialog.SaveFile
-        nameFilters: ["Molfile (*.mol)", "SDF (*.sdf)", "Ketcher JSON (*.ket)", "PNG image (*.png)", "SVG image (*.svg)", "All files (*)"]
+        nameFilters: ["QtSketch Project (*.qtsketch)", "Molfile (*.mol)", "SDF (*.sdf)", "Ketcher JSON (*.ket)", "PNG image (*.png)", "SVG image (*.svg)", "All files (*)"]
         onAccepted: {
             const fileStr = selectedFile.toString().toLowerCase()
             if (fileStr.endsWith(".png")) {
@@ -60,9 +60,21 @@ Item {
             let fmt = "mol"
             if (fileStr.endsWith(".sdf")) fmt = "sdf"
             else if (fileStr.endsWith(".ket")) fmt = "ket"
+            else if (fileStr.endsWith(".qtsketch")) fmt = "qtsketch"
             win.pendingSaveUrl = selectedFile
             win.setDocFile(DocumentManager.activeDocId, selectedFile)
-            if (win.activeSketch) win.activeSketch.requestStructure(fmt, "save")
+            if (win.activeSketch) {
+                if (fmt === "qtsketch") {
+                    // Use new project save method
+                    const success = win.activeSketch.saveProject(selectedFile)
+                    if (!success) {
+                        // Fall back to old method
+                        win.activeSketch.requestStructure("mol", "save")
+                    }
+                } else {
+                    win.activeSketch.requestStructure(fmt, "save")
+                }
+            }
             if (win.activeCanvas) win.activeCanvas.setClean()
         }
     }

@@ -35,6 +35,8 @@ Item {
                     win._pendingCloseDocId = -1
                     DocumentManager.closeDocument(docId)
                     const appData = StandardPaths.writableLocation(StandardPaths.AppDataLocation)
+                    // Remove both new and old formats
+                    win.fileIO.remove(appData + "/recovery/autosave_" + docId + ".qtsketch")
                     win.fileIO.remove(appData + "/recovery/autosave_" + docId + ".ket")
                 } else {
                     if (win.discardRecoveryFiles) win.discardRecoveryFiles()
