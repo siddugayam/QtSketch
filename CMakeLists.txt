@@ -72,6 +72,7 @@ qt_add_qml_module(sketch
         dialogs/FileDialogs.qml
         dialogs/TaskDialogs.qml
         dialogs/MessageDialogs.qml
+        dialogs/SettingsDialogs.qml
         ChemCanvas.qml
         MoleculeLayer.qml
         SelectionLayer.qml
@@ -405,6 +406,8 @@ add_library(molecule_model STATIC
     src/app/molecule/DrawingStyle.cpp
     src/app/molecule/PageSettings.h
     src/app/molecule/PageSettings.cpp
+    src/app/molecule/SettingsService.h
+    src/app/molecule/SettingsService.cpp
     src/app/molecule/ProjectFile.h
     src/app/molecule/ProjectFile.cpp
     src/app/render/RenderScene.h

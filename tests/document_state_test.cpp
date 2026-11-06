@@ -4258,6 +4258,51 @@ static void test_layoutSelectedChain() {
     }
 }
 
+static void test_applyDrawingStyleWithRescaleAffectsExportSize() {
+    std::printf("--- Test: applyDrawingStyleWithRescale affects physical/export size ---\n");
+    const double kEps = 1e-6;
+
+    DocumentState doc;
+    AtomId a = doc.addAtom(QStringLiteral("C"), 0.0, 0.0);
+    AtomId b = doc.addAtom(QStringLiteral("C"), 1.5, 0.0);
+
+    DrawingStyle oldStyle = doc.drawingStyle();
+    double oldModelToMmScale = oldStyle.modelToMmScale;
+    double oldPhysicalBondLengthMm = oldStyle.bondLength * oldModelToMmScale;
+
+    // New draft style: double the bond length, everything else (including
+    // modelToMmScale) carried over unchanged, exactly as SettingsService's
+    // draft (seeded from the document's real style) would hand it in.
+    DrawingStyle newStyle = oldStyle;
+    newStyle.bondLength = oldStyle.bondLength * 2.0;
+
+    doc.applyDrawingStyleWithRescale(newStyle);
+
+    double ax, ay, bx, by;
+    doc.molecule().atomPos(a, ax, ay);
+    doc.molecule().atomPos(b, bx, by);
+    double newDist = std::hypot(bx - ax, by - ay);
+    CHECK(std::abs(newDist - 3.0) < kEps, "atom coordinates rescaled 2x on bond-length change");
+
+    CHECK(std::abs(doc.drawingStyle().modelToMmScale - oldModelToMmScale) < kEps,
+          "modelToMmScale stays fixed across the rescale (not re-captured)");
+
+    double newPhysicalBondLengthMm = doc.drawingStyle().bondLength * doc.drawingStyle().modelToMmScale;
+    CHECK(std::abs(newPhysicalBondLengthMm - oldPhysicalBondLengthMm * 2.0) < kEps,
+          "doubling bond length doubles the final physical/export bond length");
+
+    CHECK(doc.canUndo(), "rescale + style change pushes exactly one undo entry");
+    doc.undo();
+    doc.molecule().atomPos(a, ax, ay);
+    doc.molecule().atomPos(b, bx, by);
+    double restoredDist = std::hypot(bx - ax, by - ay);
+    CHECK(std::abs(restoredDist - 1.5) < kEps, "undo restores original atom coordinates");
+    CHECK(std::abs(doc.drawingStyle().bondLength - oldStyle.bondLength) < kEps,
+          "undo restores original bondLength");
+    CHECK(std::abs(doc.drawingStyle().modelToMmScale - oldModelToMmScale) < kEps,
+          "undo restores original modelToMmScale");
+}
+
 static void test_selectSubstructureMatches() {
     std::printf("--- Test: selectSubstructureMatches ---\n");
 
@@ -4400,6 +4445,7 @@ int main() {
     test_setShowExplicitH();
     test_layoutSelectedChain();
     test_selectSubstructureMatches();
+    test_applyDrawingStyleWithRescaleAffectsExportSize();
     std::printf("Summary: %d passed, %d failed.\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

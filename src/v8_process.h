@@ -158,6 +158,10 @@ public:
     Q_INVOKABLE QJsonObject getDrawingStyle() const;
     Q_INVOKABLE void setDrawingStyle(const QJsonObject& style);
     
+    // Apply drawing style with whole-drawing rescale (for bond length changes)
+    // When bondLength changes, all atom coordinates are scaled to maintain visual proportions
+    Q_INVOKABLE void applyDrawingStyleWithRescale(const QJsonObject& style);
+    
     // Get current page settings as JSON
     Q_INVOKABLE QJsonObject getPageSettings() const;
     Q_INVOKABLE void setPageSettings(const QJsonObject& settings);

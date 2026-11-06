@@ -313,6 +313,10 @@ AppMenuBar {
         }
     }
     AppMenuBarItem {
+        text: "Settings"
+        MenuItemRow { text: "Drawing Settings…"; onTriggered: root.win.settingsDialogsGroup.settingsDialog.open() }
+    }
+    AppMenuBarItem {
         text: "Help"
         MenuItemRow { text: "Keyboard Shortcuts"; onTriggered: root.win.taskDialogsGroup.shortcutsDialog.open() }
     }

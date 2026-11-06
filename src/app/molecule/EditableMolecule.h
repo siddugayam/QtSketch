@@ -219,6 +219,16 @@ public:
     bool atomQueryListIsNotList(AtomId id) const;
     bool atomPos(AtomId id, double& x, double& y) const;
     bool setAtomPos(AtomId id, double x, double y);
+    
+    // Bulk coordinate scaling: scale all atom positions by a factor around a fixed point
+    // Returns the number of atoms scaled. Used for rescaling when bond length changes.
+    // The fixed point (centerX, centerY) is the center of scaling (e.g., drawing centroid).
+    int scaleAllCoordinates(double factor, double centerX = 0, double centerY = 0);
+    
+    // Compute the centroid of all atoms (for use as scaling center)
+    // Returns (0,0) if no atoms exist
+    QPointF computeCentroid() const;
+    
     int bondOrder(BondId id) const;
     bool bondEndpoints(BondId id, AtomId& a, AtomId& b) const;
     BondId findBond(AtomId a, AtomId b) const;   // -1 if no such bond

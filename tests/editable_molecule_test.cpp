@@ -2007,6 +2007,101 @@ static void test_loadFromClearsEzIntent() {
     CHECK(!mf.isEmpty(), "molfileForNaming works after loadFrom");
 }
 
+static void test_scaleAllCoordinates() {
+    std::printf("--- Test: scaleAllCoordinates ---\n");
+
+    // Create a simple molecule with atoms at known positions
+    EditableMolecule m;
+    AtomId a1 = m.addAtom(QStringLiteral("C"), 0.0, 0.0);
+    AtomId a2 = m.addAtom(QStringLiteral("C"), 2.0, 0.0);
+    AtomId a3 = m.addAtom(QStringLiteral("O"), 4.0, 0.0);
+    CHECK(a1 > 0 && a2 > 0 && a3 > 0, "added 3 atoms");
+
+    // Scale by factor of 2 around origin (0,0)
+    int scaledCount = m.scaleAllCoordinates(2.0, 0.0, 0.0);
+    CHECK(scaledCount == 3, "all 3 atoms scaled");
+
+    // Verify new positions
+    double x, y;
+    CHECK(m.atomPos(a1, x, y) && x == 0.0 && y == 0.0, "a1 stays at origin");
+    CHECK(m.atomPos(a2, x, y) && x == 4.0 && y == 0.0, "a2 scaled to (4,0)");
+    CHECK(m.atomPos(a3, x, y) && x == 8.0 && y == 0.0, "a3 scaled to (8,0)");
+}
+
+static void test_scaleAllCoordinatesPreservesRelativePositions() {
+    std::printf("--- Test: scaleAllCoordinates preserves relative positions ---\n");
+
+    // Create a triangle molecule
+    EditableMolecule m;
+    AtomId a1 = m.addAtom(QStringLiteral("C"), 0.0, 0.0);
+    AtomId a2 = m.addAtom(QStringLiteral("C"), 3.0, 0.0);
+    AtomId a3 = m.addAtom(QStringLiteral("C"), 0.0, 4.0);
+
+    // Get original relative distances
+    double x1, y1, x2, y2, x3, y3;
+    m.atomPos(a1, x1, y1);
+    m.atomPos(a2, x2, y2);
+    m.atomPos(a3, x3, y3);
+    double origDist12 = std::hypot(x2 - x1, y2 - y1);
+    double origDist13 = std::hypot(x3 - x1, y3 - y1);
+    double origDist23 = std::hypot(x3 - x2, y3 - y2);
+
+    // Scale by factor of 2
+    m.scaleAllCoordinates(2.0, 0.0, 0.0);
+
+    // Get new positions
+    m.atomPos(a1, x1, y1);
+    m.atomPos(a2, x2, y2);
+    m.atomPos(a3, x3, y3);
+    double newDist12 = std::hypot(x2 - x1, y2 - y1);
+    double newDist13 = std::hypot(x3 - x1, y3 - y1);
+    double newDist23 = std::hypot(x3 - x2, y3 - y2);
+
+    // Relative distances should scale by factor of 2
+    CHECK(std::abs(newDist12 - origDist12 * 2.0) < 0.001, "distance a1-a2 scaled correctly");
+    CHECK(std::abs(newDist13 - origDist13 * 2.0) < 0.001, "distance a1-a3 scaled correctly");
+    CHECK(std::abs(newDist23 - origDist23 * 2.0) < 0.001, "distance a2-a3 scaled correctly");
+
+    // Ratios should be preserved
+    double origRatio = origDist12 / origDist13;
+    double newRatio = newDist12 / newDist13;
+    CHECK(std::abs(origRatio - newRatio) < 0.001, "distance ratios preserved");
+}
+
+static void test_scaleAllCoordinatesWithCentroid() {
+    std::printf("--- Test: scaleAllCoordinates with centroid ---\n");
+
+    // Create a molecule with atoms at (0,0), (2,0), (4,0)
+    EditableMolecule m;
+    m.addAtom(QStringLiteral("C"), 0.0, 0.0);
+    m.addAtom(QStringLiteral("C"), 2.0, 0.0);
+    m.addAtom(QStringLiteral("C"), 4.0, 0.0);
+
+    // Compute centroid
+    QPointF centroid = m.computeCentroid();
+    CHECK(std::abs(centroid.x() - 2.0) < 0.001 && std::abs(centroid.y() - 0.0) < 0.001,
+          "centroid at (2,0)");
+
+    // Scale by factor of 2 around centroid
+    m.scaleAllCoordinates(2.0, centroid.x(), centroid.y());
+
+    // Atoms should now be at (-2,0), (2,0), (6,0)
+    // because: newX = 2 + (x - 2) * 2
+    QList<AtomId> atomIds = m.atomIds();
+    double x, y;
+    m.atomPos(atomIds[0], x, y);
+    CHECK(std::abs(x - (-2.0)) < 0.001 && std::abs(y - 0.0) < 0.001,
+          "first atom scaled correctly around centroid");
+
+    m.atomPos(atomIds[1], x, y);
+    CHECK(std::abs(x - 2.0) < 0.001 && std::abs(y - 0.0) < 0.001,
+          "second atom (at centroid) stays at same position");
+
+    m.atomPos(atomIds[2], x, y);
+    CHECK(std::abs(x - 6.0) < 0.001 && std::abs(y - 0.0) < 0.001,
+          "third atom scaled correctly around centroid");
+}
+
 int main() {
     unsigned long long session = indigoAllocSessionId();
     indigoSetSessionId(session);
@@ -2057,6 +2152,11 @@ int main() {
     test_setBondStereo();
     test_ezStereoIntent();
     test_loadFromClearsEzIntent();
+    
+    // Phase 3: scaleAllCoordinates tests
+    test_scaleAllCoordinates();
+    test_scaleAllCoordinatesPreservesRelativePositions();
+    test_scaleAllCoordinatesWithCentroid();
 
     indigoReleaseSessionId(session);
     std::printf("Summary: %d passed, %d failed.\n", g_pass, g_fail);

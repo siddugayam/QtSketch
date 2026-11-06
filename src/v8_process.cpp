@@ -1113,6 +1113,26 @@ void V8Process::setDrawingStyle(const QJsonObject& style) {
     applyLocalState();
 }
 
+void V8Process::applyDrawingStyleWithRescale(const QJsonObject& style) {
+    DrawingStyle ds;
+    if (style.contains("bondLength")) ds.bondLength = style["bondLength"].toDouble();
+    else ds.bondLength = m_docState->drawingStyle().bondLength;
+    if (style.contains("lineWidth")) ds.lineWidth = style["lineWidth"].toDouble();
+    else ds.lineWidth = m_docState->drawingStyle().lineWidth;
+    if (style.contains("fontFamily")) ds.fontFamily = style["fontFamily"].toString();
+    else ds.fontFamily = m_docState->drawingStyle().fontFamily;
+    if (style.contains("fontSize")) ds.fontSize = style["fontSize"].toInt();
+    else ds.fontSize = m_docState->drawingStyle().fontSize;
+    if (style.contains("monochrome")) ds.monochrome = style["monochrome"].toBool();
+    else ds.monochrome = m_docState->drawingStyle().monochrome;
+    
+    // Copy over the current modelToMmScale to preserve physical scale
+    ds.modelToMmScale = m_docState->drawingStyle().modelToMmScale;
+    
+    m_docState->applyDrawingStyleWithRescale(ds);
+    applyLocalState();
+}
+
 QJsonObject V8Process::getPageSettings() const {
     const PageSettings& settings = m_docState->pageSettings();
     QJsonObject obj;

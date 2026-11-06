@@ -2234,6 +2234,11 @@ ApplicationWindow {
         win: window
     }
 
+    SettingsDialogs {
+        id: settingsDialogsGroup
+        win: window
+    }
+
     // TaskDialog rather than a raw Dialog: TaskDialog already supplies
     // modal:true + anchors.centerIn:parent (components/TaskDialog.qml), which
     // this dialog was re-deriving by hand via explicit x/y bindings on

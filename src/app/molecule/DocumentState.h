@@ -325,6 +325,12 @@ public:
     const DrawingStyle& drawingStyle() const { return m_drawingStyle; }
     void setDrawingStyle(const DrawingStyle& style);
     
+    // Apply drawing style with whole-drawing rescale (for bond length changes)
+    // When bondLength changes, all atom coordinates are scaled by (newBondLength/oldBondLength)
+    // around the drawing's centroid. This is a single undoable operation.
+    // If bondLength hasn't changed, just applies the style without rescaling.
+    void applyDrawingStyleWithRescale(const DrawingStyle& style);
+    
     // Document-level page settings
     const PageSettings& pageSettings() const { return m_pageSettings; }
     void setPageSettings(const PageSettings& settings);

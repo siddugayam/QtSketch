@@ -264,6 +264,60 @@ void DocumentState::setDrawingStyle(const DrawingStyle& style) {
     }
 }
 
+void DocumentState::applyDrawingStyleWithRescale(const DrawingStyle& style) {
+    // Check if bond length is changing
+    if (m_drawingStyle.bondLength != style.bondLength) {
+        // Compute scale factor: new/old bond length ratio
+        double scaleFactor = style.bondLength / m_drawingStyle.bondLength;
+        
+        // Compute centroid as the scaling center
+        QPointF centroid = m_molecule.computeCentroid();
+        
+        // Create a command that captures both the style change and coordinate rescale
+        // We need to capture old state for undo
+        DrawingStyle oldStyle = m_drawingStyle;
+        
+        // Save old atom positions
+        QHash<AtomId, QPointF> oldPositions;
+        for (AtomId id : m_molecule.atomIds()) {
+            double x, y;
+            if (m_molecule.atomPos(id, x, y)) {
+                oldPositions[id] = QPointF(x, y);
+            }
+        }
+        
+        // Create the command
+        EditCommand cmd;
+        cmd.execute = [this, style, scaleFactor, centroid]() {
+            // Rescale all coordinates
+            m_molecule.scaleAllCoordinates(scaleFactor, centroid.x(), centroid.y());
+
+            // modelToMmScale is fixed for the document's lifetime (style already
+            // carries the document's true scale, seeded via SettingsService's
+            // draft from the real DrawingStyle). The coordinate rescale above,
+            // combined with the unchanged scale, is what makes a bond-length
+            // change actually affect the final physical/export size -- do NOT
+            // re-capture a legacy scale here, that would cancel the rescale out.
+            m_drawingStyle = style;
+        };
+        cmd.invert = [this, oldStyle, oldPositions]() {
+            // Restore old positions
+            for (auto it = oldPositions.constBegin(); it != oldPositions.constEnd(); ++it) {
+                m_molecule.setAtomPos(it.key(), it.value().x(), it.value().y());
+            }
+            
+            // Restore old style
+            m_drawingStyle = oldStyle;
+        };
+        
+        executeCommand(std::move(cmd));
+    } else {
+        // Bond length not changing, just apply the style directly
+        // This preserves the existing legacy scale capture behavior
+        setDrawingStyle(style);
+    }
+}
+
 void DocumentState::setPageSettings(const PageSettings& settings) {
     m_pageSettings = settings;
 }

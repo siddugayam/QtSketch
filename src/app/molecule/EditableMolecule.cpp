@@ -491,6 +491,48 @@ bool EditableMolecule::setAtomPos(AtomId id, double x, double y) {
     return ok;
 }
 
+int EditableMolecule::scaleAllCoordinates(double factor, double centerX, double centerY) {
+    if (m_mol < 0 || factor == 1.0) return 0;
+    
+    activateSession();
+    int count = 0;
+    
+    for (AtomId id : m_atomIdx.keys()) {
+        double x, y;
+        if (atomPos(id, x, y)) {
+            // Scale relative to center point
+            double newX = centerX + (x - centerX) * factor;
+            double newY = centerY + (y - centerY) * factor;
+            if (setAtomPos(id, newX, newY)) {
+                count++;
+            }
+        }
+    }
+    
+    return count;
+}
+
+QPointF EditableMolecule::computeCentroid() const {
+    if (m_mol < 0 || m_atomIdx.isEmpty()) return QPointF(0, 0);
+    
+    const_cast<EditableMolecule*>(this)->activateSession();
+    
+    double sumX = 0, sumY = 0;
+    int count = 0;
+    
+    for (AtomId id : m_atomIdx.keys()) {
+        double x, y;
+        if (const_cast<EditableMolecule*>(this)->atomPos(id, x, y)) {
+            sumX += x;
+            sumY += y;
+            count++;
+        }
+    }
+    
+    if (count == 0) return QPointF(0, 0);
+    return QPointF(sumX / count, sumY / count);
+}
+
 int EditableMolecule::atomCharge(AtomId id) const {
     if (m_mol < 0 || !m_atomIdx.contains(id)) return 0;
     activateSession();
