@@ -8366,6 +8366,7 @@ int main() {
         std::vector<RejectCase> rejectCases = {
             {"branched-unsaturated chain honest rejection", "c1ccccc1C(=C)C", "Unrecognized or unsupported substituent on ring."},
             {"internal nonterminal double bond substituent regression control", "Clc1ccc(CC=CC)cc1", "E/Z descriptors on substituent branches are not supported in this phase."},
+            {"internal nonterminal double bond naphthalene substituent regression control", "Clc1ccc2cc(CC=CC)ccc2c1", "E/Z descriptors on substituent branches are not supported in this phase."},
             {"attachment bond not single rejection", "C1CCCCC1=C", "Unrecognized or unsupported substituent on ring."},
         };
         for (const auto &rc : rejectCases) {
@@ -8434,7 +8435,14 @@ int main() {
             {"primary amine bicyclo repro 1", "NC2(C)CC3CCC2C3", "2-methylbicyclo[2.2.1]heptan-2-amine", false, ""},
             {"primary amine bicyclo repro 2", "NC2CCC3CC2C3", "bicyclo[3.1.1]heptan-2-amine", false, ""},
             {"substituted bicyclic amine", "c1ccccc1C2(N)CC3CCC2C3", "2-phenylbicyclo[2.2.1]heptan-2-amine", false, ""},
-            {"substituted bicyclic amine mecamylamine", "CNC1(C)C2CCC(C2)C1(C)C", "N,2,3,3-tetramethylbicyclo[2.2.1]heptan-2-amine", false, ""}
+            {"substituted bicyclic amine mecamylamine", "CNC1(C)C2CCC(C2)C1(C)C", "N,2,3,3-tetramethylbicyclo[2.2.1]heptan-2-amine", false, ""},
+
+            // Substituent branch E/Z stereochemistry:
+            {"branch stereo E repro", "C1CCCCC1C/C=C/C", "[(2E)-but-2-en-1-yl]cyclohexane", false, ""},
+            {"branch stereo Z repro", "C1CCCCC1C/C=C\\C", "[(2Z)-but-2-en-1-yl]cyclohexane", false, ""},
+            {"branch stereo compound R/S + E/Z", "C1CCCCC1[C@H](Cl)/C=C/C", "[(1S,2E)-1-chlorobut-2-en-1-yl]cyclohexane", false, ""},
+            {"branch stereo naphthalene parent", "c1ccc2cc(C/C=C/C)ccc2c1", "2-[(2E)-but-2-en-1-yl]naphthalene", false, ""},
+            {"branch stereo acyclic parent", "CCCCCC(C/C=C/C)C(=O)O", "2-[(2E)-but-2-en-1-yl]heptanoic acid", false, ""}
         };
         for (const auto &tc : agyCases) {
             int m = indigoLoadMoleculeFromString(tc.smiles.c_str());

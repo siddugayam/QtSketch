@@ -1112,3 +1112,4 @@ id,smiles,pinned_name,pinned_success,actual_name,actual_success,expected_status,
 1111,C=C=O,,false,"Ketenes, carbon dioxide/disulfide analogues, and other unsupported cumulated double-bond systems are not supported in this phase.",false,,"Bug A ketene rejection"
 1112,C[13CH2]C,,false,"Isotopic labeling requiring a locant on a multi-atom parent is not yet supported in this phase.",false,,"Bug B multi-atom isotope rejection"
 1113,OC(=O)c1ccc(NC2(C)CC3CCC2C3)cc1,4-[(2-methylbicyclo[2.2.1]heptan-2-yl)amino]benzenecarboxylic acid,true,4-[(2-methylbicyclo[2.2.1]heptan-2-yl)amino]benzenecarboxylic acid,true,,"secondary amine bridging bicyclic and acid rings (P-41 seniority fix)"
+1114,C1CCCCC1C/C=C/C,"[(2E)-but-2-en-1-yl]cyclohexane",true,"[(2E)-but-2-en-1-yl]cyclohexane",true,,"branch E/Z stereo fix"

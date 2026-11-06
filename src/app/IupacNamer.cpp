@@ -2160,7 +2160,8 @@ QString nameBranchGraph(const Graph &g, int rootIdx, int parentIdx,
                                const std::set<int> &forbiddenNodes = {},
                                const std::map<int, QChar> &stereoByGraphId = {},
                                std::set<int> *handledBranchStereoIds = nullptr,
-                               int mol = -1);
+                               int mol = -1,
+                               const std::map<std::pair<int, int>, QChar> &branchBondStereo = {});
 
 QString nameAmineSubstituentPrefix(int nNode, int fromNode, const Graph &g,
                                     const std::vector<std::set<int>> &allIndependentRings,
@@ -5849,7 +5850,8 @@ QString nameRingSystemAsSubstituent(
 
 QString nameBranchGraph(const Graph &g, int rootIdx, int parentIdx, const std::vector<std::set<int>> &allIndependentRings, const std::set<int> &forbiddenNodes,
                          const std::map<int, QChar> &stereoByGraphId, std::set<int> *handledBranchStereoIds,
-                         int mol) {
+                         int mol,
+                         const std::map<std::pair<int, int>, QChar> &branchBondStereo) {
     if (forbiddenNodes.count(rootIdx)) return "";
 
     // Point 6: Reject if attachment bond between rootIdx and parentIdx is not a single bond.
@@ -6220,7 +6222,8 @@ QString nameBranchGraph(const Graph &g, int rootIdx, int parentIdx, const std::v
         }
 
         // Point 5: Reject nonterminal substituent double bonds inside nameBranchGraph itself
-        // (both ends bonded to at least one other heavy atom)
+        // (both ends bonded to at least one other heavy atom) unless accompanied by an
+        // Indigo-derived E/Z descriptor in branchBondStereo.
         for (size_t i = 0; i + 1 < candPath.size(); ++i) {
             int u = candPath[i];
             int v = candPath[i + 1];
@@ -6241,7 +6244,10 @@ QString nameBranchGraph(const Graph &g, int rootIdx, int parentIdx, const std::v
                     if (nei != u && g.nodes[nei].atomicNumber > 1) heavyV++;
                 }
                 if (heavyU >= 1 && heavyV >= 1) {
-                    return "";
+                    auto bKey = std::make_pair(std::min(u, v), std::max(u, v));
+                    if (!branchBondStereo.count(bKey)) {
+                        return "";
+                    }
                 }
             }
         }
@@ -6307,7 +6313,7 @@ QString nameBranchGraph(const Graph &g, int rootIdx, int parentIdx, const std::v
                 if (z == 9 || z == 17 || z == 35 || z == 53) {
                     locantPrefixes[locant].append(halogenPrefix(z));
                 } else if (z == 6 || z == 8 || z == 7) {
-                    QString subBranch = nameBranchGraph(g, nei, cNode, allIndependentRings, {}, {}, nullptr, mol);
+                    QString subBranch = nameBranchGraph(g, nei, cNode, allIndependentRings, {}, {}, nullptr, mol, branchBondStereo);
                     if (subBranch.isEmpty()) return "";
                     locantPrefixes[locant].append(subBranch);
                 } else {
@@ -7733,7 +7739,9 @@ QString formatBranchStereoPrefix(
     int parentIdx,
     const std::map<int, QChar> &stereoByGraphId,
     std::set<int> &handledBranchStereoIds,
-    const std::vector<std::set<int>> &allRings = {})
+    const std::vector<std::set<int>> &allRings = {},
+    const std::map<std::pair<int, int>, QChar> &branchBondStereo = {},
+    std::set<std::pair<int, int>> *handledBranchBonds = nullptr)
 {
     // Same ring-exclusion fix as nameBranchGraph's identical chain-walk (see the
     // comment there): a ring atom must never be treated as a continuing chain
@@ -7802,6 +7810,20 @@ QString formatBranchStereoPrefix(
         }
     }
 
+    for (size_t i = 0; i + 1 < path.size(); ++i) {
+        int u = path[i];
+        int v = path[i + 1];
+        auto key = std::make_pair(std::min(u, v), std::max(u, v));
+        auto it = branchBondStereo.find(key);
+        if (it != branchBondStereo.end()) {
+            int locant = static_cast<int>(i + 1);
+            locantStereo.push_back({locant, it->second});
+            if (handledBranchBonds) {
+                handledBranchBonds->insert(key);
+            }
+        }
+    }
+
     if (locantStereo.empty()) {
         return "";
     }
@@ -7824,9 +7846,13 @@ StereoResult processDoubleBondStereo(
     const Graph &g,
     const std::set<int> &ringNodeSet,
     const std::map<int, int> &graphIdToLocant,
-    std::map<int, QChar> &stereoByGraphId)
+    std::map<int, QChar> &stereoByGraphId,
+    std::map<std::pair<int, int>, QChar> &branchBondStereo,
+    bool diagnosticOnly = false,
+    const std::set<int> &allSSSRNodes = {})
 {
     const std::map<std::pair<int,int>, QChar> bondCIP = computeIndigoBondCIP(mol);
+    const std::set<int> &ringSet = allSSSRNodes.empty() ? ringNodeSet : allSSSRNodes;
 
     for (const auto &bond : g.bonds) {
         if (bond.order != 2) continue;
@@ -7839,7 +7865,9 @@ StereoResult processDoubleBondStereo(
         }
 
         // 1. Ring double bonds: skip silently
-        if (ringNodeSet.count(u) > 0 || ringNodeSet.count(v) > 0) {
+        bool uInRing = ringSet.count(u) > 0;
+        bool vInRing = ringSet.count(v) > 0;
+        if (uInRing && vInRing) {
             continue;
         }
 
@@ -7858,29 +7886,44 @@ StereoResult processDoubleBondStereo(
             continue;
         }
 
-        // 3. Check if double bond carbons are on main chain/ring
-        auto it_u = graphIdToLocant.find(u);
-        auto it_v = graphIdToLocant.find(v);
-        if (it_u == graphIdToLocant.end() || it_v == graphIdToLocant.end()) {
+        // Exocyclic double bond on a ring (one carbon in ring, one outside):
+        // Unsupported in this phase (e.g. Sulindac).
+        if (uInRing != vInRing) {
             return {false, "", "E/Z descriptors on substituent branches are not supported in this phase."};
         }
 
-        int loc_u = it_u->second;
-        int loc_v = it_v->second;
-        int targetGraphId = (loc_u < loc_v) ? u : v;
+        // 3. Both carbons are acyclic. Check if double bond carbons are on main chain/ring vs branch
+        auto it_u = graphIdToLocant.find(u);
+        auto it_v = graphIdToLocant.find(v);
+        if (it_u != graphIdToLocant.end() && it_v != graphIdToLocant.end()) {
+            int loc_u = it_u->second;
+            int loc_v = it_v->second;
+            int targetGraphId = (loc_u < loc_v) ? u : v;
 
-        // 4. Look up Indigo's own real CIP answer for this bond (2nd-shell-aware,
-        // handles trisubstituted/tetrasubstituted cases the old hand-rolled
-        // first-shell-only comparator could not). Absent = not stereogenic
-        // (e.g. symmetric substituents) or geometry undefined -- skip silently.
-        auto key = std::make_pair(std::min(g.nodes[u].indigoIdx, g.nodes[v].indigoIdx),
-                                   std::max(g.nodes[u].indigoIdx, g.nodes[v].indigoIdx));
-        auto cipIt = bondCIP.find(key);
-        if (cipIt == bondCIP.end()) {
-            continue;
+            auto key = std::make_pair(std::min(g.nodes[u].indigoIdx, g.nodes[v].indigoIdx),
+                                       std::max(g.nodes[u].indigoIdx, g.nodes[v].indigoIdx));
+            auto cipIt = bondCIP.find(key);
+            if (cipIt == bondCIP.end()) {
+                continue;
+            }
+
+            stereoByGraphId[targetGraphId] = cipIt->second;
+        } else if (it_u == graphIdToLocant.end() && it_v == graphIdToLocant.end()) {
+            if (diagnosticOnly) {
+                return {false, "", "E/Z descriptors on substituent branches are not supported in this phase."};
+            }
+
+            auto key = std::make_pair(std::min(g.nodes[u].indigoIdx, g.nodes[v].indigoIdx),
+                                       std::max(g.nodes[u].indigoIdx, g.nodes[v].indigoIdx));
+            auto cipIt = bondCIP.find(key);
+            if (cipIt == bondCIP.end()) {
+                continue;
+            }
+
+            branchBondStereo[std::make_pair(std::min(u, v), std::max(u, v))] = cipIt->second;
+        } else {
+            return {false, "", "Double bond spanning parent and substituent branch is not supported in this phase."};
         }
-
-        stereoByGraphId[targetGraphId] = cipIt->second;
     }
 
     return {true, "", ""};
@@ -20167,8 +20210,17 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
         std::vector<int> substituentLocants;
         std::vector<std::pair<QString, int>> namedSubstituents;
         std::set<int> handledBranchStereoIds;
+        std::set<std::pair<int, int>> handledBranchBonds;
         std::vector<int> hydroLocants; // Theme 4: this candidate's locants for monocyclicHydroNodes
     };
+
+    std::map<int, int> initialRingLocantMap;
+    for (int node : ringNodeSet) initialRingLocantMap[node] = 1;
+    std::map<std::pair<int, int>, QChar> branchBondStereo;
+    StereoResult preEzRes = processDoubleBondStereo(mol, g, ringNodeSet, initialRingLocantMap, stereoByGraphId, branchBondStereo, false, allSSSRNodes);
+    if (!preEzRes.ok) {
+        return {false, "", preEzRes.error};
+    }
 
     std::vector<RingSignature> ringSignatures;
 
@@ -20607,9 +20659,9 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                     } else if (subName.isEmpty() && phase2ForcedRingSubstituentNames.count(rNode)) {
                         subName = phase2ForcedRingSubstituentNames[rNode];
                     } else if (subName.isEmpty()) {
-                        subName = nameBranchGraph(g, nei, rNode, allSSSRRings, ringNodeSet, {}, nullptr, mol);
+                        subName = nameBranchGraph(g, nei, rNode, allSSSRRings, ringNodeSet, {}, nullptr, mol, branchBondStereo);
                         if (!subName.isEmpty()) {
-                            QString branchStereo = formatBranchStereoPrefix(g, nei, rNode, stereoByGraphId, sig.handledBranchStereoIds, allSSSRRings);
+                            QString branchStereo = formatBranchStereoPrefix(g, nei, rNode, stereoByGraphId, sig.handledBranchStereoIds, allSSSRRings, branchBondStereo, &sig.handledBranchBonds);
                             if (!branchStereo.isEmpty()) {
                                 if (subName.startsWith("(") && subName.endsWith(")")) {
                                     QString inner = subName.mid(1, subName.length() - 2);
@@ -20637,7 +20689,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                     sig.substituentLocants.push_back(locant);
                     sig.namedSubstituents.push_back({subName, locant});
                 } else {
-                    StereoResult ezRes = processDoubleBondStereo(mol, g, ringNodeSet, {}, stereoByGraphId);
+                    StereoResult ezRes = processDoubleBondStereo(mol, g, ringNodeSet, {}, stereoByGraphId, branchBondStereo, true, allSSSRNodes);
                     if (!ezRes.ok) {
                         return {false, "", ezRes.error};
                     }
@@ -20861,9 +20913,12 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
         }
     }
 
-    StereoResult ezRes = processDoubleBondStereo(mol, g, ringNodeSet, graphIdToLocant, stereoByGraphId);
+    StereoResult ezRes = processDoubleBondStereo(mol, g, ringNodeSet, graphIdToLocant, stereoByGraphId, branchBondStereo, false, allSSSRNodes);
     if (!ezRes.ok) {
         return {false, "", ezRes.error};
+    }
+    if (bestSig.handledBranchBonds.size() < branchBondStereo.size()) {
+        return {false, "", "Stereogenic double bonds not on the primary substituent path are not supported in this phase."};
     }
     StereoResult stereoRes = formatStereoPrefix(stereoByGraphId, graphIdToLocant, bestSig.handledBranchStereoIds);
     if (!stereoRes.ok) {
@@ -21458,7 +21513,18 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
             std::vector<int> substituentLocants;
             std::vector<std::pair<QString, int>> namedSubstituents;
             std::set<int> handledBranchStereoIds;
+            std::set<std::pair<int, int>> handledBranchBonds;
         };
+
+        std::set<int> naphthRingNodes(ring1Nodes.begin(), ring1Nodes.end());
+        naphthRingNodes.insert(ring2Nodes.begin(), ring2Nodes.end());
+        std::map<int, int> initialNaphthLocantMap;
+        for (int node : naphthRingNodes) initialNaphthLocantMap[node] = 1;
+        std::map<std::pair<int, int>, QChar> branchBondStereo;
+        StereoResult preEzRes = processDoubleBondStereo(mol, g, naphthRingNodes, initialNaphthLocantMap, stereoByGraphId, branchBondStereo, false, allSSSRNodes);
+        if (!preEzRes.ok) {
+            return {false, "", preEzRes.error};
+        }
 
         std::vector<NaphthaleneSignature> signatures;
 
@@ -21763,9 +21829,9 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                             }
                         }
                         if (subName.isEmpty()) {
-                            subName = nameBranchGraph(g, nei, rNode, allSSSRRings, ring2Nodes, {}, nullptr, mol);
+                            subName = nameBranchGraph(g, nei, rNode, allSSSRRings, ring2Nodes, {}, nullptr, mol, branchBondStereo);
                             if (!subName.isEmpty()) {
-                                QString branchStereo = formatBranchStereoPrefix(g, nei, rNode, stereoByGraphId, sig.handledBranchStereoIds, allSSSRRings);
+                                QString branchStereo = formatBranchStereoPrefix(g, nei, rNode, stereoByGraphId, sig.handledBranchStereoIds, allSSSRRings, branchBondStereo, &sig.handledBranchBonds);
                                 if (!branchStereo.isEmpty()) {
                                     if (subName.startsWith("(") && subName.endsWith(")")) {
                                         QString inner = subName.mid(1, subName.length() - 2);
@@ -21790,7 +21856,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                         sig.substituentLocants.push_back(locant);
                         sig.namedSubstituents.push_back({subName, locant});
                     } else {
-                        StereoResult ezRes = processDoubleBondStereo(mol, g, ringNodeSet, {}, stereoByGraphId);
+                        StereoResult ezRes = processDoubleBondStereo(mol, g, naphthRingNodes, {}, stereoByGraphId, branchBondStereo, true, allSSSRNodes);
                         if (!ezRes.ok) {
                             return {false, "", ezRes.error};
                         }
@@ -21837,11 +21903,12 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
 
         NaphthaleneSignature bestSig = *bestIt;
         std::map<int, int> graphIdToLocant = bestSig.locantMap;
-        std::set<int> naphthRingNodes(ring1Nodes.begin(), ring1Nodes.end());
-        naphthRingNodes.insert(ring2Nodes.begin(), ring2Nodes.end());
-        StereoResult ezRes = processDoubleBondStereo(mol, g, naphthRingNodes, graphIdToLocant, stereoByGraphId);
+        StereoResult ezRes = processDoubleBondStereo(mol, g, naphthRingNodes, graphIdToLocant, stereoByGraphId, branchBondStereo, false, allSSSRNodes);
         if (!ezRes.ok) {
             return {false, "", ezRes.error};
+        }
+        if (bestSig.handledBranchBonds.size() < branchBondStereo.size()) {
+            return {false, "", "Stereogenic double bonds not on the primary substituent path are not supported in this phase."};
         }
         StereoResult stereoRes = formatStereoPrefix(stereoByGraphId, graphIdToLocant, bestSig.handledBranchStereoIds);
         if (!stereoRes.ok) {
@@ -22979,11 +23046,13 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
         for (size_t i = 0; i < bestSig.parentChain.size(); ++i) {
             graphIdToLocant[bestSig.parentChain[i]] = static_cast<int>(i + 1);
         }
-        StereoResult ezRes = processDoubleBondStereo(mol, g, allRingSubstituentNodes, graphIdToLocant, stereoByGraphId);
+        std::map<std::pair<int, int>, QChar> branchBondStereo;
+        StereoResult ezRes = processDoubleBondStereo(mol, g, allRingSubstituentNodes, graphIdToLocant, stereoByGraphId, branchBondStereo, false, allSSSRNodes);
         if (!ezRes.ok) {
             return {false, "", ezRes.error};
         }
         std::set<int> handledBranchStereoIds;
+        std::set<std::pair<int, int>> handledBranchBonds;
         StereoResult stereoRes;
 
         std::vector<int> parentChain = bestSig.parentChain;
@@ -23423,14 +23492,14 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                             if (r.count(nei)) { neiIsInRing = true; break; }
                         }
                         QString bName = neiIsInRing
-                            ? nameBranchGraph(g, nei, cNode, allSSSRRings, {}, stereoByGraphId, &handledBranchStereoIds, mol)
-                            : nameBranchGraph(g, nei, cNode, allSSSRRings, {}, {}, nullptr, mol);
+                            ? nameBranchGraph(g, nei, cNode, allSSSRRings, {}, stereoByGraphId, &handledBranchStereoIds, mol, branchBondStereo)
+                            : nameBranchGraph(g, nei, cNode, allSSSRRings, {}, {}, nullptr, mol, branchBondStereo);
                         if (bName.isEmpty()) {
                             // unnameable substituent (e.g. fused/bridged ring branch, azide) --
                             // must fail the whole name, not silently drop the substituent
                             return {false, "", "Unrecognized or unsupported substituent."};
                         }
-                        QString branchStereo = neiIsInRing ? QString() : formatBranchStereoPrefix(g, nei, cNode, stereoByGraphId, handledBranchStereoIds, allSSSRRings);
+                        QString branchStereo = neiIsInRing ? QString() : formatBranchStereoPrefix(g, nei, cNode, stereoByGraphId, handledBranchStereoIds, allSSSRRings, branchBondStereo, &handledBranchBonds);
                         if (!branchStereo.isEmpty()) {
                             if (bName.startsWith("(") && bName.endsWith(")")) {
                                 QString inner = bName.mid(1, bName.length() - 2);
@@ -23443,6 +23512,10 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                     }
                 }
             }
+        }
+
+        if (handledBranchBonds.size() < branchBondStereo.size()) {
+            return {false, "", "Stereogenic double bonds not on the primary substituent path are not supported in this phase."};
         }
 
         stereoRes = formatStereoPrefix(stereoByGraphId, graphIdToLocant, handledBranchStereoIds);
