@@ -129,6 +129,10 @@ QRectF RenderScene::pxBounds(double dpi) const {
 void RenderScene::clear() {
     m_prims = RenderPrimitives();
     m_modelBounds = QRectF();
+    m_requestedFontFamily.clear();
+    m_resolvedFontFamily.clear();
+    m_fontSubstituted = false;
+    m_fontWarnings.clear();
 }
 
 void RenderScene::paint(QPainter* painter) const {
