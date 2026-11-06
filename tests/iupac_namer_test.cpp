@@ -8365,8 +8365,6 @@ int main() {
         };
         std::vector<RejectCase> rejectCases = {
             {"branched-unsaturated chain honest rejection", "c1ccccc1C(=C)C", "Unrecognized or unsupported substituent on ring."},
-            {"internal nonterminal double bond substituent regression control", "Clc1ccc(CC=CC)cc1", "E/Z descriptors on substituent branches are not supported in this phase."},
-            {"internal nonterminal double bond naphthalene substituent regression control", "Clc1ccc2cc(CC=CC)ccc2c1", "E/Z descriptors on substituent branches are not supported in this phase."},
             {"attachment bond not single rejection", "C1CCCCC1=C", "Unrecognized or unsupported substituent on ring."},
         };
         for (const auto &rc : rejectCases) {
@@ -8442,7 +8440,11 @@ int main() {
             {"branch stereo Z repro", "C1CCCCC1C/C=C\\C", "[(2Z)-but-2-en-1-yl]cyclohexane", false, ""},
             {"branch stereo compound R/S + E/Z", "C1CCCCC1[C@H](Cl)/C=C/C", "[(1S,2E)-1-chlorobut-2-en-1-yl]cyclohexane", false, ""},
             {"branch stereo naphthalene parent", "c1ccc2cc(C/C=C/C)ccc2c1", "2-[(2E)-but-2-en-1-yl]naphthalene", false, ""},
-            {"branch stereo acyclic parent", "CCCCCC(C/C=C/C)C(=O)O", "2-[(2E)-but-2-en-1-yl]heptanoic acid", false, ""}
+            {"branch stereo acyclic parent", "CCCCCC(C/C=C/C)C(=O)O", "2-[(2E)-but-2-en-1-yl]heptanoic acid", false, ""},
+            // Plain (undefined-geometry) internal alkene on a branch: no stereo to report,
+            // must name plain (was wrongly hard-rejected before the Point 5 guard removal).
+            {"internal nonterminal double bond substituent regression control", "Clc1ccc(CC=CC)cc1", "1-but-2-en-1-yl-4-chlorobenzene", false, ""},
+            {"internal nonterminal double bond naphthalene substituent regression control", "Clc1ccc2cc(CC=CC)ccc2c1", "2-but-2-en-1-yl-6-chloronaphthalene", false, ""}
         };
         for (const auto &tc : agyCases) {
             int m = indigoLoadMoleculeFromString(tc.smiles.c_str());

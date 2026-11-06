@@ -6221,36 +6221,6 @@ QString nameBranchGraph(const Graph &g, int rootIdx, int parentIdx, const std::v
             else if (bo != 1) return "";
         }
 
-        // Point 5: Reject nonterminal substituent double bonds inside nameBranchGraph itself
-        // (both ends bonded to at least one other heavy atom) unless accompanied by an
-        // Indigo-derived E/Z descriptor in branchBondStereo.
-        for (size_t i = 0; i + 1 < candPath.size(); ++i) {
-            int u = candPath[i];
-            int v = candPath[i + 1];
-            int bo = 1;
-            for (size_t k = 0; k < g.nodes[u].neighbors.size(); ++k) {
-                if (g.nodes[u].neighbors[k] == v) {
-                    bo = g.nodes[u].bondOrders[k];
-                    break;
-                }
-            }
-            if (bo == 2) {
-                int heavyU = 0;
-                for (int nei : g.nodes[u].neighbors) {
-                    if (nei != v && g.nodes[nei].atomicNumber > 1) heavyU++;
-                }
-                int heavyV = 0;
-                for (int nei : g.nodes[v].neighbors) {
-                    if (nei != u && g.nodes[nei].atomicNumber > 1) heavyV++;
-                }
-                if (heavyU >= 1 && heavyV >= 1) {
-                    auto bKey = std::make_pair(std::min(u, v), std::max(u, v));
-                    if (!branchBondStereo.count(bKey)) {
-                        return "";
-                    }
-                }
-            }
-        }
 
         bool isUnsaturated = (!dbLocs.empty() || !tbLocs.empty());
 
