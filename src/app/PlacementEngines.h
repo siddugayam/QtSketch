@@ -21,13 +21,13 @@ struct PlacementResult {
     QList<PreviewBond> bonds;
 };
 
+class PlacementUtils;
+
 class AtomPlacementEngine {
 public:
     static PlacementResult compute(const QPointF& startPos, const QPointF& currentMouse, 
                                    const QString& toolAtom, const QList<double>& existingAngles, 
                                    double bondLength);
-private:
-    static double snapAngle(double rawAngle, const QList<double>& existingAngles);
 };
 
 class FragmentPlacementEngine {

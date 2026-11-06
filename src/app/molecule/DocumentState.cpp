@@ -12,6 +12,7 @@
 #include "indigo.h"
 #include <optional>
 #include "BondAngleSuggester.h"
+#include "PlacementCleanup.h"
 
 // RAII guard for m_inCommand: execute/undo/redo previously set the flag true, ran an
 // arbitrary EditCommand closure, then set it false -- if that closure ever threw (Indigo
@@ -2301,6 +2302,10 @@ void DocumentState::addRing(const QList<double>& coords, bool aromatic) {
         for (AtomId a : ringAtoms) finalRingAtoms.append(mergeResult.mergedAway.value(a, a));
 
         applyRingAlternation(finalRingAtoms, oldBonds, aromatic);
+
+        // Post-placement cleanup: normalize bond lengths for newly added atoms
+        double targetBondLength = m_drawingStyle.bondLength;
+        PlacementCleanup::cleanupPlacement(mol, *createdAtoms, targetBondLength);
     };
     cmd.invert = [&mol, createdAtoms, createdBonds]() {
         // Bonds first, then atoms -- avoids depending on removal cascade
@@ -2360,6 +2365,9 @@ void DocumentState::addChain(double x1, double y1, double x2, double y2) {
         }
         *createdAtoms = survivors;
         for (BondId b : mergeResult.createdBonds) createdBonds->append(b);
+
+        // Post-placement cleanup: normalize bond lengths for newly added atoms
+        PlacementCleanup::cleanupPlacement(mol, *createdAtoms, bondLength);
     };
     cmd.invert = [&mol, createdAtoms, createdBonds]() {
         for (BondId b : *createdBonds) mol.removeBond(b);
@@ -2598,7 +2606,7 @@ void DocumentState::insertFunctionalGroup(const TemplateLibrary& lib, const QStr
     auto createdSGroups = std::make_shared<QList<SGroupId>>();
 
     EditCommand cmd;
-    cmd.execute = [&mol, fgMolfile = p.fgMolfile, fgName, dx = p.dx, dy = p.dy, useRotation = p.useRotation,
+    cmd.execute = [this, &mol, fgMolfile = p.fgMolfile, fgName, dx = p.dx, dy = p.dy, useRotation = p.useRotation,
                    cosR = p.cosR, sinR = p.sinR, attachX = p.attachX, attachY = p.attachY,
                    attachTargetX = p.attachTargetX, attachTargetY = p.attachTargetY,
                    templateAttachIdx = p.templateAttachIdx,
@@ -2641,6 +2649,11 @@ void DocumentState::insertFunctionalGroup(const TemplateLibrary& lib, const QStr
             mol.setSGroupExpanded(sg, fullStructure);
             mol.setSGroupLabel(sg, fgName);
         }
+
+        // Post-placement cleanup: normalize bond lengths for newly added atoms
+        // Use a local variable for bondLength to avoid capturing this
+        double targetBondLength = m_drawingStyle.bondLength;
+        PlacementCleanup::cleanupPlacement(mol, *createdAtoms, targetBondLength);
     };
     // createdSGroups is intentionally never swept here: EditableMolecule::removeAtom's
     // rebuildIndexTables() cascade already prunes any m_sgroupIdx entry whose underlying Indigo

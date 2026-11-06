@@ -422,6 +422,10 @@ add_library(molecule_model STATIC
     src/app/BondAngleSuggester.cpp
     src/app/BondStereoPerception.h
     src/app/BondStereoPerception.cpp
+    src/app/PlacementUtils.h
+    src/app/PlacementUtils.cpp
+    src/app/PlacementCleanup.h
+    src/app/PlacementCleanup.cpp
 )
 target_include_directories(molecule_model PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -450,6 +454,14 @@ qt_add_executable(editable_molecule_test tests/editable_molecule_test.cpp)
 target_link_libraries(editable_molecule_test PRIVATE molecule_model)
 target_compile_definitions(editable_molecule_test PRIVATE SKETCH_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 add_test(NAME editable_molecule_test COMMAND editable_molecule_test)
+
+qt_add_executable(placement_engines_test tests/placement_engines_test.cpp src/app/PlacementEngines.h src/app/PlacementEngines.cpp)
+target_include_directories(placement_engines_test PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app
+)
+target_link_libraries(placement_engines_test PRIVATE molecule_model)
+add_test(NAME placement_engines_test COMMAND placement_engines_test)
 
 qt_add_executable(bond_angle_suggester_test tests/bond_angle_suggester_test.cpp src/app/BondAngleSuggester.h src/app/BondAngleSuggester.cpp)
 target_include_directories(bond_angle_suggester_test PRIVATE

@@ -1,38 +1,9 @@
 #include "PlacementEngines.h"
+#include "PlacementUtils.h"
 #include <cmath>
 #include <QDebug>
 
 static const double PI = 3.14159265358979323846;
-
-double AtomPlacementEngine::snapAngle(double rawAngle, const QList<double>& existingAngles) {
-    // Basic snapping to 30° increments (PI/6)
-    double snapInterval = PI / 6.0;
-    
-    // Normalize rawAngle between -PI and PI
-    while (rawAngle > PI) rawAngle -= 2 * PI;
-    while (rawAngle < -PI) rawAngle += 2 * PI;
-    
-    double snapped = std::round(rawAngle / snapInterval) * snapInterval;
-    
-    // Fallback: Steric avoidance if too close to existing angles
-    for (double ang : existingAngles) {
-        // Normalize ang
-        while (ang > PI) ang -= 2 * PI;
-        while (ang < -PI) ang += 2 * PI;
-        
-        double diff = std::abs(snapped - ang);
-        if (diff > PI) diff = 2 * PI - diff;
-        
-        // If angle is within 15 degrees of an existing bond, it's too crowded
-        if (diff < (PI / 12.0)) {
-            // Find a better angle
-            // For now, return snapped + 30 degrees (just a simplistic approach)
-            snapped += snapInterval;
-            break;
-        }
-    }
-    return snapped;
-}
 
 PlacementResult AtomPlacementEngine::compute(const QPointF& startPos, const QPointF& currentMouse, 
                                              const QString& toolAtom, const QList<double>& existingAngles, 
@@ -47,7 +18,7 @@ PlacementResult AtomPlacementEngine::compute(const QPointF& startPos, const QPoi
     }
     
     double angle = std::atan2(dy, dx);
-    angle = snapAngle(angle, existingAngles);
+    angle = PlacementUtils::snapAngle(angle, existingAngles);
     
     QPointF newPos(startPos.x() + std::cos(angle) * bondLength, 
                    startPos.y() + std::sin(angle) * bondLength);
@@ -71,8 +42,9 @@ PlacementResult FragmentPlacementEngine::compute(const QPointF& startPos, const 
     }
     
     double rawAngle = std::atan2(dy, dx);
-    double snapInterval = PI / 6.0;
-    double snappedAngle = std::round(rawAngle / snapInterval) * snapInterval;
+    
+    // Use the same snapping logic as AtomPlacementEngine (with steric avoidance)
+    double snappedAngle = PlacementUtils::snapAngle(rawAngle, existingAngles);
     
     // For no-drag placement (plain click), rotate by 90 degrees for vertex-up orientation
     // (standard chemistry drawing convention: vertex at top/bottom, not flat-top)
