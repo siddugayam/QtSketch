@@ -194,6 +194,13 @@ int main() {
         {"CC[Sb](=O)(O)CC", "diethylstibinic acid"},
         {"C[Sb](=O)(O)c1ccccc1", "methyl(phenyl)stibinic acid"},
 
+        // Antimony groups other than stibonic/stibinic acid must honestly reject,
+        // not silently drop the Sb atom and collapse to a fragment of the real
+        // structure (confirmed live regression: C[Sb](C)C used to produce the
+        // bare name "methane", silently dropping the Sb and 2 of its 3 methyls).
+        {"C[Sb](C)C", "", true, "Antimony-containing groups other than stibonic and stibinic acids are not supported in this phase."},
+        {"C[SbH2]", "", true, "Antimony-containing groups other than stibonic and stibinic acids are not supported in this phase."},
+
         // Borinic acid
         {"CCB(O)CC", "diethylborinic acid"},
 
@@ -234,7 +241,7 @@ int main() {
         // detection block; confirms widening the top-of-function element whitelist to admit
         // antimony didn't accidentally cause this out-of-scope shape to hit some other,
         // unrelated code path deeper in the function instead of a clean rejection.
-        {"O[SbH]O[SbH]O", "", true, "No carbon atoms present in structure."},
+        {"O[SbH]O[SbH]O", "", true, "Antimony-containing groups other than stibonic and stibinic acids are not supported in this phase."},
 
         {"CCB(O)Cl", "chloro(ethyl)borinic acid"},
         {"CB(O)c1ccccc1", "methyl(phenyl)borinic acid"},

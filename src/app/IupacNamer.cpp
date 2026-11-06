@@ -18716,8 +18716,9 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
             } else if (sglC == 2 && dblO == 1 && sglO_OH == 1 && node.neighbors.size() == 4) {
                 carbonStibinicAcid[cNeighbors[0]] = static_cast<int>(i);
                 carbonStibinicAcid[cNeighbors[1]] = static_cast<int>(i);
+            } else {
+                return {false, "", "Antimony-containing groups other than stibonic and stibinic acids are not supported in this phase."};
             }
-            // Other antimony groups (e.g., dinuclear oxoacids) are handled elsewhere; fall through.
         } else if (node.atomicNumber == 5) {
             int sglC = 0, sglO_OH = 0;
             std::vector<int> cNeighbors;
