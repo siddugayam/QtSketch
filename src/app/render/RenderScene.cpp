@@ -3,6 +3,7 @@
 #include <QPainter>
 #include <QFontDatabase>
 #include <QDebug>
+#include <QFile>
 #include "molecule/RenderPrimitives.h"
 
 namespace {
@@ -102,7 +103,86 @@ bool RenderScene::build(const RenderPrimitives& prims,
     // Set up font metrics
     m_regularFontMetrics = QFontMetricsF(m_regularFont);
     m_boldFontMetrics = QFontMetricsF(m_boldFont);
-    
+
+    // Expand bounds to cover every painted primitive, not just atom
+    // positions -- an annotation, image, or bracket placed away from the
+    // molecule (or an atom's own label, wider than a zero-size point) used
+    // to be silently excluded and clipped in export. Requires fonts to
+    // already be set up (measureText), so this runs after the block above.
+    bool haveBounds = !m_prims.atoms.isEmpty() || prims.bbox.valid;
+    auto includePoint = [&](double x, double y) {
+        if (!haveBounds) {
+            m_modelBounds = QRectF(x, y, 0, 0);
+            haveBounds = true;
+        } else {
+            if (x < m_modelBounds.left()) m_modelBounds.setLeft(x);
+            if (x > m_modelBounds.right()) m_modelBounds.setRight(x);
+            if (y < m_modelBounds.top()) m_modelBounds.setTop(y);
+            if (y > m_modelBounds.bottom()) m_modelBounds.setBottom(y);
+        }
+    };
+    auto includeRect = [&](double x0, double y0, double x1, double y1) {
+        includePoint(x0, y0);
+        includePoint(x1, y1);
+    };
+
+    // NOTE: atom labels and TextPrim content are deliberately NOT measured
+    // into these bounds. measureText()/QFontMetricsF report sizes in font
+    // logical-pixel units, not model units -- unioning that directly into
+    // m_modelBounds (confirmed via direct debug measurement: it inflated a
+    // ~1.5x1.3 model-unit molecule's bounds to ~10.9x14.5) silently blows up
+    // every export far beyond the real geometry. Converting correctly would
+    // need the same points/pixels-per-model-unit factor the exporters now
+    // apply (modelToMmScale * device DPI), which isn't available at build()
+    // time (no target device yet) -- left as a known follow-up rather than
+    // risk a wrong conversion. Position-only primitives below (images,
+    // brackets, arrows) are safe: their coordinates are already in model
+    // units, same as atoms.
+    for (const TextPrim& text : m_prims.texts) {
+        includePoint(text.x, text.y);
+    }
+    for (const ImagePrim& img : m_prims.images) {
+        includeRect(img.x, img.y, img.x + img.w, img.y + img.h);
+    }
+    for (const BracketPrim& br : m_prims.brackets) {
+        includeRect(br.minX, br.minY, br.maxX, br.maxY);
+    }
+    for (const RxnArrowPrim& arrow : m_prims.rxnArrows) {
+        includePoint(arrow.p1x, arrow.p1y);
+        includePoint(arrow.p2x, arrow.p2y);
+    }
+    for (const RxnPlusPrim& plus : m_prims.rxnPluses) {
+        includePoint(plus.x, plus.y);
+    }
+    for (const MultitailArrowPrim& ma : m_prims.multitailArrows) {
+        includePoint(ma.headX, ma.headY);
+        for (const QPointF& tail : ma.tails) {
+            includePoint(tail.x(), tail.y());
+        }
+    }
+
+    // A single atom, or atoms that are exactly collinear (e.g. a flat
+    // horizontal 2-atom molecule), legitimately produce a zero-width and/or
+    // zero-height bounds -- real geometry, not an error. But a degenerate
+    // (zero-area) rect still allocates a degenerate (often zero-pixel)
+    // export canvas despite there being real, visible content (the bond
+    // line itself, line width, atom labels already accounted for above).
+    // Pad by half the document's own bond length so every export has a
+    // sane minimum extent.
+    if (haveBounds) {
+        const double minPad = m_drawingStyle.bondLength / 2.0;
+        if (m_modelBounds.width() < minPad) {
+            double cx = m_modelBounds.center().x();
+            m_modelBounds.setLeft(cx - minPad / 2.0);
+            m_modelBounds.setRight(cx + minPad / 2.0);
+        }
+        if (m_modelBounds.height() < minPad) {
+            double cy = m_modelBounds.center().y();
+            m_modelBounds.setTop(cy - minPad / 2.0);
+            m_modelBounds.setBottom(cy + minPad / 2.0);
+        }
+    }
+
     return true;
 }
 

@@ -52,8 +52,12 @@ private:
     // Helper to get format from file extension
     QString detectFormatFromPath(const QString& filePath) const;
 
-    // Build RenderScene from molfile
-    bool buildSceneFromMolfile(const QString& molfile, RenderScene& scene);
+    // Build RenderScene from molfile. options may contain "drawingStyle"/
+    // "pageSettings" keys matching V8Process::getDrawingStyle()/
+    // getPageSettings()'s JSON shape -- falls back to DrawingStyle::
+    // defaults()/PageSettings::defaults() when absent.
+    bool buildSceneFromMolfile(const QString& molfile, RenderScene& scene,
+                               const QVariantMap& options = QVariantMap());
 };
 
 #endif // EXPORTMANAGER_H

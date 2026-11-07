@@ -3,7 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
 import QtCore
-import "./components"
+import "../components"
 import ".."
 
 Item {
@@ -20,25 +20,27 @@ Item {
         width: Theme.dialogWidthLarge
         height: Theme.dialogHeightLarge
         standardButtons: Dialog.Apply | Dialog.Cancel
-        
-        // Get SettingsService instance
-        readonly property SettingsService_cpp settingsService: SettingsService_cpp {}
+
+        // SettingsService is a QML_SINGLETON (registered as "SettingsService",
+        // no "_cpp" suffix) -- accessed directly as a singleton, never
+        // instantiated. See AppController's identical usage elsewhere for
+        // the established convention this project already uses.
         property int currentDocId: -1
-        
+
         // Initialize when opened
         onOpened: {
             if (win.activeSketch) {
                 currentDocId = win.activeSketch.docId
                 const style = win.activeSketch.getDrawingStyle()
                 const pageSettings = win.activeSketch.getPageSettings()
-                settingsService.initializeDraft(style, pageSettings)
+                SettingsService.initializeDraft(style, pageSettings)
             }
         }
-        
+
         // Apply settings - call win to apply via V8Process
         onAccepted: {
-            const draftStyle = settingsService.getDraftDrawingStyleJson()
-            const draftPageSettings = settingsService.getDraftPageSettingsJson()
+            const draftStyle = SettingsService.getDraftDrawingStyleJson()
+            const draftPageSettings = SettingsService.getDraftPageSettingsJson()
             if (win.activeSketch) {
                 win.activeSketch.applyDrawingStyleWithRescale(draftStyle)
                 win.activeSketch.setPageSettings(draftPageSettings)
@@ -47,13 +49,13 @@ Item {
             if (win.activeSketch) {
                 const style = win.activeSketch.getDrawingStyle()
                 const pageSettings = win.activeSketch.getPageSettings()
-                settingsService.initializeDraft(style, pageSettings)
+                SettingsService.initializeDraft(style, pageSettings)
             }
         }
-        
+
         // Cancel - restore original
         onRejected: {
-            settingsService.cancel()
+            SettingsService.cancel()
         }
 
         ColumnLayout {
@@ -65,7 +67,7 @@ Item {
             TabBar {
                 id: settingsTabs
                 Layout.fillWidth: true
-                
+
                 TabButton { text: "Drawing Style" }
                 TabButton { text: "Page Settings" }
                 TabButton { text: "Presets" }
@@ -92,11 +94,11 @@ Item {
                                 Label { text: "Bond Length:" }
                                 TextField {
                                     Layout.fillWidth: true
-                                    text: settingsService.draftBondLength.toFixed(2)
+                                    text: SettingsService.draftBondLength.toFixed(2)
                                     validator: DoubleValidator { bottom: 0.1; top: 10; decimals: 2 }
                                     onAccepted: {
-                                        if (validator.acceptableInput) {
-                                            settingsService.draftBondLength = parseFloat(text)
+                                        if (acceptableInput) {
+                                            SettingsService.draftBondLength = parseFloat(text)
                                         }
                                     }
                                     Keys.onReturnPressed: forceActiveFocus()
@@ -108,11 +110,11 @@ Item {
                                 Label { text: "Line Width:" }
                                 TextField {
                                     Layout.fillWidth: true
-                                    text: settingsService.draftLineWidth.toFixed(2)
+                                    text: SettingsService.draftLineWidth.toFixed(2)
                                     validator: DoubleValidator { bottom: 0.1; top: 5; decimals: 2 }
                                     onAccepted: {
-                                        if (validator.acceptableInput) {
-                                            settingsService.draftLineWidth = parseFloat(text)
+                                        if (acceptableInput) {
+                                            SettingsService.draftLineWidth = parseFloat(text)
                                         }
                                     }
                                 }
@@ -132,10 +134,10 @@ Item {
                                 Label { text: "Font Family:" }
                                 ComboBox {
                                     Layout.fillWidth: true
-                                    model: settingsService.getAvailableFonts()
-                                    currentText: settingsService.draftFontFamily
+                                    model: SettingsService.getAvailableFonts()
+                                    currentText: SettingsService.draftFontFamily
                                     onCurrentTextChanged: {
-                                        settingsService.draftFontFamily = currentText
+                                        SettingsService.draftFontFamily = currentText
                                     }
                                 }
                             }
@@ -146,8 +148,8 @@ Item {
                                     Layout.fillWidth: true
                                     from: 6
                                     to: 72
-                                    value: settingsService.draftFontSize
-                                    onValueChanged: settingsService.draftFontSize = value
+                                    value: SettingsService.draftFontSize
+                                    onValueChanged: SettingsService.draftFontSize = value
                                 }
                                 Label { text: "pt" }
                             }
@@ -164,8 +166,8 @@ Item {
                             RowLayout {
                                 CheckBox {
                                     text: "Monochrome Output"
-                                    checked: settingsService.draftMonochrome
-                                    onClicked: settingsService.draftMonochrome = checked
+                                    checked: SettingsService.draftMonochrome
+                                    onClicked: SettingsService.draftMonochrome = checked
                                 }
                             }
                         }
@@ -182,11 +184,11 @@ Item {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             primitives: win.activeSketch ? win.activeSketch.primitives : null
-                            draftBondLength: settingsService.draftBondLength
-                            draftLineWidth: settingsService.draftLineWidth
-                            draftFontFamily: settingsService.draftFontFamily
-                            draftFontSize: settingsService.draftFontSize
-                            draftMonochrome: settingsService.draftMonochrome
+                            draftBondLength: SettingsService.draftBondLength
+                            draftLineWidth: SettingsService.draftLineWidth
+                            draftFontFamily: SettingsService.draftFontFamily
+                            draftFontSize: SettingsService.draftFontSize
+                            draftMonochrome: SettingsService.draftMonochrome
                             scale: 2.0
                         }
                     }
@@ -207,11 +209,11 @@ Item {
                                 Label { text: "Width:" }
                                 TextField {
                                     Layout.fillWidth: true
-                                    text: settingsService.draftPageWidth.toFixed(1)
+                                    text: SettingsService.draftPageWidth.toFixed(1)
                                     validator: DoubleValidator { bottom: 10; top: 1000; decimals: 1 }
                                     onAccepted: {
-                                        if (validator.acceptableInput) {
-                                            settingsService.draftPageWidth = parseFloat(text)
+                                        if (acceptableInput) {
+                                            SettingsService.draftPageWidth = parseFloat(text)
                                         }
                                     }
                                 }
@@ -222,11 +224,11 @@ Item {
                                 Label { text: "Height:" }
                                 TextField {
                                     Layout.fillWidth: true
-                                    text: settingsService.draftPageHeight.toFixed(1)
+                                    text: SettingsService.draftPageHeight.toFixed(1)
                                     validator: DoubleValidator { bottom: 10; top: 1000; decimals: 1 }
                                     onAccepted: {
-                                        if (validator.acceptableInput) {
-                                            settingsService.draftPageHeight = parseFloat(text)
+                                        if (acceptableInput) {
+                                            SettingsService.draftPageHeight = parseFloat(text)
                                         }
                                     }
                                 }
@@ -246,11 +248,11 @@ Item {
                                 Label { text: "Left:" }
                                 TextField {
                                     width: 100
-                                    text: settingsService.draftMarginLeft.toFixed(1)
+                                    text: SettingsService.draftMarginLeft.toFixed(1)
                                     validator: DoubleValidator { bottom: 0; top: 100; decimals: 1 }
                                     onAccepted: {
-                                        if (validator.acceptableInput) {
-                                            settingsService.draftMarginLeft = parseFloat(text)
+                                        if (acceptableInput) {
+                                            SettingsService.draftMarginLeft = parseFloat(text)
                                         }
                                     }
                                 }
@@ -259,11 +261,11 @@ Item {
                                 Label { text: "Right:" }
                                 TextField {
                                     width: 100
-                                    text: settingsService.draftMarginRight.toFixed(1)
+                                    text: SettingsService.draftMarginRight.toFixed(1)
                                     validator: DoubleValidator { bottom: 0; top: 100; decimals: 1 }
                                     onAccepted: {
-                                        if (validator.acceptableInput) {
-                                            settingsService.draftMarginRight = parseFloat(text)
+                                        if (acceptableInput) {
+                                            SettingsService.draftMarginRight = parseFloat(text)
                                         }
                                     }
                                 }
@@ -274,11 +276,11 @@ Item {
                                 Label { text: "Top:" }
                                 TextField {
                                     width: 100
-                                    text: settingsService.draftMarginTop.toFixed(1)
+                                    text: SettingsService.draftMarginTop.toFixed(1)
                                     validator: DoubleValidator { bottom: 0; top: 100; decimals: 1 }
                                     onAccepted: {
-                                        if (validator.acceptableInput) {
-                                            settingsService.draftMarginTop = parseFloat(text)
+                                        if (acceptableInput) {
+                                            SettingsService.draftMarginTop = parseFloat(text)
                                         }
                                     }
                                 }
@@ -287,11 +289,11 @@ Item {
                                 Label { text: "Bottom:" }
                                 TextField {
                                     width: 100
-                                    text: settingsService.draftMarginBottom.toFixed(1)
+                                    text: SettingsService.draftMarginBottom.toFixed(1)
                                     validator: DoubleValidator { bottom: 0; top: 100; decimals: 1 }
                                     onAccepted: {
-                                        if (validator.acceptableInput) {
-                                            settingsService.draftMarginBottom = parseFloat(text)
+                                        if (acceptableInput) {
+                                            SettingsService.draftMarginBottom = parseFloat(text)
                                         }
                                     }
                                 }
@@ -316,10 +318,10 @@ Item {
                             ListView {
                                 Layout.fillWidth: true
                                 height: 200
-                                model: settingsService.getPresets()
+                                model: SettingsService.getPresets()
                                 delegate: ItemDelegate {
                                     text: modelData.name
-                                    onClicked: settingsService.loadPreset(index)
+                                    onClicked: SettingsService.loadPreset(index)
                                 }
                             }
 
@@ -335,7 +337,7 @@ Item {
                                     text: "Save"
                                     onClicked: {
                                         if (presetNameField.text.trim() !== "") {
-                                            settingsService.savePreset(presetNameField.text.trim())
+                                            SettingsService.savePreset(presetNameField.text.trim())
                                             presetNameField.text = ""
                                         }
                                     }
@@ -351,7 +353,7 @@ Item {
                         RowLayout {
                             Button {
                                 text: "Reset to Defaults"
-                                onClicked: settingsService.resetDraftToDefaults()
+                                onClicked: SettingsService.resetDraftToDefaults()
                             }
                         }
                     }

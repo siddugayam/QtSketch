@@ -7,9 +7,11 @@
 #include <QPainter>
 #include <QFontDatabase>
 #include "app/render/RenderScene.h"
+#include "app/render/Exporter.h"
 #include "app/molecule/RenderPrimitives.h"
 #include "app/molecule/DrawingStyle.h"
 #include "app/molecule/PageSettings.h"
+#include <QTemporaryDir>
 
 static int g_pass = 0, g_fail = 0;
 #define CHECK(cond, name) do { \
@@ -239,6 +241,49 @@ int main(int argc, char** argv) {
     
     const QRectF& bounds5 = scene5.modelBounds();
     CHECK(!bounds5.isEmpty(), "modelBounds is non-empty for complex primitives");
+
+    // Test 9: PngExporter actually applies modelToMmScale when painting,
+    // not just when allocating the image. Regression test for a real bug:
+    // the exporter's painter transform used to be a bare Y-flip with no
+    // magnification at all, so painted content came out ~1/modelToMmScale
+    // the size the allocated canvas expected (here, modelToMmScale is
+    // 5.08/1.5 =~ 3.39x) -- everything exported miniature and offset
+    // instead of filling the frame.
+    std::printf("--- Test 9: PngExporter applies modelToMmScale to painted content ---\n");
+    {
+        QTemporaryDir dir;
+        QString pngPath = dir.filePath("scale_check.png");
+        PngExporter exporter;
+        exporter.setResolution(300);
+        bool exported = exporter.exportToFile(scene5, pngPath);
+        CHECK(exported, "PngExporter::exportToFile succeeds");
+
+        QImage img(pngPath);
+        CHECK(!img.isNull(), "exported PNG loads back as a valid image");
+
+        int minX = img.width(), maxX = -1, minY = img.height(), maxY = -1;
+        for (int y = 0; y < img.height(); ++y) {
+            for (int x = 0; x < img.width(); ++x) {
+                if (img.pixelColor(x, y) != Qt::white) {
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                }
+            }
+        }
+        bool foundPaintedContent = maxX >= minX && maxY >= minY;
+        CHECK(foundPaintedContent, "image contains non-background (painted) pixels");
+
+        if (foundPaintedContent) {
+            int paintedWidthPx = maxX - minX + 1;
+            // Expected: modelBounds width (1.5 units) * modelToMmScale (~3.39)
+            // * dpi/25.4 (300/25.4 =~ 11.8) =~ 60px. A bug that skips
+            // modelToMmScale entirely would produce ~1.5 * 11.8 =~ 18px --
+            // well below this floor.
+            CHECK(paintedWidthPx > 40, "painted content spans the full scaled width, not ~1/3.39 of it");
+        }
+    }
 
     std::printf("\nSummary: %d passed, %d failed.\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;

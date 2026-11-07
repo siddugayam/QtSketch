@@ -49,20 +49,25 @@ bool PdfExporter::exportToFile(const RenderScene& scene, const QString& filePath
         );
     }
     
-    // Convert mm to points (1 point = 1/72 inch, 25.4 mm = 1 inch)
-    const double mmToPoints = 72.0 / 25.4;
     // Set page size directly in mm
     writer.setPageSize(QPageSize(QSizeF(pageSizeMm.width(), pageSizeMm.height()), QPageSize::Millimeter));
-    
+
     // Set resolution (DPI)
     writer.setResolution(300);
-    
+
     // Create painter
     QPainter painter(&writer);
     if (!painter.isActive()) {
         setError(QStringLiteral("Failed to create PDF painter"));
         return false;
     }
+
+    // Query the painter's REAL device DPI rather than assuming a fixed 72 --
+    // QPdfWriter's painter coordinate space tracks setResolution() above, so
+    // hardcoding 72/25.4 here would silently scale everything wrong whenever
+    // the resolution is anything other than 72 (same pattern RenderScene::
+    // paint() itself already uses for its own line-width calculation).
+    const double mmToPoints = painter.device()->logicalDpiX() / 25.4;
     
     // Set up coordinate system
     // PDF coordinates: origin at top-left, y increases downward
@@ -90,15 +95,17 @@ bool PdfExporter::exportToFile(const RenderScene& scene, const QString& filePath
         (writer.height() - sceneBoundsMm.height() * mmToPoints) / 2 - sceneBoundsMm.top() * mmToPoints
     );
     
-    // Scale from mm to points
-    painter.scale(mmToPoints, -mmToPoints);  // Negative Y to flip coordinate system
-    
+    // scene.paint() works in raw model units; the full chain to device
+    // points is modelUnit -> mm (modelToMmScale) -> points (mmToPoints).
+    const double modelToPoints = scene.modelToMmScale() * mmToPoints;
+    painter.scale(modelToPoints, -modelToPoints);  // Negative Y to flip coordinate system
+
     // Paint the scene
     scene.paint(&painter);
-    
+
     painter.restore();
     painter.end();
-    
+
     return true;
 }
 
@@ -157,9 +164,12 @@ bool SvgExporter::exportToFile(const RenderScene& scene, const QString& filePath
     // Create SVG generator
     QSvgGenerator generator;
     generator.setFileName(filePath);
-    
-    // Set size (in points)
-    const double mmToPoints = 72.0 / 25.4;
+
+    // Query the generator's own logical DPI rather than assuming a fixed 72
+    // -- QSvgGenerator does not necessarily default to 72 (same reasoning as
+    // PdfExporter's identical fix: never hardcode a DPI a device didn't
+    // confirm it's actually using).
+    const double mmToPoints = generator.logicalDpiX() / 25.4;
     QSize sizePt(
         std::ceil(sceneBoundsMm.width() * mmToPoints),
         std::ceil(sceneBoundsMm.height() * mmToPoints)
@@ -205,13 +215,19 @@ bool SvgExporter::exportToFile(const RenderScene& scene, const QString& filePath
     // We need to flip Y
     
     painter.save();
-    
-    // Scale from model mm to points
-    painter.scale(mmToPoints, -mmToPoints);
-    
-    // Translate to position the scene
-    painter.translate(-sceneBoundsMm.left(), -sceneBoundsMm.bottom());
-    
+
+    // scene.paint() works in raw model units -- the full chain to device
+    // points is modelUnit -> mm (modelToMmScale) -> points (mmToPoints).
+    const double modelToPoints = scene.modelToMmScale() * mmToPoints;
+    painter.scale(modelToPoints, -modelToPoints);
+
+    // Translate to position the scene. sceneBoundsMm is in mm; dividing by
+    // modelToMmScale converts it back to model units so this translate (now
+    // running in the model-to-points-scaled coordinate system set up above)
+    // shifts by the correct device amount, not modelToMmScale times too much.
+    painter.translate(-sceneBoundsMm.left() / scene.modelToMmScale(),
+                       -sceneBoundsMm.bottom() / scene.modelToMmScale());
+
     // Paint the scene
     scene.paint(&painter);
     
@@ -296,13 +312,19 @@ bool PngExporter::exportToFile(const RenderScene& scene, const QString& filePath
     // Translate and scale
     // First, translate to position the scene
     painter.translate(-sceneBoundsPx.left(), -sceneBoundsPx.top());
-    
+
     // Then flip Y to match the model coordinate system
     // The scene's paint method expects y-up, but the image has y-down
     // So we need to translate and scale
     painter.translate(0, sceneBoundsPx.height());
-    painter.scale(1, -1);
-    
+    // scene.paint() works in raw model units -- the full chain to pixels is
+    // modelUnit -> mm (modelToMmScale) -> pixels (dpi / 25.4). A bare
+    // scale(1, -1) (Y-flip only, no actual magnification) was the most
+    // severe of the three exporters' unit bugs: every export came out at
+    // 1 pixel per model unit regardless of the requested DPI.
+    const double pxPerModelUnit = scene.modelToMmScale() * (m_dpi / 25.4);
+    painter.scale(pxPerModelUnit, -pxPerModelUnit);
+
     // Paint the scene
     scene.paint(&painter);
     

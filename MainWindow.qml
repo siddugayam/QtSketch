@@ -12,6 +12,7 @@ ApplicationWindow {
     property alias fileDialogsGroup: fileDialogsGroup
     property alias taskDialogsGroup: taskDialogsGroup
     property alias messageDialogsGroup: messageDialogsGroup
+    property alias settingsDialogsGroup: settingsDialogsGroup
 
     flags: Qt.Window | Qt.FramelessWindowHint
 
@@ -310,7 +311,18 @@ ApplicationWindow {
             if (!aIsKet && bIsKet) return -1 // qtsketch files first
             return 0
         })
+        // Each recovery file must land in its own new document -- loadFromFile
+        // operates on the currently-active document, so without creating a
+        // fresh one per file, a second or later recovery file silently
+        // replaces whatever the previous one just restored (confirmed real
+        // bug: only the LAST recovered file ever survived). The very first
+        // file reuses whatever document is already active (normally the
+        // single blank tab the app opened with) instead of leaving an extra
+        // empty tab behind.
         for (let i = 0; i < sortedFiles.length; i++) {
+            if (i > 0) {
+                DocumentManager.addDocument()
+            }
             let path = appData + "/recovery/" + sortedFiles[i]
             window.loadFromFile(Qt.url("file:///" + path.replace(/\\/g, "/")))
         }
@@ -449,14 +461,19 @@ ApplicationWindow {
             close_event.accepted = false
             messageDialogsGroup.unsavedChangesDialog.open()
         } else {
-            // Clean exit
+            // Clean exit. Only remove the autosave files for documents that
+            // are actually open (and confirmed clean, since anyDirty was
+            // false) in THIS session -- a blanket wildcard sweep over every
+            // autosave_*.qtsketch/.ket file would also delete recovery files
+            // from an unrelated, never-actually-recovered earlier crash
+            // (e.g. the user answered "No" to the recovery prompt, or a
+            // restore silently failed for one file), permanently losing the
+            // only copy of that unsaved work.
             const appData = StandardPaths.writableLocation(StandardPaths.AppDataLocation)
-            // Clean up both new and old recovery formats
-            var recoveredQtsketch = fileIO.listFiles(appData + "/recovery", "autosave_*.qtsketch")
-            var recoveredKet = fileIO.listFiles(appData + "/recovery", "autosave_*.ket")
-            var allRecovered = recoveredQtsketch.concat(recoveredKet)
-            for (var j = 0; j < allRecovered.length; j++) {
-                fileIO.remove(appData + "/recovery/" + allRecovered[j])
+            for (var j = 0; j < DocumentManager.docIds.length; j++) {
+                var docId = DocumentManager.docIds[j]
+                fileIO.remove(appData + "/recovery/autosave_" + docId + ".qtsketch")
+                fileIO.remove(appData + "/recovery/autosave_" + docId + ".ket")
             }
         }
     }
@@ -813,9 +830,16 @@ ApplicationWindow {
                     const appData = StandardPaths.writableLocation(StandardPaths.AppDataLocation)
                     fileIO.write(appData + "/recovery/autosave_" + window.activeSketch.modelData + ".qtsketch", data)
                 },
-                render_svg: (data) => indigoSvc.renderToFile(data, window.pendingRenderUrl, "svg"),
-                render_pdf: (data) => indigoSvc.renderToFile(data, window.pendingRenderUrl, "pdf"),
-                render_png: (data) => indigoSvc.renderToFile(data, window.pendingRenderUrl, "png"),
+                // Ordinary single-structure export now goes through the shared
+                // ExportManager/RenderScene pipeline (resolved document style/
+                // page settings, proper unit conversion) instead of the old
+                // Indigo-direct render path -- render_grid (batch/reaction
+                // grids) deliberately stays on indigoSvc, matching this
+                // project's own hybrid design (grid layout algorithms are
+                // unrelated to this migration).
+                render_svg: (data) => window.exportCurrentDocument(data, "svg"),
+                render_pdf: (data) => window.exportCurrentDocument(data, "pdf"),
+                render_png: (data) => window.exportCurrentDocument(data, "png"),
                 render_grid: (data) => indigoSvc.renderReactionGridToFile(data, window.pendingRenderUrl, "pdf"),
                 automap: (data) => indigoSvc.autoMapReaction(data),
                 ionize: (data) => indigoSvc.ionizeAtPh(data, window.pendingIonizePh),
@@ -2031,6 +2055,33 @@ ApplicationWindow {
         fileDialogsGroup.pdfSaveDialog.open()
     }
 
+    // Ordinary (single-structure) PDF/SVG/PNG export via the shared
+    // ExportManager/RenderScene pipeline. `molfile` is the already-serialized
+    // structure from the requestStructure("mol", "render_*") round-trip;
+    // this passes the CURRENT document's real drawing style and page
+    // settings through as options, so export reflects the resolved
+    // document -- not a hardcoded default -- per this phase's own contract.
+    function exportCurrentDocument(molfile, format) {
+        if (!activeSketch) return
+        const opts = {
+            drawingStyle: activeSketch.getDrawingStyle(),
+            pageSettings: activeSketch.getPageSettings()
+        }
+        ExportManager.exportToFile(molfile, window.pendingRenderUrl, format, opts)
+    }
+
+    Connections {
+        target: ExportManager
+        function onExportFinished(success, error) {
+            if (!success) {
+                messageDialogsGroup.workerErrorDialog.errorText =
+                    "Export failed: " + error
+                messageDialogsGroup.workerErrorDialog.severe = false
+                messageDialogsGroup.workerErrorDialog.open()
+            }
+        }
+    }
+
     function loadFromFile(fileUrl) {
         const fileStrEarly = fileUrl.toString().toLowerCase()
         if (fileStrEarly.endsWith(".rdf")) {
@@ -2092,9 +2143,9 @@ ApplicationWindow {
                 pendingSdfBatchUrl = fileUrl
                 activeSketch.sendCommand("deserializeSdfBatch", [data])
             } else if (fmt === "qtsketch" && activeSketch) {
-                // Use the new project load method - pass the file path as string
-                const filePath = fileUrl.toString()
-                activeSketch.loadProject(filePath)
+                // loadProject takes a QUrl directly now -- toString() kept the
+                // "file://" scheme prefix, which QFile cannot open as a path.
+                activeSketch.loadProject(fileUrl)
                 window.centerViewOnPage()
                 setDocFile(DocumentManager.activeDocId, fileUrl)
             } else if (activeCanvas) {

@@ -4,6 +4,7 @@
 #include <QVariantList>
 #include <QList>
 #include <QByteArray>
+#include <QUrl>
 #include <QtQml/qqml.h>
 #include <memory>
 #include "app/molecule/DocumentState.h"
@@ -151,8 +152,8 @@ public:
     
     // Project file serialization
     Q_INVOKABLE void requestProjectSerialization(const QString& reqId);
-    Q_INVOKABLE void loadProject(const QString& filePath);
-    Q_INVOKABLE bool saveProject(const QString& filePath);
+    Q_INVOKABLE void loadProject(const QUrl& fileUrl);
+    Q_INVOKABLE bool saveProject(const QUrl& fileUrl);
     
     // Get current drawing style as JSON
     Q_INVOKABLE QJsonObject getDrawingStyle() const;

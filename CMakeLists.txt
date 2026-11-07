@@ -101,6 +101,7 @@ qt_add_qml_module(sketch
         components/AppMenuBarItem.qml
         components/MenuItemRow.qml
         components/TaskDialog.qml
+        components/PreviewCanvas.qml
 
         js/Selection.js
         js/ToolLabels.js
@@ -462,6 +463,15 @@ target_include_directories(placement_engines_test PRIVATE
 )
 target_link_libraries(placement_engines_test PRIVATE molecule_model)
 add_test(NAME placement_engines_test COMMAND placement_engines_test)
+
+# ProjectFile test
+qt_add_executable(project_file_test tests/project_file_test.cpp)
+target_include_directories(project_file_test PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app
+)
+target_link_libraries(project_file_test PRIVATE Qt6::Core Qt6::Gui molecule_model)
+add_test(NAME project_file_test COMMAND project_file_test)
 
 # SettingsService test
 qt_add_executable(settings_service_test tests/settings_service_test.cpp)

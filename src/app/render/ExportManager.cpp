@@ -3,6 +3,7 @@
 #include "Exporter.h"
 #include "RenderScene.h"
 #include "molecule/RenderPrimitives.h"
+#include "molecule/EditableMolecule.h"
 #include "molecule/DrawingStyle.h"
 #include "molecule/PageSettings.h"
 #include "indigo.h"
@@ -12,6 +13,7 @@
 #include <QtConcurrent>
 #include <QPointer>
 #include <QCoreApplication>
+#include <QJsonObject>
 
 // Forward declaration
 static void emitOnGuiThread(QPointer<ExportManager> self, std::function<void(ExportManager*)> fn);
@@ -61,133 +63,67 @@ QString ExportManager::detectFormatFromPath(const QString& filePath) const {
     return "png";  // default
 }
 
-// Build RenderScene from molfile using Indigo to parse and layout
-bool ExportManager::buildSceneFromMolfile(const QString& molfile, RenderScene& scene) {
+namespace {
+// Shared with buildSceneFromMolfile below: converts the document-style/page
+// JSON the QML caller attaches to `options` (matching V8Process::
+// getDrawingStyle()/getPageSettings()'s own JSON shape exactly) into real
+// DrawingStyle/PageSettings values. Falls back to each field's own default
+// when a key is absent, so a caller that doesn't supply style/page JSON at
+// all (e.g. an existing test) still gets sane, documented defaults rather
+// than failing.
+DrawingStyle drawingStyleFromOptions(const QVariantMap& options) {
+    DrawingStyle style = DrawingStyle::defaults();
+    if (!options.contains("drawingStyle")) return style;
+    // QML marshals a plain JS object into a QVariantMap (not QJsonObject)
+    // when crossing into a QVariantMap-typed parameter -- .toMap() handles
+    // that case, and also a QJsonObject passed explicitly from C++ test
+    // code, unlike QVariant::toJsonObject() which only accepts the latter.
+    QJsonObject obj = QJsonObject::fromVariantMap(options["drawingStyle"].toMap());
+    if (obj.contains("bondLength")) style.bondLength = obj["bondLength"].toDouble();
+    if (obj.contains("lineWidth")) style.lineWidth = obj["lineWidth"].toDouble();
+    if (obj.contains("fontFamily")) style.fontFamily = obj["fontFamily"].toString();
+    if (obj.contains("fontSize")) style.fontSize = obj["fontSize"].toInt();
+    if (obj.contains("monochrome")) style.monochrome = obj["monochrome"].toBool();
+    // modelToMmScale is fixed per-document (not derived from bondLength here)
+    // -- same invariant DocumentState itself preserves.
+    if (obj.contains("modelToMmScale")) style.modelToMmScale = obj["modelToMmScale"].toDouble();
+    return style;
+}
+
+PageSettings pageSettingsFromOptions(const QVariantMap& options) {
+    PageSettings page = PageSettings::defaults();
+    if (!options.contains("pageSettings")) return page;
+    QJsonObject obj = QJsonObject::fromVariantMap(options["pageSettings"].toMap());
+    if (obj.contains("widthMm")) page.widthMm = obj["widthMm"].toDouble();
+    if (obj.contains("heightMm")) page.heightMm = obj["heightMm"].toDouble();
+    if (obj.contains("marginLeftMm")) page.marginLeftMm = obj["marginLeftMm"].toDouble();
+    if (obj.contains("marginRightMm")) page.marginRightMm = obj["marginRightMm"].toDouble();
+    if (obj.contains("marginTopMm")) page.marginTopMm = obj["marginTopMm"].toDouble();
+    if (obj.contains("marginBottomMm")) page.marginBottomMm = obj["marginBottomMm"].toDouble();
+    return page;
+}
+} // namespace
+
+// Build RenderScene from a molfile, using the SAME EditableMolecule +
+// RenderPrimitiveBuilder pipeline the live canvas already relies on --
+// confirmed real, already-trusted conversion -- instead of a second,
+// independent, lossy Indigo-to-primitives reparse (the old version here
+// hardcoded every bond to single, dropped charge/isotope/stereo entirely,
+// and used a hardcoded default style/page regardless of the real document).
+// Reactions are explicitly out of scope for this single-molecule export path
+// (exportReactionGridToFile/exportBatchGridToFile keep the existing
+// Indigo-grid-based route for those, per this phase's own hybrid design).
+bool ExportManager::buildSceneFromMolfile(const QString& molfile, RenderScene& scene,
+                                           const QVariantMap& options) {
     if (molfile.isEmpty()) return false;
 
-    // Check if it's a reaction
-    bool isReaction = molfile.trimmed().startsWith("$RXN") || molfile.contains(">>");
+    EditableMolecule mol(molfile);
+    if (!mol.isValid()) return false;
 
-    // Use Indigo to parse the molfile
-    unsigned long long sid = indigoAllocSessionId();
-    indigoSetSessionId(sid);
-    indigoRendererInit(sid);
+    RenderPrimitives prims = RenderPrimitiveBuilder::build(mol, /*showExplicitH=*/false);
+    DrawingStyle drawingStyle = drawingStyleFromOptions(options);
+    PageSettings pageSettings = pageSettingsFromOptions(options);
 
-    int mol = -1;
-    if (isReaction) {
-        mol = indigoLoadReactionFromString(molfile.toUtf8().constData());
-    } else {
-        mol = indigoLoadMoleculeFromString(molfile.toUtf8().constData());
-    }
-
-    if (mol < 0) {
-        indigoRendererDispose(sid);
-        indigoReleaseSessionId(sid);
-        return false;
-    }
-
-    // Layout if needed
-    if (isReaction) {
-        indigoLayout(mol);
-    } else {
-        indigoLayout(mol);
-    }
-
-    // Get molfile back (now with coordinates)
-    const char* resultMol = isReaction ? indigoRxnfile(mol) : indigoMolfile(mol);
-    QString layoutedMol = resultMol ? QString::fromUtf8(resultMol) : molfile;
-
-    // TODO: Convert molfile to RenderPrimitives
-    // For now, we'll use a simplified approach
-    // In a full implementation, we would parse the molfile and build RenderPrimitives
-
-    // Set up drawing style
-    DrawingStyle drawingStyle;
-    drawingStyle.modelToMmScale = 5.08 / 1.5;  // 1.5 model units = 5.08 mm
-    drawingStyle.fontFamily = "Segoe UI Variable Text";
-    drawingStyle.fontSize = 10;
-    drawingStyle.lineWidth = 0.6;
-    drawingStyle.monochrome = false;
-    drawingStyle.bondLength = 1.5;
-
-    // Set up page settings
-    PageSettings pageSettings;
-    pageSettings.marginLeftMm = 10;
-    pageSettings.marginRightMm = 10;
-    pageSettings.marginTopMm = 10;
-    pageSettings.marginBottomMm = 10;
-    pageSettings.widthMm = 210;
-    pageSettings.heightMm = 297;
-
-    // Build RenderPrimitives from the molfile
-    // For now, create empty primitives - in a full implementation,
-    // this would parse the molfile and build all the primitives
-    RenderPrimitives prims;
-
-    // Try to extract atom and bond information from Indigo
-    if (!isReaction) {
-        int it = indigoIterateAtoms(mol);
-        if (it >= 0) {
-            int atom;
-            while ((atom = indigoNext(it)) > 0) {
-                const char* symbol = indigoSymbol(atom);
-                float* xyz = indigoXYZ(atom);
-                
-                if (xyz) {
-                    AtomPrim aprim;
-                    aprim.id = atom;
-                    aprim.x = xyz[0];
-                    aprim.y = xyz[1];
-                    aprim.label = symbol ? QString::fromUtf8(symbol) : "C";
-                    aprim.element = symbol ? QString::fromUtf8(symbol) : "C";
-                    prims.atoms.append(aprim);
-                }
-            }
-        }
-
-        it = indigoIterateBonds(mol);
-        if (it >= 0) {
-            int bond;
-            while ((bond = indigoNext(it)) > 0) {
-                int begin = indigoSource(bond);
-                int end = indigoDestination(bond);
-
-                BondPrim bprim;
-                bprim.id = bond;
-                bprim.begin = begin;
-                bprim.end = end;
-                bprim.type = 1; // default to single bond
-                prims.bonds.append(bprim);
-            }
-        }
-    }
-
-    // Calculate bounds
-    if (!prims.atoms.isEmpty()) {
-        double minX = prims.atoms[0].x;
-        double maxX = prims.atoms[0].x;
-        double minY = prims.atoms[0].y;
-        double maxY = prims.atoms[0].y;
-        
-        for (const AtomPrim& atom : prims.atoms) {
-            if (atom.x < minX) minX = atom.x;
-            if (atom.x > maxX) maxX = atom.x;
-            if (atom.y < minY) minY = atom.y;
-            if (atom.y > maxY) maxY = atom.y;
-        }
-        
-        prims.bbox.valid = true;
-        prims.bbox.minX = minX;
-        prims.bbox.maxX = maxX;
-        prims.bbox.minY = minY;
-        prims.bbox.maxY = maxY;
-    }
-
-    indigoFree(mol);
-    indigoRendererDispose(sid);
-    indigoReleaseSessionId(sid);
-
-    // Build the scene
     return scene.build(prims, drawingStyle, pageSettings);
 }
 
@@ -225,7 +161,7 @@ void ExportManager::exportToFile(const QString& molfile, const QUrl& fileUrl,
 
         // Build scene from molfile
         RenderScene scene;
-        if (!self || !self->buildSceneFromMolfile(molfile, scene)) {
+        if (!self || !self->buildSceneFromMolfile(molfile, scene, options)) {
             error = "Failed to build render scene from molfile";
             delete exporter;
             emitOnGuiThread(self, [success, error](ExportManager* m) {

@@ -61,21 +61,32 @@ Item {
             if (fileStr.endsWith(".sdf")) fmt = "sdf"
             else if (fileStr.endsWith(".ket")) fmt = "ket"
             else if (fileStr.endsWith(".qtsketch")) fmt = "qtsketch"
-            win.pendingSaveUrl = selectedFile
-            win.setDocFile(DocumentManager.activeDocId, selectedFile)
-            if (win.activeSketch) {
-                if (fmt === "qtsketch") {
-                    // Use new project save method
+
+            if (fmt === "qtsketch") {
+                // Synchronous call with a real success/failure result -- only
+                // record the filename and clear dirty state on confirmed
+                // success. Never fall back to MOL on failure: that would
+                // silently replace an existing native project with
+                // chemistry-only content at the same destination.
+                if (win.activeSketch) {
                     const success = win.activeSketch.saveProject(selectedFile)
-                    if (!success) {
-                        // Fall back to old method
-                        win.activeSketch.requestStructure("mol", "save")
+                    if (success) {
+                        win.pendingSaveUrl = selectedFile
+                        win.setDocFile(DocumentManager.activeDocId, selectedFile)
+                        if (win.activeCanvas) win.activeCanvas.setClean()
+                    } else {
+                        win.messageDialogsGroup.workerErrorDialog.errorText =
+                            "Save failed: could not write the project file to " + selectedFile + ". The document was not modified on disk; your previous save (if any) is intact."
+                        win.messageDialogsGroup.workerErrorDialog.severe = true
+                        win.messageDialogsGroup.workerErrorDialog.open()
                     }
-                } else {
-                    win.activeSketch.requestStructure(fmt, "save")
                 }
+            } else {
+                win.pendingSaveUrl = selectedFile
+                win.setDocFile(DocumentManager.activeDocId, selectedFile)
+                if (win.activeSketch) win.activeSketch.requestStructure(fmt, "save")
+                if (win.activeCanvas) win.activeCanvas.setClean()
             }
-            if (win.activeCanvas) win.activeCanvas.setClean()
         }
     }
 

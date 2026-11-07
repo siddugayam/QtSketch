@@ -1071,7 +1071,12 @@ void V8Process::requestProjectSerialization(const QString& reqId) {
     emit structureReady(reqId, doc.toJson(QJsonDocument::Compact));
 }
 
-void V8Process::loadProject(const QString& filePath) {
+void V8Process::loadProject(const QUrl& fileUrl) {
+    // fileUrl arrives as a real file:// URL from QML's FileDialog (selectedFile)
+    // or as a plain local path wrapped in a QUrl -- isLocalFile() distinguishes
+    // the two so either form resolves to a real filesystem path, not the
+    // literal "file:///C:/..." string QFile cannot open.
+    const QString filePath = fileUrl.isLocalFile() ? fileUrl.toLocalFile() : fileUrl.toString();
     DrawingStyle style = m_docState->drawingStyle();
     PageSettings page = m_docState->pageSettings();
     QString error = ProjectFile::loadProject(filePath, m_docState->molecule(), style, page);
@@ -1085,7 +1090,8 @@ void V8Process::loadProject(const QString& filePath) {
     applyLocalState();
 }
 
-bool V8Process::saveProject(const QString& filePath) {
+bool V8Process::saveProject(const QUrl& fileUrl) {
+    const QString filePath = fileUrl.isLocalFile() ? fileUrl.toLocalFile() : fileUrl.toString();
     return ProjectFile::saveProject(filePath, m_docState->molecule(),
                                    m_docState->drawingStyle(),
                                    m_docState->pageSettings());
@@ -1099,6 +1105,7 @@ QJsonObject V8Process::getDrawingStyle() const {
     obj["fontFamily"] = style.fontFamily;
     obj["fontSize"] = style.fontSize;
     obj["monochrome"] = style.monochrome;
+    obj["modelToMmScale"] = style.modelToMmScale;
     return obj;
 }
 

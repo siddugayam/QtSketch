@@ -2,6 +2,7 @@
 #include "ProjectFile.h"
 #include "EditableMolecule.h"
 #include <QFile>
+#include <QSaveFile>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -79,39 +80,38 @@ namespace {
     }
 }
 
-bool ProjectFile::saveProject(const QString& filePath, 
+bool ProjectFile::saveProject(const QString& filePath,
                               const EditableMolecule& molecule,
                               const DrawingStyle& drawingStyle,
                               const PageSettings& pageSettings) {
     QJsonObject json = toJson(molecule, drawingStyle, pageSettings);
-    
-    // Write atomically: write to temp file first, then rename
-    QString tempPath = filePath + QStringLiteral(".tmp");
-    
-    QFile file(tempPath);
+    QByteArray bytes = QJsonDocument(json).toJson(QJsonDocument::Indented);
+
+    // QSaveFile writes to its own temp file and only replaces the real
+    // destination in commit() once the full write is confirmed -- unlike the
+    // old manual temp-file-then-rename dance, it never deletes the existing
+    // file up front, so a write/commit failure always leaves the previous
+    // project exactly as it was.
+    QSaveFile file(filePath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        qWarning() << "ProjectFile::saveProject: Failed to open temp file:" << tempPath;
+        qWarning() << "ProjectFile::saveProject: Failed to open for writing:" << filePath;
         return false;
     }
-    
-    QJsonDocument doc(json);
-    if (file.write(doc.toJson(QJsonDocument::Indented)) == -1) {
-        qWarning() << "ProjectFile::saveProject: Failed to write to temp file:" << tempPath;
-        file.close();
-        file.remove();
+
+    const qint64 written = file.write(bytes);
+    if (written != bytes.size()) {
+        qWarning() << "ProjectFile::saveProject: Partial or failed write to:" << filePath
+                   << "(" << written << "of" << bytes.size() << "bytes)";
+        file.cancelWriting();
         return false;
     }
-    
-    file.close();
-    
-    // Atomic rename
-    QFile::remove(filePath); // Remove old file if exists
-    if (!QFile::rename(tempPath, filePath)) {
-        qWarning() << "ProjectFile::saveProject: Failed to rename temp file to final path:" << filePath;
-        QFile::remove(tempPath); // Clean up temp file
+
+    if (!file.commit()) {
+        qWarning() << "ProjectFile::saveProject: Failed to commit:" << filePath
+                   << "-" << file.errorString();
         return false;
     }
-    
+
     return true;
 }
 
@@ -139,21 +139,19 @@ QString ProjectFile::loadProject(const QString& filePath,
     }
     
     QJsonObject json = doc.object();
-    
-    // Check version
-    if (!json.contains(kFormatVersion)) {
-        return QStringLiteral("File is missing formatVersion field");
+
+    // Validate the full schema before touching any live state -- a
+    // structurally invalid file (missing version, missing chemistry) must
+    // never reach fromJson's mutations at all.
+    QString validationError;
+    if (!validateProjectJson(json, validationError)) {
+        return validationError;
     }
-    
-    int version = json[kFormatVersion].toInt();
-    if (version < MinimumSupportedVersion || version > CurrentFormatVersion) {
-        return QStringLiteral("Unsupported format version: ") + QString::number(version);
-    }
-    
+
     if (!fromJson(json, molecule, drawingStyle, pageSettings)) {
         return QStringLiteral("Failed to parse project data from file");
     }
-    
+
     return QString(); // Success
 }
 
@@ -412,10 +410,14 @@ bool ProjectFile::fromJson(const QJsonObject& json,
         if (chemistry.contains(kMolfile)) {
             QString molfile = chemistry[kMolfile].toString();
             if (!molfile.isEmpty()) {
-                // Load with preserveEzIntent to keep existing E/Z intent
+                // Load with preserveEzIntent to keep existing E/Z intent.
+                // A non-empty molfile that fails to parse means the project
+                // file's chemistry is genuinely corrupt -- reporting success
+                // with a silently emptied molecule would be worse than
+                // rejecting the load outright.
                 if (!molecule.loadFrom(molfile, true)) {
                     qWarning() << "ProjectFile::fromJson: Failed to load molfile";
-                    // This is not necessarily fatal - continue with empty molecule
+                    return false;
                 }
             }
         }

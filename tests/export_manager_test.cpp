@@ -6,6 +6,7 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QFile>
+#include <QImage>
 #include <QUrl>
 #include <QVariantMap>
 #include <QTimer>
@@ -131,6 +132,45 @@ int main() {
         CHECK(args.size() == 2, "exportFinished has 2 arguments for PDF");
         CHECK(args[0].toBool() == true, "exportFinished success is true for PDF");
         pdfFile.remove();
+
+        // Test 5b: document style/page settings actually flow through options
+        // -- regression test for the old hardcoded-default-style bug (every
+        // export used to ignore the real document's bondLength/page size
+        // entirely, confirmed by direct code read before this fix).
+        std::printf("--- Test 5b: custom drawingStyle/pageSettings via options ---\n");
+        {
+            QString customPath = tempDir.filePath("test_custom_style.png");
+            QUrl customUrl = QUrl::fromLocalFile(customPath);
+            QVariantMap drawingStyle;
+            drawingStyle["bondLength"] = 1.5;
+            drawingStyle["modelToMmScale"] = 10.0; // deliberately far from the 5.08/1.5 default
+            QVariantMap opts;
+            opts["drawingStyle"] = drawingStyle;
+            QSignalSpy spyCustom(&manager, &ExportManager::exportFinished);
+            manager.exportToFile(benzeneMolfile, customUrl, "png", opts);
+            bool customFinished = waitForExport(manager, spyCustom, 10000);
+            CHECK(customFinished, "exportToFile with custom options finished");
+            CHECK(QFile::exists(customPath), "custom-style PNG was created");
+
+            // Also export with defaults (no options) for comparison.
+            QString defaultPath = tempDir.filePath("test_default_style.png");
+            QUrl defaultUrl = QUrl::fromLocalFile(defaultPath);
+            QSignalSpy spyDefault(&manager, &ExportManager::exportFinished);
+            manager.exportToFile(benzeneMolfile, defaultUrl, "png");
+            waitForExport(manager, spyDefault, 10000);
+
+            QImage customImg(customPath);
+            QImage defaultImg(defaultPath);
+            CHECK(!customImg.isNull() && !defaultImg.isNull(), "both images load");
+            // modelToMmScale=10.0 is roughly 3x the ~3.39 default, so the
+            // custom-style PNG (same DPI) must come out noticeably larger --
+            // confirms the style actually reached RenderScene, not just that
+            // the call didn't crash.
+            CHECK(customImg.width() > defaultImg.width() * 2,
+                  "custom modelToMmScale produces a visibly larger export than the default");
+            QFile::remove(customPath);
+            QFile::remove(defaultPath);
+        }
 
         // Test 6: unsupported format
         std::printf("--- Test 6: exportToFile with unsupported format ---\n");
