@@ -51,7 +51,6 @@ std::map<int, QString> computePeripheralNumberingGeneral(
     bool restrictStartToPredecessorBridgehead = false,
     const std::set<int> &principalGroupBearingNodes = {});
 
-
 // Helper to build Graph from molecule (copied from computePeripheralNumberingForMol)
 static Graph buildGraphFromMol(int mol, std::map<int, int> &indigoToGraphIdx) {
     Graph g;
@@ -8343,6 +8342,26 @@ int main() {
             {"(1-chloroprop-2-en-1-yl)benzene", "c1ccccc1C(Cl)C=C", "(1-chloroprop-2-en-1-yl)benzene"},
             {"(prop-2-en-1-yl)oxybenzene", "c1ccccc1OCC=C", "(prop-2-en-1-yl)oxybenzene"},
             {"prop-2-en-1-yl benzenecarboxylate", "c1ccccc1C(=O)OCC=C", "prop-2-en-1-yl benzenecarboxylate"},
+            // Newly-supported branch-at-unsaturation substituents
+            {"prop-1-en-2-ylbenzene", "c1ccccc1C(=C)C", "prop-1-en-2-ylbenzene"},
+            {"prop-1-en-2-ylbenzene atom-order 1", "CC(=C)c1ccccc1", "prop-1-en-2-ylbenzene"},
+            {"prop-1-en-2-ylbenzene atom-order 2", "C(=C)(C)c1ccccc1", "prop-1-en-2-ylbenzene"},
+            {"but-3-en-2-ylbenzene", "c1ccccc1C(C)C=C", "but-3-en-2-ylbenzene"},
+            {"but-3-en-2-ylbenzene atom-order 1", "C=CC(C)c1ccccc1", "but-3-en-2-ylbenzene"},
+            {"but-3-en-2-ylbenzene atom-order 2", "CC(C=C)c1ccccc1", "but-3-en-2-ylbenzene"},
+            {"(2-methylprop-2-en-1-yl)benzene", "c1ccccc1CC(=C)C", "(2-methylprop-2-en-1-yl)benzene"},
+            {"(2-methylprop-2-en-1-yl)benzene atom-order 1", "CC(=C)Cc1ccccc1", "(2-methylprop-2-en-1-yl)benzene"},
+            {"(2-methylbut-3-en-1-yl)benzene", "c1ccccc1CC(C)C=C", "(2-methylbut-3-en-1-yl)benzene"},
+            {"(2,2-dimethylbut-3-en-1-yl)benzene", "c1ccccc1CC(C)(C)C=C", "(2,2-dimethylbut-3-en-1-yl)benzene"},
+            {"(2-methylbut-2-en-1-yl)benzene", "c1ccccc1CC(=C/C)C", "(2-methylbut-2-en-1-yl)benzene"},
+            {"4-(prop-1-en-2-ylamino)benzoic acid", "OC(=O)c1ccc(NC(=C)C)cc1", "4-prop-1-en-2-ylaminobenzenecarboxylic acid"},
+            {"(prop-1-en-2-yl)oxybenzene", "c1ccccc1OC(=C)C", "(prop-1-en-2-yl)oxybenzene"},
+            {"prop-1-en-2-yl benzenecarboxylate", "c1ccccc1C(=O)OC(=C)C", "prop-1-en-2-yl benzenecarboxylate"},
+            {"N-prop-1-en-2-ylbenzenecarboxamide", "c1ccccc1C(=O)NC(=C)C", "N-prop-1-en-2-ylbenzenecarboxamide"},
+            {"N-prop-1-en-2-ylcyclohexanecarboxamide", "C1CCCCC1C(=O)NC(=C)C", "N-prop-1-en-2-ylcyclohexanecarboxamide"},
+            {"N-phenyl-2-methylprop-2-enamide", "c1ccccc1NC(=O)C(=C)C", "N-phenyl-2-methylprop-2-enamide"},
+            {"stereo confined to parent", "[C@@H]1(CCCC1)C(=C)C", "(1R)-prop-1-en-2-ylcyclopentane"},
+            {"acyclic acid with unspecified sec-butenyl", "CCCCCCC(C(C)C=C)CCCCCC(=O)O", "7-but-3-en-2-yltridecanoic acid"},
         };
         for (const auto &c : cases) {
             int m = indigoLoadMoleculeFromString(c.smiles);
@@ -8371,8 +8390,21 @@ int main() {
             std::string expectedError;
         };
         std::vector<RejectCase> rejectCases = {
-            {"branched-unsaturated chain honest rejection", "c1ccccc1C(=C)C", "Unrecognized or unsupported substituent on ring."},
             {"attachment bond not single rejection", "C1CCCCC1=C", "Unrecognized or unsupported substituent on ring."},
+            {"branch stereocenter rejection benzene enantiomer 1", "c1ccccc1[C@@H](C)C=C", "Unrecognized or unsupported substituent on ring."},
+            {"branch stereocenter rejection benzene enantiomer 2", "c1ccccc1[C@H](C)C=C", "Unrecognized or unsupported substituent on ring."},
+            {"branch stereocenter rejection explicit hydrogen", "c1ccccc1[C@@H]([H])(C)C=C", "Unrecognized or unsupported substituent on ring."},
+            {"branch stereocenter rejection explicit hydrogen enantiomer 2", "c1ccccc1[C@H]([H])(C)C=C", "Unrecognized or unsupported substituent on ring."},
+            {"branch stereocenter rejection naphthalene", "c1ccc2cc([C@@H](C)C=C)ccc2c1", "Unrecognized or unsupported substituent on ring."},
+            {"branch stereocenter rejection naphthalene enantiomer 2", "c1ccc2cc([C@H](C)C=C)ccc2c1", "Unrecognized or unsupported substituent on ring."},
+            {"branch stereocenter rejection acyclic acid", "CCCCCCC([C@@H](C)C=C)CCCCCC(=O)O", "Unrecognized or unsupported substituent."},
+            {"branch stereocenter rejection acyclic acid enantiomer 2", "CCCCCCC([C@H](C)C=C)CCCCCC(=O)O", "Unrecognized or unsupported substituent."},
+            {"branch stereocenter rejection off-path", "c1ccccc1CC(=C)[C@@H](C)CC", "Unrecognized or unsupported substituent on ring."},
+            {"branch stereocenter rejection off-path enantiomer 2", "c1ccccc1CC(=C)[C@H](C)CC", "Unrecognized or unsupported substituent on ring."},
+            {"branch E/Z bond rejection specified E/Z control", "c1ccccc1C/C(C)=C/C", "E/Z descriptors on substituent branches are not supported in this phase."},
+            {"branch stereocenter atom-order variant enantiomer 1", "C=C[C@@H](C)c1ccccc1", "Unrecognized or unsupported substituent on ring."},
+            {"branch stereocenter atom-order variant enantiomer 2", "C=C[C@H](C)c1ccccc1", "Unrecognized or unsupported substituent on ring."},
+            {"but-1-en-2-ylbenzene unsupported branch length asymmetry", "c1ccccc1C(=C)CC", "Unrecognized or unsupported substituent on ring."},
         };
         for (const auto &rc : rejectCases) {
             int m = indigoLoadMoleculeFromString(rc.smiles.c_str());
@@ -8390,6 +8422,46 @@ int main() {
                 indigoFree(m);
             } else {
                 std::cout << "[FAIL] " << rc.name << ": SMILES did not load\n";
+                failed++;
+            }
+        }
+
+        // Defined OR/AND/EITHER atom-stereo fixtures reject
+        struct StereoTypeCase {
+            std::string name;
+            int type;
+        };
+        std::vector<StereoTypeCase> stereoTypeCases = {
+            {"branch stereocenter rejection INDIGO_OR", INDIGO_OR},
+            {"branch stereocenter rejection INDIGO_AND", INDIGO_AND},
+            {"branch stereocenter rejection INDIGO_EITHER", INDIGO_EITHER},
+        };
+        for (const auto &stc : stereoTypeCases) {
+            int m = indigoLoadMoleculeFromString("c1ccccc1[C@@H](C)C=C");
+            if (m >= 0) {
+                int atomIter = indigoIterateAtoms(m);
+                if (atomIter >= 0) {
+                    int a = 0;
+                    while ((a = indigoNext(atomIter)) != 0) {
+                        if (indigoStereocenterType(a) != 0) {
+                            indigoChangeStereocenterType(a, stc.type);
+                        }
+                        indigoFree(a);
+                    }
+                    indigoFree(atomIter);
+                }
+                auto result = IupacNamer::generateName(m);
+                if (!result.success && result.error == "Unrecognized or unsupported substituent on ring.") {
+                    std::cout << "[PASS] " << stc.name << ": correctly rejected: " << result.error.toStdString() << "\n";
+                    passed++;
+                } else {
+                    std::cout << "[FAIL] " << stc.name << ": expected rejection 'Unrecognized or unsupported substituent on ring.', got success="
+                              << result.success << " name='" << result.name.toStdString() << "' err='" << result.error.toStdString() << "'\n";
+                    failed++;
+                }
+                indigoFree(m);
+            } else {
+                std::cout << "[FAIL] " << stc.name << ": SMILES did not load\n";
                 failed++;
             }
         }

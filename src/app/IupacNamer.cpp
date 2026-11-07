@@ -6184,7 +6184,8 @@ QString nameBranchGraph(const Graph &g, int rootIdx, int parentIdx, const std::v
         }
     }
 
-    auto nameGivenPath = [&](const std::vector<int> &candPath) -> QString {
+    auto nameGivenPath = [&](const std::vector<int> &candPath, bool *blockedByPoint4 = nullptr) -> QString {
+        if (blockedByPoint4) *blockedByPoint4 = false;
         int bLen = static_cast<int>(candPath.size());
         std::set<int> pathSet(candPath.begin(), candPath.end());
 
@@ -6252,10 +6253,12 @@ QString nameBranchGraph(const Graph &g, int rootIdx, int parentIdx, const std::v
                 }
                 if (isBranchPoint) {
                     if (unsaturatedNodes.count(cNode)) {
+                        if (blockedByPoint4) *blockedByPoint4 = true;
                         return "";
                     }
                     for (int nei : g.nodes[cNode].neighbors) {
                         if (unsaturatedNodes.count(nei)) {
+                            if (blockedByPoint4) *blockedByPoint4 = true;
                             return "";
                         }
                     }
@@ -6384,13 +6387,541 @@ QString nameBranchGraph(const Graph &g, int rootIdx, int parentIdx, const std::v
         return baseStem;
     };
 
-    // Point 2: If choice after tiebreaks is genuinely ambiguous, return ""
-    QString firstName = nameGivenPath(tiedBest[0].path);
-    if (firstName.isEmpty()) return "";
+    // Check if every candidate in tiedBest was rejected specifically by Point 4.
+    bool allTiedPoint4 = !tiedBest.empty();
+    for (const auto &c : tiedBest) {
+        bool point4 = false;
+        QString name = nameGivenPath(c.path, &point4);
+        if (!name.isEmpty() || !point4) {
+            allTiedPoint4 = false;
+            break;
+        }
+    }
 
-    for (size_t i = 1; i < tiedBest.size(); ++i) {
-        QString otherName = nameGivenPath(tiedBest[i].path);
-        if (otherName != firstName) {
+    if (!allTiedPoint4) {
+        // Point 2: If choice after tiebreaks is genuinely ambiguous, return ""
+        QString firstName = nameGivenPath(tiedBest[0].path);
+        if (firstName.isEmpty()) return "";
+
+        for (size_t i = 1; i < tiedBest.size(); ++i) {
+            QString otherName = nameGivenPath(tiedBest[i].path);
+            if (otherName != firstName) {
+                return "";
+            }
+        }
+        return firstName;
+    }
+
+    // Fallback: two-armed and generalized chain enumeration for branch-at-unsaturation substituents
+    // (e.g. isopropenyl, 2-methylprop-2-en-1-yl) where Point 4 rejected the attachment-at-0 candidates.
+    // Deliberate feature limits:
+    // 1. Acyl rejection: if parentIdx is a carbonyl carbon (C=O neighbor), reject to protect acyl callers.
+    // 2. Molecule-based fragment-wide stereo rejection: reject if the substituent fragment contains
+    //    any atom with nonzero stereocenter type, any double bond with specified bond stereo, or
+    //    supplementary stereo map entries. Unspecified internal double bonds remain eligible.
+    // 3. Composition reuse: reuse existing substituent citation/grouping machinery as-is.
+
+    if (parentIdx >= 0 && parentIdx < static_cast<int>(g.nodes.size()) && g.nodes[parentIdx].atomicNumber == 6) {
+        for (size_t k = 0; k < g.nodes[parentIdx].neighbors.size(); ++k) {
+            int pNei = g.nodes[parentIdx].neighbors[k];
+            if (g.nodes[pNei].atomicNumber == 8 && g.nodes[parentIdx].bondOrders[k] == 2) {
+                return "";
+            }
+        }
+    }
+
+    // Molecule-based fragment-wide stereo rejection:
+    // Collect substituent fragment by traversing from rootIdx, excluding parentIdx and inherited forbidden atoms.
+    // Include off-path and heteroatom-connected branches; use a visited set to terminate cycles.
+    std::set<int> fragmentNodeSet;
+    if (rootIdx >= 0 && rootIdx < static_cast<int>(g.nodes.size()) && !forbiddenNodes.count(rootIdx) && rootIdx != parentIdx) {
+        std::vector<int> q;
+        fragmentNodeSet.insert(rootIdx);
+        q.push_back(rootIdx);
+        size_t head = 0;
+        while (head < q.size()) {
+            int u = q[head++];
+            if (u < 0 || u >= static_cast<int>(g.nodes.size())) continue;
+            for (size_t k = 0; k < g.nodes[u].neighbors.size(); ++k) {
+                int nei = g.nodes[u].neighbors[k];
+                if (nei == parentIdx) continue;
+                if (forbiddenNodes.count(nei)) continue;
+                if (fragmentNodeSet.insert(nei).second) {
+                    q.push_back(nei);
+                }
+            }
+        }
+    }
+    if (fragmentNodeSet.empty()) {
+        return "";
+    }
+
+    // 1. Reject if mol is unavailable.
+    if (mol <= 0) {
+        return "";
+    }
+
+    struct IndigoHandleGuard {
+        int handle = 0;
+        IndigoHandleGuard(int h = 0) : handle(h) {}
+        ~IndigoHandleGuard() { reset(); }
+        void reset(int h = 0) {
+            if (handle > 0) {
+                indigoFree(handle);
+            }
+            handle = h;
+        }
+        int get() const { return handle; }
+        IndigoHandleGuard(const IndigoHandleGuard &) = delete;
+        IndigoHandleGuard &operator=(const IndigoHandleGuard &) = delete;
+    };
+
+    // 2. Iterate actual molecule atoms, recording Indigo indices, atomic numbers, and stereocenter type.
+    int rawAtomIter = indigoIterateAtoms(mol);
+    if (rawAtomIter < 0) {
+        return "";
+    }
+    IndigoHandleGuard atomIter(rawAtomIter);
+
+    struct MolAtomInfo {
+        int atomicNumber = 0;
+        int stereoType = 0;
+    };
+    std::map<int, MolAtomInfo> molAtoms;
+
+    while (true) {
+        int rawAtom = indigoNext(atomIter.get());
+        if (rawAtom < 0) {
+            return "";
+        }
+        if (rawAtom == 0) {
+            break;
+        }
+        IndigoHandleGuard atomHandle(rawAtom);
+
+        int aIdx = indigoIndex(atomHandle.get());
+        if (aIdx < 0) return "";
+
+        int z = indigoAtomicNumber(atomHandle.get());
+        if (z < 0) return "";
+
+        int sType = indigoStereocenterType(atomHandle.get());
+        if (sType < 0) return "";
+
+        molAtoms[aIdx] = {z, sType};
+    }
+    atomIter.reset();
+
+    // 3. Resolve fragment nodes through g.nodes[node].indigoIdx.
+    // Require existing indices, matching elements, and unique mappings.
+    // 4. Reject if any fragment atom has a nonzero stereocenter type.
+    std::set<int> fragmentIndigoIndices;
+    for (int node : fragmentNodeSet) {
+        if (node < 0 || node >= static_cast<int>(g.nodes.size())) {
+            return "";
+        }
+        int indIdx = g.nodes[node].indigoIdx;
+        auto it = molAtoms.find(indIdx);
+        if (it == molAtoms.end()) {
+            return "";
+        }
+        if (g.nodes[node].atomicNumber != it->second.atomicNumber) {
+            return "";
+        }
+        if (!fragmentIndigoIndices.insert(indIdx).second) {
+            return "";
+        }
+        if (it->second.stereoType != 0) {
+            return "";
+        }
+    }
+
+    // 5. Iterate actual molecule bonds. Reject if any double bond wholly inside the fragment has nonzero indigoBondStereo.
+    int rawBondIter = indigoIterateBonds(mol);
+    if (rawBondIter < 0) {
+        return "";
+    }
+    IndigoHandleGuard bondIter(rawBondIter);
+
+    while (true) {
+        int rawBond = indigoNext(bondIter.get());
+        if (rawBond < 0) {
+            return "";
+        }
+        if (rawBond == 0) {
+            break;
+        }
+        IndigoHandleGuard bondHandle(rawBond);
+
+        int rawSrc = indigoSource(bondHandle.get());
+        if (rawSrc < 0) return "";
+        IndigoHandleGuard srcHandle(rawSrc);
+
+        int rawDst = indigoDestination(bondHandle.get());
+        if (rawDst < 0) return "";
+        IndigoHandleGuard dstHandle(rawDst);
+
+        int srcIdx = indigoIndex(srcHandle.get());
+        int dstIdx = indigoIndex(dstHandle.get());
+        if (srcIdx < 0 || dstIdx < 0) return "";
+
+        int bOrder = indigoBondOrder(bondHandle.get());
+        if (bOrder < 0) return "";
+
+        int bStereo = indigoBondStereo(bondHandle.get());
+        if (bStereo < 0) return "";
+
+        if (bOrder == 2 && fragmentIndigoIndices.count(srcIdx) && fragmentIndigoIndices.count(dstIdx)) {
+            if (bStereo != 0) {
+                return "";
+            }
+        }
+    }
+    bondIter.reset();
+
+    // 6. Retain supplied stereo-map checks as supplementary rejection evidence, restricted to the same fragment.
+    for (int node : fragmentNodeSet) {
+        if (stereoByGraphId.count(node)) {
+            return "";
+        }
+        for (int nei : g.nodes[node].neighbors) {
+            if (fragmentNodeSet.count(nei)) {
+                if (branchBondStereo.count(std::make_pair(std::min(node, nei), std::max(node, nei)))) {
+                    return "";
+                }
+            }
+        }
+    }
+
+    std::set<std::vector<int>> candidatePathSet;
+
+    // Single arms: both directions
+    for (const auto &arm : allPaths) {
+        candidatePathSet.insert(arm);
+        std::vector<int> revArm(arm.rbegin(), arm.rend());
+        candidatePathSet.insert(revArm);
+    }
+
+    // Pairs of arms sharing only rootIdx: both directions
+    for (size_t i = 0; i < allPaths.size(); ++i) {
+        if (allPaths[i].size() < 2) continue;
+        std::set<int> armISet(allPaths[i].begin() + 1, allPaths[i].end());
+        for (size_t j = i + 1; j < allPaths.size(); ++j) {
+            if (allPaths[j].size() < 2) continue;
+            bool onlyRootShared = true;
+            for (size_t k = 1; k < allPaths[j].size(); ++k) {
+                if (armISet.count(allPaths[j][k])) {
+                    onlyRootShared = false;
+                    break;
+                }
+            }
+            if (onlyRootShared) {
+                std::vector<int> combined;
+                for (int k = static_cast<int>(allPaths[i].size()) - 1; k >= 1; --k) {
+                    combined.push_back(allPaths[i][k]);
+                }
+                combined.push_back(rootIdx);
+                for (size_t k = 1; k < allPaths[j].size(); ++k) {
+                    combined.push_back(allPaths[j][k]);
+                }
+                candidatePathSet.insert(combined);
+                std::vector<int> revCombined(combined.rbegin(), combined.rend());
+                candidatePathSet.insert(revCombined);
+            }
+        }
+    }
+
+    struct FallbackCandidate {
+        std::vector<int> path;
+        int length = 0;
+        int totalMultipleBonds = 0;
+        int doubleBonds = 0;
+        int attachmentLocant = 1;
+        std::vector<int> multipleBondLocants;
+        std::vector<int> doubleBondLocants;
+        std::vector<int> substituentLocants;
+        std::vector<int> citationOrderedSubstituentLocants;
+        QString renderedName;
+    };
+
+    std::vector<FallbackCandidate> validCandidates;
+
+    for (const auto &p : candidatePathSet) {
+        if (std::count(p.begin(), p.end(), rootIdx) != 1) continue;
+
+        int bLen = static_cast<int>(p.size());
+        std::set<int> pathSet(p.begin(), p.end());
+
+        // 1. Cumulated bonds check
+        bool hasCumulated = false;
+        for (int cNode : p) {
+            int dblCount = 0;
+            int trplCount = 0;
+            for (size_t j = 0; j < g.nodes[cNode].neighbors.size(); ++j) {
+                int bo = g.nodes[cNode].bondOrders[j];
+                if (bo == 2) dblCount++;
+                else if (bo == 3) trplCount++;
+            }
+            if (dblCount >= 2 || (dblCount >= 1 && trplCount >= 1) || trplCount >= 2) {
+                hasCumulated = true;
+                break;
+            }
+        }
+        if (hasCumulated) continue;
+
+        // 2. Attachment locant
+        int rootPos = -1;
+        for (int i = 0; i < bLen; ++i) {
+            if (p[i] == rootIdx) {
+                rootPos = i;
+                break;
+            }
+        }
+        if (rootPos == -1) continue;
+        int attachmentLocant = rootPos + 1;
+
+        // 4. Bond orders and unsaturation locants
+        std::vector<int> dbLocs;
+        std::vector<int> tbLocs;
+        bool invalidBond = false;
+        for (int i = 0; i + 1 < bLen; ++i) {
+            int u = p[i];
+            int v = p[i + 1];
+            int bo = 1;
+            for (size_t k = 0; k < g.nodes[u].neighbors.size(); ++k) {
+                if (g.nodes[u].neighbors[k] == v) {
+                    bo = g.nodes[u].bondOrders[k];
+                    break;
+                }
+            }
+            int locant = i + 1;
+            if (bo == 2) dbLocs.push_back(locant);
+            else if (bo == 3) tbLocs.push_back(locant);
+            else if (bo != 1) { invalidBond = true; break; }
+        }
+        if (invalidBond) continue;
+
+        // Mixed double and triple bonds are out of scope (Point 4)
+        if (!dbLocs.empty() && !tbLocs.empty()) continue;
+
+        std::sort(dbLocs.begin(), dbLocs.end());
+        std::sort(tbLocs.begin(), tbLocs.end());
+
+        std::vector<int> mbLocs = dbLocs;
+        mbLocs.insert(mbLocs.end(), tbLocs.begin(), tbLocs.end());
+        std::sort(mbLocs.begin(), mbLocs.end());
+
+        // 5. Side branches
+        std::map<int, QStringList> locantPrefixes;
+        std::vector<int> substituentLocants;
+        std::vector<std::pair<QString, int>> citationPairs;
+        bool sideBranchFailed = false;
+
+        for (int i = 0; i < bLen; ++i) {
+            int cNode = p[i];
+            int locant = i + 1;
+
+            for (size_t j = 0; j < g.nodes[cNode].neighbors.size(); ++j) {
+                int nei = g.nodes[cNode].neighbors[j];
+                if (cNode == rootIdx && nei == parentIdx) continue;
+                if (pathSet.count(nei)) continue;
+
+                int z = g.nodes[nei].atomicNumber;
+                if (z == 9 || z == 17 || z == 35 || z == 53) {
+                    QString hp = halogenPrefix(z);
+                    locantPrefixes[locant].append(hp);
+                    substituentLocants.push_back(locant);
+                    citationPairs.push_back({alphabetizationKey(hp).toLower(), locant});
+                } else if (z == 6 || z == 8 || z == 7) {
+                    QString subBranch = nameBranchGraph(g, nei, cNode, allIndependentRings, {}, {}, nullptr, mol, branchBondStereo);
+                    if (subBranch.isEmpty()) {
+                        sideBranchFailed = true;
+                        break;
+                    }
+                    locantPrefixes[locant].append(subBranch);
+                    substituentLocants.push_back(locant);
+                    citationPairs.push_back({alphabetizationKey(subBranch).toLower(), locant});
+                } else {
+                    sideBranchFailed = true;
+                    break;
+                }
+            }
+            if (sideBranchFailed) break;
+        }
+        if (sideBranchFailed) continue;
+
+        std::sort(substituentLocants.begin(), substituentLocants.end());
+        std::sort(citationPairs.begin(), citationPairs.end(), [](const auto &x, const auto &y) {
+            if (x.first != y.first) return x.first < y.first;
+            return x.second < y.second;
+        });
+        std::vector<int> citationOrderedLocs;
+        for (const auto &cp : citationPairs) {
+            citationOrderedLocs.push_back(cp.second);
+        }
+
+        // 6. Base stem construction
+        QString baseStem;
+        if (dbLocs.empty() && tbLocs.empty()) {
+            if (attachmentLocant == 1) {
+                baseStem = chainRoot(bLen) + "yl";
+            } else {
+                baseStem = QString("%1-%2-yl").arg(chainRoot(bLen)).arg(attachmentLocant);
+            }
+        } else if (!dbLocs.empty() && tbLocs.empty()) {
+            if (bLen == 2) {
+                baseStem = "ethenyl";
+            } else {
+                QString root = chainRoot(bLen);
+                if (dbLocs.size() == 1) {
+                    baseStem = QString("%1-%2-en-%3-yl").arg(root).arg(dbLocs[0]).arg(attachmentLocant);
+                } else {
+                    root += "a";
+                    QStringList lStrs;
+                    for (int l : dbLocs) lStrs.append(QString::number(l));
+                    baseStem = QString("%1-%2-%3en-%4-yl").arg(root).arg(lStrs.join(",")).arg(multiPrefix(static_cast<int>(dbLocs.size()))).arg(attachmentLocant);
+                }
+            }
+        } else if (dbLocs.empty() && !tbLocs.empty()) {
+            if (bLen == 2) {
+                baseStem = "ethynyl";
+            } else {
+                QString root = chainRoot(bLen);
+                if (tbLocs.size() == 1) {
+                    baseStem = QString("%1-%2-yn-%3-yl").arg(root).arg(tbLocs[0]).arg(attachmentLocant);
+                } else {
+                    root += "a";
+                    QStringList lStrs;
+                    for (int l : tbLocs) lStrs.append(QString::number(l));
+                    baseStem = QString("%1-%2-%3yn-%4-yl").arg(root).arg(lStrs.join(",")).arg(multiPrefix(static_cast<int>(tbLocs.size()))).arg(attachmentLocant);
+                }
+            }
+        } else {
+            continue;
+        }
+        if (baseStem.isEmpty()) continue;
+
+        // 7. Prefix assembly
+        QString renderedName;
+        if (!locantPrefixes.empty()) {
+            std::map<QString, std::vector<int>> groupLocants;
+            for (auto it = locantPrefixes.begin(); it != locantPrefixes.end(); ++it) {
+                int loc = it->first;
+                for (const QString &pName : it->second) {
+                    groupLocants[pName].push_back(loc);
+                }
+            }
+
+            QStringList formattedPrefixes;
+            for (auto it = groupLocants.begin(); it != groupLocants.end(); ++it) {
+                QString pName = it->first;
+                std::vector<int> locs = it->second;
+                std::sort(locs.begin(), locs.end());
+
+                QString prefixStr;
+                if (bLen == 1) {
+                    if ((pName.startsWith("(") && pName.endsWith(")")) || (pName.startsWith("[") && pName.endsWith("]"))) {
+                        QString inner = pName.mid(1, pName.length() - 2);
+                        if (!inner.isEmpty() && !inner[0].isDigit()) {
+                            bool hasDigit = false;
+                            for (QChar c : inner) {
+                                if (c.isDigit()) {
+                                    hasDigit = true;
+                                    break;
+                                }
+                            }
+                            if (hasDigit) {
+                                pName = inner;
+                            }
+                        }
+                    }
+                    prefixStr = (locs.size() > 1) ? (multiPrefix(static_cast<int>(locs.size())) + pName) : pName;
+                } else {
+                    QStringList locStrs;
+                    for (int l : locs) locStrs.append(QString::number(l));
+                    prefixStr = locStrs.join(",");
+                    if (locs.size() > 1) {
+                        prefixStr += "-" + multiPrefix(static_cast<int>(locs.size())) + pName;
+                    } else {
+                        prefixStr += "-" + pName;
+                    }
+                }
+                formattedPrefixes.append(prefixStr);
+            }
+
+            QString pStr = formattedPrefixes.join(bLen == 1 ? "" : "-");
+            if (bLen == 1 && (pStr.contains('(') || pStr.contains('['))) {
+                renderedName = "[" + pStr + baseStem + "]";
+            } else {
+                renderedName = QString("(%1%2)").arg(pStr, baseStem);
+            }
+        } else {
+            renderedName = baseStem;
+        }
+
+        if (renderedName.isEmpty()) continue;
+
+        FallbackCandidate cand;
+        cand.path = p;
+        cand.length = bLen;
+        cand.totalMultipleBonds = static_cast<int>(mbLocs.size());
+        cand.doubleBonds = static_cast<int>(dbLocs.size());
+        cand.attachmentLocant = attachmentLocant;
+        cand.multipleBondLocants = mbLocs;
+        cand.doubleBondLocants = dbLocs;
+        cand.substituentLocants = substituentLocants;
+        cand.citationOrderedSubstituentLocants = citationOrderedLocs;
+        cand.renderedName = renderedName;
+        validCandidates.push_back(cand);
+    }
+
+    if (validCandidates.empty()) return "";
+
+    auto isBetterFallback = [](const FallbackCandidate &a, const FallbackCandidate &b) -> int {
+        if (a.length != b.length) {
+            return (a.length > b.length) ? 1 : -1;
+        }
+        if (a.totalMultipleBonds != b.totalMultipleBonds) {
+            return (a.totalMultipleBonds > b.totalMultipleBonds) ? 1 : -1;
+        }
+        if (a.doubleBonds != b.doubleBonds) {
+            return (a.doubleBonds > b.doubleBonds) ? 1 : -1;
+        }
+        if (a.attachmentLocant != b.attachmentLocant) {
+            return (a.attachmentLocant < b.attachmentLocant) ? 1 : -1;
+        }
+        if (a.multipleBondLocants != b.multipleBondLocants) {
+            return (a.multipleBondLocants < b.multipleBondLocants) ? 1 : -1;
+        }
+        if (a.doubleBondLocants != b.doubleBondLocants) {
+            return (a.doubleBondLocants < b.doubleBondLocants) ? 1 : -1;
+        }
+        if (a.substituentLocants != b.substituentLocants) {
+            return (a.substituentLocants < b.substituentLocants) ? 1 : -1;
+        }
+        if (a.citationOrderedSubstituentLocants != b.citationOrderedSubstituentLocants) {
+            return (a.citationOrderedSubstituentLocants < b.citationOrderedSubstituentLocants) ? 1 : -1;
+        }
+        return 0;
+    };
+
+    FallbackCandidate bestFallback = validCandidates[0];
+    for (size_t i = 1; i < validCandidates.size(); ++i) {
+        if (isBetterFallback(validCandidates[i], bestFallback) > 0) {
+            bestFallback = validCandidates[i];
+        }
+    }
+
+    std::vector<FallbackCandidate> tiedBestFallback;
+    for (const auto &c : validCandidates) {
+        if (isBetterFallback(c, bestFallback) == 0) {
+            tiedBestFallback.push_back(c);
+        }
+    }
+
+    const QString &firstName = tiedBestFallback[0].renderedName;
+    for (size_t i = 1; i < tiedBestFallback.size(); ++i) {
+        if (tiedBestFallback[i].renderedName != firstName) {
             return "";
         }
     }
