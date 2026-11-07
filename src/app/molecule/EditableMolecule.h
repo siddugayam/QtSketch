@@ -423,7 +423,7 @@ public:
         QHash<AtomId, AtomId> mergedAway;   // doomed id -> kept id
         QList<BondId> createdBonds;         // NEW replacement bonds created while rewiring
     };
-    MergeResult mergeOverlappingAtoms(double tolerance = 0.1);
+    MergeResult mergeOverlappingAtoms(double tolerance = 0.1, const QList<AtomId>& candidateAtoms = {});
 
     // Rewires `doomed`'s incident bonds onto `kept` (creating each as a new
     // bond, or dropping it as a rejected-seam parallel edge), then removes

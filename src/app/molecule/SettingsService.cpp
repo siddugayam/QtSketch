@@ -33,6 +33,26 @@ void SettingsService::initializeDraft(const DrawingStyle& style, const PageSetti
     emit draftChanged();
 }
 
+void SettingsService::initializeDraftFromJson(const QJsonObject& style, const QJsonObject& pageSettings) {
+    DrawingStyle ds = DrawingStyle::defaults();
+    if (style.contains("bondLength")) ds.bondLength = style["bondLength"].toDouble();
+    if (style.contains("lineWidth")) ds.lineWidth = style["lineWidth"].toDouble();
+    if (style.contains("fontFamily")) ds.fontFamily = style["fontFamily"].toString();
+    if (style.contains("fontSize")) ds.fontSize = style["fontSize"].toInt();
+    if (style.contains("monochrome")) ds.monochrome = style["monochrome"].toBool();
+    if (style.contains("modelToMmScale")) ds.modelToMmScale = style["modelToMmScale"].toDouble();
+
+    PageSettings ps = PageSettings::defaults();
+    if (pageSettings.contains("widthMm")) ps.widthMm = pageSettings["widthMm"].toDouble();
+    if (pageSettings.contains("heightMm")) ps.heightMm = pageSettings["heightMm"].toDouble();
+    if (pageSettings.contains("marginLeftMm")) ps.marginLeftMm = pageSettings["marginLeftMm"].toDouble();
+    if (pageSettings.contains("marginRightMm")) ps.marginRightMm = pageSettings["marginRightMm"].toDouble();
+    if (pageSettings.contains("marginTopMm")) ps.marginTopMm = pageSettings["marginTopMm"].toDouble();
+    if (pageSettings.contains("marginBottomMm")) ps.marginBottomMm = pageSettings["marginBottomMm"].toDouble();
+
+    initializeDraft(ds, ps);
+}
+
 // Setters with emit
 void SettingsService::setDraftBondLength(double value) {
     if (m_draftDrawingStyle.bondLength != value) {
@@ -146,6 +166,7 @@ QVariantList SettingsService::getPresets() const {
     for (const StylePreset& preset : m_presets) {
         QVariantMap map;
         map["name"] = preset.name;
+        map["isBuiltIn"] = preset.isBuiltIn;
         map["bondLength"] = preset.drawingStyle.bondLength;
         map["lineWidth"] = preset.drawingStyle.lineWidth;
         map["fontFamily"] = preset.drawingStyle.fontFamily;
@@ -174,14 +195,23 @@ bool SettingsService::loadPreset(int index) {
     return true;
 }
 
-bool SettingsService::savePreset(const QString& name) {
-    if (name.isEmpty()) {
+bool SettingsService::savePreset(const QString& name, bool allowOverwrite) {
+    const QString trimmed = name.trimmed();
+    if (trimmed.isEmpty()) {
         return false;
     }
     
     // Check if preset with this name already exists
     for (int i = 0; i < m_presets.size(); ++i) {
-        if (m_presets[i].name == name) {
+        if (m_presets[i].name.compare(trimmed, Qt::CaseInsensitive) == 0) {
+            if (m_presets[i].isBuiltIn) {
+                emit presetError(QStringLiteral("Cannot overwrite built-in preset '%1'").arg(m_presets[i].name));
+                return false;
+            }
+            if (!allowOverwrite) {
+                emit presetOverwritePrompt(m_presets[i].name);
+                return false;
+            }
             // Update existing preset
             m_presets[i].drawingStyle = m_draftDrawingStyle;
             m_presets[i].pageSettings = m_draftPageSettings;
@@ -193,7 +223,8 @@ bool SettingsService::savePreset(const QString& name) {
     
     // Add new preset
     StylePreset preset;
-    preset.name = name;
+    preset.name = trimmed;
+    preset.isBuiltIn = false;
     preset.drawingStyle = m_draftDrawingStyle;
     preset.pageSettings = m_draftPageSettings;
     m_presets.append(preset);
@@ -206,11 +237,28 @@ bool SettingsService::deletePreset(int index) {
     if (index < 0 || index >= m_presets.size()) {
         return false;
     }
+    if (m_presets[index].isBuiltIn) {
+        emit presetError(QStringLiteral("Cannot delete built-in preset '%1'").arg(m_presets[index].name));
+        return false;
+    }
     
     m_presets.removeAt(index);
     savePresetsToStorage();
     emit presetsChanged();
     return true;
+}
+
+bool SettingsService::hasPreset(const QString& name) const {
+    const QString trimmed = name.trimmed();
+    for (const StylePreset& p : m_presets) {
+        if (p.name.compare(trimmed, Qt::CaseInsensitive) == 0) return true;
+    }
+    return false;
+}
+
+bool SettingsService::isBuiltInPreset(int index) const {
+    if (index < 0 || index >= m_presets.size()) return false;
+    return m_presets[index].isBuiltIn;
 }
 
 QStringList SettingsService::getAvailableFonts() const {
@@ -263,18 +311,21 @@ void SettingsService::loadPresetsFromStorage() {
         // Add some built-in presets
         StylePreset defaultPreset;
         defaultPreset.name = "Default";
+        defaultPreset.isBuiltIn = true;
         defaultPreset.drawingStyle = DrawingStyle::defaults();
         defaultPreset.pageSettings = PageSettings::defaults();
         m_presets.append(defaultPreset);
         
         StylePreset publicationPreset;
         publicationPreset.name = "Publication";
+        publicationPreset.isBuiltIn = true;
         publicationPreset.drawingStyle = DrawingStyle(1.5, 0.6, "Arial", 10, true);
         publicationPreset.pageSettings = PageSettings(210, 297, 10, 10, 10, 10);
         m_presets.append(publicationPreset);
         
         StylePreset presentationPreset;
         presentationPreset.name = "Presentation";
+        presentationPreset.isBuiltIn = true;
         presentationPreset.drawingStyle = DrawingStyle(2.0, 1.0, "Arial", 14, false);
         presentationPreset.pageSettings = PageSettings(210, 297, 20, 20, 20, 20);
         m_presets.append(presentationPreset);
@@ -292,6 +343,7 @@ void SettingsService::loadPresetsFromStorage() {
         // Use defaults
         StylePreset defaultPreset;
         defaultPreset.name = "Default";
+        defaultPreset.isBuiltIn = true;
         defaultPreset.drawingStyle = DrawingStyle::defaults();
         defaultPreset.pageSettings = PageSettings::defaults();
         m_presets.append(defaultPreset);
@@ -305,6 +357,8 @@ void SettingsService::loadPresetsFromStorage() {
             QJsonObject obj = value.toObject();
             StylePreset preset;
             preset.name = obj["name"].toString();
+            preset.isBuiltIn = obj.contains("isBuiltIn") ? obj["isBuiltIn"].toBool() :
+                               (preset.name == "Default" || preset.name == "Publication" || preset.name == "Presentation");
             
             QJsonObject styleObj = obj["drawingStyle"].toObject();
             preset.drawingStyle.bondLength = styleObj["bondLength"].toDouble(1.5);
@@ -339,6 +393,7 @@ void SettingsService::savePresetsToStorage() {
     for (const StylePreset& preset : m_presets) {
         QJsonObject obj;
         obj["name"] = preset.name;
+        obj["isBuiltIn"] = preset.isBuiltIn;
         
         QJsonObject styleObj;
         styleObj["bondLength"] = preset.drawingStyle.bondLength;

@@ -119,6 +119,28 @@ static void test_cleanupPlacement_mergesNearCoincidentAtoms() {
     CHECK(countAfter < countBefore, "near-coincident atoms get merged, atom count drops");
 }
 
+static void test_cleanupPlacement_preservesPreExistingAtoms() {
+    std::printf("--- Test: PlacementCleanup::cleanupPlacement never merges pre-existing atoms ---\n");
+    EditableMolecule mol;
+    // Two pre-existing atoms close to each other
+    AtomId pre1 = mol.addAtom(QStringLiteral("C"), 10.0, 10.0);
+    AtomId pre2 = mol.addAtom(QStringLiteral("C"), 10.01, 10.0);
+    mol.addBond(pre1, pre2, 1);
+
+    // Newly placed atoms elsewhere
+    AtomId new1 = mol.addAtom(QStringLiteral("C"), 0.0, 0.0);
+    AtomId new2 = mol.addAtom(QStringLiteral("C"), 1.5, 0.0);
+    mol.addBond(new1, new2, 1);
+
+    QList<AtomId> newlyPlaced = {new1, new2};
+    PlacementCleanup::cleanupPlacement(mol, newlyPlaced, 1.5);
+
+    QList<AtomId> atomsAfter = mol.atomIds();
+    CHECK(atomsAfter.contains(pre1), "pre-existing atom 1 is preserved");
+    CHECK(atomsAfter.contains(pre2), "pre-existing atom 2 is preserved");
+    CHECK(atomsAfter.size() == 4, "no pre-existing atoms were merged away");
+}
+
 int main() {
     std::printf("Running Placement Engines tests...\n");
     test_snapAngle_noExistingAngles();
@@ -128,6 +150,7 @@ int main() {
     test_cleanupPlacement_skipsInternalBonds();
     test_cleanupPlacement_nudgesAttachmentBond();
     test_cleanupPlacement_mergesNearCoincidentAtoms();
+    test_cleanupPlacement_preservesPreExistingAtoms();
     std::printf("Summary: %d passed, %d failed.\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

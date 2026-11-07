@@ -2,6 +2,7 @@
 #include "PlacementCleanup.h"
 #include <cmath>
 #include <algorithm>
+#include <QDebug>
 
 // Find pairs of atoms that are too close together
 QList<std::pair<AtomId, AtomId>> PlacementCleanup::findNearCoincidentPairs(
@@ -81,24 +82,37 @@ QList<AtomId> PlacementCleanup::cleanupPlacement(EditableMolecule& mol,
         return movedAtoms;
     }
 
-    // Step 1: Fix near-coincident atoms (overlapping or too close)
-    // Strategy: for each pair of close atoms, move one away from the other
-    // We'll use mergeOverlappingAtoms which already handles this
-    EditableMolecule::MergeResult mergeResult = mol.mergeOverlappingAtoms();
-    // mergeResult.mergedAway contains atoms that were merged away
-    // For our purposes, we just note that the merge already happened
-
-    // Step 2: Fix bond lengths
-    // For each bond connected to newly placed atoms, check if it needs adjustment
-    QSet<AtomId> existingAtoms;
+    // Capture pre-existing atoms before merge to check invariants
+    QSet<AtomId> preExistingAtoms;
     for (AtomId id : mol.atomIds()) {
         if (!newlyPlacedAtoms.contains(id)) {
-            existingAtoms.insert(id);
+            preExistingAtoms.insert(id);
         }
     }
 
-    // For each newly placed atom, check its bonds
-    for (AtomId newAtom : newlyPlacedAtoms) {
+    // Step 1: Fix near-coincident atoms, scoped to newly placed atoms so
+    // pre-existing atoms in the document are never merged with each other
+    EditableMolecule::MergeResult mergeResult = mol.mergeOverlappingAtoms(0.1, newlyPlacedAtoms);
+
+    // Chemistry-invariant verification: assert/warn if any pre-existing atom was merged away
+    for (auto it = mergeResult.mergedAway.constBegin(); it != mergeResult.mergedAway.constEnd(); ++it) {
+        AtomId doomed = it.key();
+        if (preExistingAtoms.contains(doomed)) {
+            qWarning() << "PlacementCleanup: chemistry invariant violated, pre-existing atom"
+                       << doomed << "was merged away";
+        }
+    }
+
+    // Filter newlyPlacedAtoms to surviving atoms (excluding those merged away)
+    QList<AtomId> survivingNewAtoms;
+    for (AtomId id : newlyPlacedAtoms) {
+        if (!mergeResult.mergedAway.contains(id)) {
+            survivingNewAtoms.append(id);
+        }
+    }
+
+    // Step 2: Fix bond lengths for surviving newly placed atoms
+    for (AtomId newAtom : survivingNewAtoms) {
         // Get all bonds connected to this atom
         QList<BondId> atomBonds = mol.bondIds();
         for (BondId bid : atomBonds) {
@@ -118,7 +132,7 @@ QList<AtomId> PlacementCleanup::cleanupPlacement(EditableMolecule& mol,
             // construction; a template graft's internal bonds are deliberately its
             // OWN lengths, e.g. a 1.0-unit template bond next to a 1.5-unit
             // document bondLength) and must not be rewritten here.
-            if (!existingAtoms.contains(otherAtom)) {
+            if (!preExistingAtoms.contains(otherAtom)) {
                 continue;
             }
 

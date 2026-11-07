@@ -6,6 +6,7 @@
 #include <QList>
 #include <QString>
 #include <QVariantMap>
+#include <QJsonObject>
 #include <QtQml/qqml.h>
 #include "DrawingStyle.h"
 #include "PageSettings.h"
@@ -15,6 +16,7 @@ struct StylePreset {
     QString name;
     DrawingStyle drawingStyle;
     PageSettings pageSettings;
+    bool isBuiltIn = false;
 };
 
 // QML-accessible settings service singleton
@@ -30,6 +32,7 @@ public:
 
     // Initialize draft from document's current style
     Q_INVOKABLE void initializeDraft(const DrawingStyle& style, const PageSettings& pageSettings);
+    Q_INVOKABLE void initializeDraftFromJson(const QJsonObject& style, const QJsonObject& pageSettings);
 
     // Draft properties (accessed from QML)
     Q_PROPERTY(double draftBondLength READ draftBondLength WRITE setDraftBondLength NOTIFY draftChanged)
@@ -81,8 +84,10 @@ public:
     // Preset management
     Q_INVOKABLE QVariantList getPresets() const;
     Q_INVOKABLE bool loadPreset(int index);
-    Q_INVOKABLE bool savePreset(const QString& name);
+    Q_INVOKABLE bool savePreset(const QString& name, bool allowOverwrite = false);
     Q_INVOKABLE bool deletePreset(int index);
+    Q_INVOKABLE bool hasPreset(const QString& name) const;
+    Q_INVOKABLE bool isBuiltInPreset(int index) const;
     Q_INVOKABLE QStringList getAvailableFonts() const;
 
     // Apply draft settings to document (returns the new style and page settings)
@@ -103,6 +108,8 @@ Q_SIGNALS:
     void presetsChanged();
     void applyRequested(int docId);
     void cancelRequested();
+    void presetOverwritePrompt(const QString& name);
+    void presetError(const QString& message);
 
 private:
     // Load presets from storage

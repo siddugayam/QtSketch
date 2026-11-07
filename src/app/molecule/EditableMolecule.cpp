@@ -1142,13 +1142,14 @@ QList<BondId> EditableMolecule::graftAtomOnto(AtomId doomed, AtomId kept) {
     return createdBonds;
 }
 
-EditableMolecule::MergeResult EditableMolecule::mergeOverlappingAtoms(double tolerance) {
+EditableMolecule::MergeResult EditableMolecule::mergeOverlappingAtoms(double tolerance, const QList<AtomId>& candidateAtoms) {
     MergeResult result;
     // Ascending id order == insertion order for our never-reused AtomId
     // counter -- the exact invariant fuseOverlappingAtoms relies on to make
     // "kept" always the earlier (pre-existing) atom in a coincident pair.
     QList<AtomId> ids = atomIds();
     QSet<AtomId> doomedSet;
+    const QSet<AtomId> candidateSet(candidateAtoms.begin(), candidateAtoms.end());
 
     for (int i = 0; i < ids.size(); ++i) {
         AtomId keptId = ids[i];
@@ -1159,6 +1160,14 @@ EditableMolecule::MergeResult EditableMolecule::mergeOverlappingAtoms(double tol
         for (int j = i + 1; j < ids.size(); ++j) {
             AtomId doomedId = ids[j];
             if (doomedSet.contains(doomedId)) continue;
+
+            // If a candidate scope is provided, at least one atom in the pair
+            // must belong to the candidate set; pre-existing atoms outside the scope
+            // are never merged with each other.
+            if (!candidateSet.isEmpty() && !candidateSet.contains(keptId) && !candidateSet.contains(doomedId)) {
+                continue;
+            }
+
             double dx = 0, dy = 0;
             if (!atomPos(doomedId, dx, dy)) continue;
             double ddx = kx - dx, ddy = ky - dy;

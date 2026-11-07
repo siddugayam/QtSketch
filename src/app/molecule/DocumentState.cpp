@@ -251,18 +251,31 @@ void DocumentState::markClean() {
     m_dirty = false;
 }
 
+void DocumentState::clearHistory() {
+    m_history.clear();
+    m_historyPointer = -1;
+}
+
 void DocumentState::setDrawingStyle(const DrawingStyle& style) {
-    // Capture the current bond length as legacy scale if this is the first time
-    // setting a style on an existing document
-    if (m_drawingStyle.bondLength != style.bondLength && m_drawingStyle.modelToMmScale != 0) {
-        // Legacy scale capture: compute the fixed scale from the current bond length
-        // and preserve it when the style changes
-        double legacyBondLengthMm = m_drawingStyle.bondLength * m_drawingStyle.modelToMmScale;
-        m_drawingStyle = style;
-        m_drawingStyle.captureLegacyScale(legacyBondLengthMm);
-    } else {
-        m_drawingStyle = style;
+    DrawingStyle newStyle = style;
+    // Maintain fixed physical scale invariant: preserve current modelToMmScale
+    // if incoming style doesn't provide a valid positive scale
+    if (newStyle.modelToMmScale <= 0) {
+        newStyle.modelToMmScale = m_drawingStyle.modelToMmScale;
     }
+    if (m_drawingStyle == newStyle) {
+        return;
+    }
+
+    DrawingStyle oldStyle = m_drawingStyle;
+    EditCommand cmd;
+    cmd.execute = [this, newStyle]() {
+        m_drawingStyle = newStyle;
+    };
+    cmd.invert = [this, oldStyle]() {
+        m_drawingStyle = oldStyle;
+    };
+    executeCommand(std::move(cmd));
 }
 
 void DocumentState::applyDrawingStyleWithRescale(const DrawingStyle& style) {
@@ -313,14 +326,27 @@ void DocumentState::applyDrawingStyleWithRescale(const DrawingStyle& style) {
         
         executeCommand(std::move(cmd));
     } else {
-        // Bond length not changing, just apply the style directly
-        // This preserves the existing legacy scale capture behavior
+        // Bond length not changing, apply the style (non-bond-length changes like font,
+        // lineWidth, monochrome are wrapped in undo/dirty tracking inside setDrawingStyle)
         setDrawingStyle(style);
     }
 }
 
 void DocumentState::setPageSettings(const PageSettings& settings) {
-    m_pageSettings = settings;
+    if (m_pageSettings == settings) {
+        return;
+    }
+
+    PageSettings oldSettings = m_pageSettings;
+    PageSettings newSettings = settings;
+    EditCommand cmd;
+    cmd.execute = [this, newSettings]() {
+        m_pageSettings = newSettings;
+    };
+    cmd.invert = [this, oldSettings]() {
+        m_pageSettings = oldSettings;
+    };
+    executeCommand(std::move(cmd));
 }
 
 bool DocumentState::canUndo() const {
@@ -2290,7 +2316,7 @@ void DocumentState::addRing(const QList<double>& coords, bool aromatic) {
             if (bid >= 0) createdBonds->append(bid);
         }
 
-        EditableMolecule::MergeResult mergeResult = mol.mergeOverlappingAtoms();
+        EditableMolecule::MergeResult mergeResult = mol.mergeOverlappingAtoms(0.1, *createdAtoms);
         QList<AtomId> survivors;
         for (AtomId a : *createdAtoms) {
             if (!mergeResult.mergedAway.contains(a)) survivors.append(a);
@@ -2329,7 +2355,8 @@ void DocumentState::addChain(double x1, double y1, double x2, double y2) {
     const double kPi = 3.14159265358979323846;
     double dx = x2 - x1, dy = y2 - y1;
     double dist = std::sqrt(dx * dx + dy * dy);
-    int nBonds = std::max(1, static_cast<int>(std::round(dist / m_drawingStyle.bondLength)));
+    const int kMaxChainBonds = 200;
+    int nBonds = std::min(kMaxChainBonds, std::max(1, static_cast<int>(std::round(dist / m_drawingStyle.bondLength))));
     double theta = std::atan2(dy, dx);
     double half = kPi / 6.0;
 
@@ -2358,7 +2385,7 @@ void DocumentState::addChain(double x1, double y1, double x2, double y2) {
             py += bondLength * std::sin(ang);
         }
 
-        EditableMolecule::MergeResult mergeResult = mol.mergeOverlappingAtoms();
+        EditableMolecule::MergeResult mergeResult = mol.mergeOverlappingAtoms(0.1, *createdAtoms);
         QList<AtomId> survivors;
         for (AtomId a : *createdAtoms) {
             if (!mergeResult.mergedAway.contains(a)) survivors.append(a);
@@ -3298,7 +3325,7 @@ void DocumentState::insertLibraryTemplateFused(const TemplateLibrary& lib, const
         *createdAtoms = result.createdAtoms;
         *createdBonds = result.createdBonds;
 
-        EditableMolecule::MergeResult mergeResult = mol.mergeOverlappingAtoms();
+        EditableMolecule::MergeResult mergeResult = mol.mergeOverlappingAtoms(0.1, *createdAtoms);
         QList<AtomId> survivors;
         for (AtomId a : *createdAtoms) {
             if (!mergeResult.mergedAway.contains(a)) survivors.append(a);

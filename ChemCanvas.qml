@@ -25,6 +25,7 @@ Item {
 
     // Bound by MainWindow's per-document Repeater to this canvas's V8Process instance.
     property var sketch: null
+    readonly property real docBondLength: (sketch && typeof sketch.getDrawingStyle === "function" && sketch.getDrawingStyle().bondLength > 0) ? sketch.getDrawingStyle().bondLength : 1.5
     property string currentTool: "SELECT" // "SELECT", "BOND", "ATOM", "BENZENE"
     property string currentArrowMode: "filled-triangle" // default reaction arrow mode
     property bool showExplicitH: false
@@ -1258,7 +1259,7 @@ Item {
                 // 1.0 chemical units instead of 1.5 (chem-core.js's StandardBondLength) --
                 // together, every drag-placed atom/fragment landed at the wrong distance
                 // from its neighbor, worse the more zoomed in/out you were.
-                AppController.handleDrag(m.x, m.y, chemScale, 1.5)
+                AppController.handleDrag(m.x, m.y, chemScale, docBondLength)
                 return
             }
 
@@ -1300,7 +1301,7 @@ Item {
                         // of ~13 units divided by ~19 (pixels, wrong unit) rounds down to 1 bond,
                         // then that 1 bond's "length" gets stepped by 19 chem-units instead of
                         // 1.5, landing the second atom ~19x too far away.
-                        AppController.updateChainPreview(bp.startX, bp.startY, curChem.x, curChem.y, 1.5)
+                        AppController.updateChainPreview(bp.startX, bp.startY, curChem.x, curChem.y, docBondLength)
                     }
                     return
                 }
@@ -1658,9 +1659,9 @@ Item {
                         // land on top of one that's already there.
                         const clickDx = m.x - pressX, clickDy = m.y - pressY
                         const wasClick = (clickDx * clickDx + clickDy * clickDy) < 25
-                        let endChemP = wasClick ? { x: startX + 1.5, y: startY } : canvasToChem(m.x, m.y)
+                        let endChemP = wasClick ? { x: startX + docBondLength, y: startY } : canvasToChem(m.x, m.y)
                         if (wasClick && startAtomId !== null) {
-                            const suggested = sketch.suggestBondEndpoint(startAtomId, 1.5)
+                            const suggested = sketch.suggestBondEndpoint(startAtomId, docBondLength)
                             if (suggested && suggested.x !== undefined) endChemP = suggested
                         }
                         // A plain click landing back on the very atom the drag started from

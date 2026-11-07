@@ -4303,6 +4303,65 @@ static void test_applyDrawingStyleWithRescaleAffectsExportSize() {
           "undo restores original modelToMmScale");
 }
 
+static void test_drawingStyleAndPageSettingsUndoAndInvariants() {
+    std::printf("--- Test: drawingStyle and pageSettings undo tracking and invariant preservation ---\n");
+    const double kEps = 1e-6;
+
+    DocumentState doc;
+    doc.markClean();
+    DrawingStyle originalStyle = doc.drawingStyle();
+    PageSettings originalPage = doc.pageSettings();
+
+    // 1. Non-bond-length style change: lineWidth, font, fontSize, monochrome
+    DrawingStyle nonBondStyle = originalStyle;
+    nonBondStyle.lineWidth = 1.2;
+    nonBondStyle.fontFamily = QStringLiteral("Helvetica");
+    nonBondStyle.fontSize = 16;
+    nonBondStyle.monochrome = false;
+
+    doc.setDrawingStyle(nonBondStyle);
+    CHECK(doc.isDirty(), "setDrawingStyle marks document dirty");
+    CHECK(doc.canUndo(), "setDrawingStyle pushes undo command");
+    CHECK(doc.drawingStyle().lineWidth == 1.2, "lineWidth updated");
+    CHECK(doc.drawingStyle().fontFamily == QStringLiteral("Helvetica"), "fontFamily updated");
+
+    doc.undo();
+    CHECK(doc.drawingStyle().lineWidth == originalStyle.lineWidth, "undo restores original lineWidth");
+    CHECK(doc.drawingStyle().fontFamily == originalStyle.fontFamily, "undo restores original fontFamily");
+    CHECK(doc.canRedo(), "canRedo after undo");
+
+    doc.redo();
+    CHECK(doc.drawingStyle().lineWidth == 1.2, "redo restores updated lineWidth");
+
+    // 2. setDrawingStyle bond length change does NOT recompute modelToMmScale (invariant preserved)
+    double fixedScale = doc.drawingStyle().modelToMmScale;
+    DrawingStyle bondChangedStyle = doc.drawingStyle();
+    bondChangedStyle.bondLength = 3.0; // was 1.5
+    bondChangedStyle.modelToMmScale = 0.0;
+    doc.setDrawingStyle(bondChangedStyle);
+    CHECK(std::abs(doc.drawingStyle().modelToMmScale - fixedScale) < kEps,
+          "setDrawingStyle preserves fixed scale invariant when bond length changes (no legacy recompute)");
+    CHECK(std::abs(doc.drawingStyle().bondLength - 3.0) < kEps, "setDrawingStyle updates bondLength");
+
+    // 3. PageSettings mutation through undo/dirty tracking
+    doc.markClean();
+    PageSettings newPage(297.0, 420.0, 15.0, 15.0, 20.0, 20.0);
+    doc.setPageSettings(newPage);
+    CHECK(doc.isDirty(), "setPageSettings marks document dirty");
+    CHECK(doc.pageSettings() == newPage, "pageSettings updated");
+
+    doc.undo();
+    CHECK(doc.pageSettings() == originalPage, "undo restores original page settings");
+
+    doc.redo();
+    CHECK(doc.pageSettings() == newPage, "redo restores updated page settings");
+
+    // 4. clearHistory resets history pointer and stack
+    doc.clearHistory();
+    CHECK(!doc.canUndo(), "clearHistory resets canUndo");
+    CHECK(!doc.canRedo(), "clearHistory resets canRedo");
+}
+
 static void test_selectSubstructureMatches() {
     std::printf("--- Test: selectSubstructureMatches ---\n");
 
@@ -4446,6 +4505,7 @@ int main() {
     test_layoutSelectedChain();
     test_selectSubstructureMatches();
     test_applyDrawingStyleWithRescaleAffectsExportSize();
+    test_drawingStyleAndPageSettingsUndoAndInvariants();
     std::printf("Summary: %d passed, %d failed.\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

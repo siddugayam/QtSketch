@@ -29,27 +29,29 @@ Item {
 
         // Initialize when opened
         onOpened: {
-            if (win.activeSketch) {
-                currentDocId = win.activeSketch.docId
-                const style = win.activeSketch.getDrawingStyle()
-                const pageSettings = win.activeSketch.getPageSettings()
-                SettingsService.initializeDraft(style, pageSettings)
+            currentDocId = DocumentManager.activeDocId
+            const doc = DocumentManager.documentFor(currentDocId)
+            if (doc) {
+                const style = doc.getDrawingStyle()
+                const pageSettings = doc.getPageSettings()
+                SettingsService.initializeDraftFromJson(style, pageSettings)
             }
         }
 
-        // Apply settings - call win to apply via V8Process
-        onAccepted: {
-            const draftStyle = SettingsService.getDraftDrawingStyleJson()
-            const draftPageSettings = SettingsService.getDraftPageSettingsJson()
-            if (win.activeSketch) {
-                win.activeSketch.applyDrawingStyleWithRescale(draftStyle)
-                win.activeSketch.setPageSettings(draftPageSettings)
-            }
-            // Initialize draft with the new (now applied) values
-            if (win.activeSketch) {
-                const style = win.activeSketch.getDrawingStyle()
-                const pageSettings = win.activeSketch.getPageSettings()
-                SettingsService.initializeDraft(style, pageSettings)
+        // Apply settings - call target doc via V8Process
+        // Uses onApplied (not onAccepted): standardButtons has Dialog.Apply | Dialog.Cancel,
+        // and Qt Quick Dialog emits applied() for Apply-role buttons and keeps dialog open.
+        onApplied: {
+            const doc = DocumentManager.documentFor(currentDocId)
+            if (doc) {
+                const draftStyle = SettingsService.getDraftDrawingStyleJson()
+                const draftPageSettings = SettingsService.getDraftPageSettingsJson()
+                doc.applyDrawingStyleWithRescale(draftStyle)
+                doc.setPageSettings(draftPageSettings)
+                // Initialize draft with the new (now applied) values
+                const style = doc.getDrawingStyle()
+                const pageSettings = doc.getPageSettings()
+                SettingsService.initializeDraftFromJson(style, pageSettings)
             }
         }
 
@@ -318,9 +320,21 @@ Item {
                             ListView {
                                 Layout.fillWidth: true
                                 height: 200
+                                clip: true
                                 model: SettingsService.getPresets()
                                 delegate: ItemDelegate {
-                                    text: modelData.name
+                                    width: ListView.view.width
+                                    contentItem: RowLayout {
+                                        Label {
+                                            text: modelData.name + (modelData.isBuiltIn ? " (Built-in)" : "")
+                                            Layout.fillWidth: true
+                                        }
+                                        Button {
+                                            text: "Delete"
+                                            visible: !modelData.isBuiltIn
+                                            onClicked: SettingsService.deletePreset(index)
+                                        }
+                                    }
                                     onClicked: SettingsService.loadPreset(index)
                                 }
                             }
@@ -336,9 +350,11 @@ Item {
                                     id: savePresetButton
                                     text: "Save"
                                     onClicked: {
-                                        if (presetNameField.text.trim() !== "") {
-                                            SettingsService.savePreset(presetNameField.text.trim())
-                                            presetNameField.text = ""
+                                        const name = presetNameField.text.trim()
+                                        if (name !== "") {
+                                            if (SettingsService.savePreset(name)) {
+                                                presetNameField.text = ""
+                                            }
                                         }
                                     }
                                 }
@@ -359,6 +375,41 @@ Item {
                     }
                 }
             }
+        }
+    }
+
+    MessageDialog {
+        id: presetOverwriteDialog
+        title: "Overwrite Preset"
+        text: "Preset '" + pendingName + "' already exists. Overwrite?"
+        buttons: MessageDialog.Yes | MessageDialog.No
+        property string pendingName: ""
+        onButtonClicked: function(button) {
+            if (button === MessageDialog.Yes) {
+                SettingsService.savePreset(pendingName, true)
+                pendingName = ""
+                presetNameField.text = ""
+            }
+        }
+    }
+
+    MessageDialog {
+        id: presetErrorDialog
+        title: "Preset Error"
+        property string errorText: ""
+        text: errorText
+        buttons: MessageDialog.Ok
+    }
+
+    Connections {
+        target: SettingsService
+        function onPresetOverwritePrompt(name) {
+            presetOverwriteDialog.pendingName = name
+            presetOverwriteDialog.open()
+        }
+        function onPresetError(message) {
+            presetErrorDialog.errorText = message
+            presetErrorDialog.open()
         }
     }
 }

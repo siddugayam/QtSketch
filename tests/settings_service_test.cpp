@@ -181,6 +181,65 @@ int main() {
     QStringList fonts = service.getAvailableFonts();
     CHECK(!fonts.isEmpty(), "getAvailableFonts returns non-empty list");
 
+    // Test 9: initializeDraftFromJson converts QJsonObject to draft properties
+    std::printf("--- Test 9: initializeDraftFromJson ---\n");
+    QJsonObject styleJson;
+    styleJson["bondLength"] = 2.5;
+    styleJson["lineWidth"] = 0.75;
+    styleJson["fontFamily"] = "Helvetica";
+    styleJson["fontSize"] = 14;
+    styleJson["monochrome"] = false;
+    styleJson["modelToMmScale"] = 3.5;
+
+    QJsonObject pageJson;
+    pageJson["widthMm"] = 150.0;
+    pageJson["heightMm"] = 250.0;
+    pageJson["marginLeftMm"] = 12.0;
+    pageJson["marginRightMm"] = 13.0;
+    pageJson["marginTopMm"] = 14.0;
+    pageJson["marginBottomMm"] = 15.0;
+
+    service.initializeDraftFromJson(styleJson, pageJson);
+    CHECK(service.draftBondLength() == 2.5, "draft bond length from JSON");
+    CHECK(service.draftLineWidth() == 0.75, "draft line width from JSON");
+    CHECK(service.draftFontFamily() == "Helvetica", "draft font family from JSON");
+    CHECK(service.draftFontSize() == 14, "draft font size from JSON");
+    CHECK(service.draftMonochrome() == false, "draft monochrome from JSON");
+    CHECK(service.draftPageWidth() == 150.0, "draft page width from JSON");
+    CHECK(service.draftPageHeight() == 250.0, "draft page height from JSON");
+    CHECK(service.draftMarginLeft() == 12.0, "draft margin left from JSON");
+    CHECK(service.draftMarginRight() == 13.0, "draft margin right from JSON");
+    CHECK(service.draftMarginTop() == 14.0, "draft margin top from JSON");
+    CHECK(service.draftMarginBottom() == 15.0, "draft margin bottom from JSON");
+
+    // Test 10: Preset collision and built-in protection
+    std::printf("--- Test 10: Preset protection ---\n");
+    QSignalSpy errorSpy(&service, &SettingsService::presetError);
+    QSignalSpy promptSpy(&service, &SettingsService::presetOverwritePrompt);
+
+    // Built-in deletion rejected
+    CHECK(!service.deletePreset(0), "deletePreset rejects built-in index 0");
+    CHECK(errorSpy.count() == 1, "deletePreset emits presetError for built-in");
+
+    // Built-in overwrite rejected
+    CHECK(!service.savePreset("Default"), "savePreset rejects overwriting built-in Default");
+    CHECK(errorSpy.count() == 2, "savePreset emits presetError for built-in overwrite attempt");
+
+    // User preset collision prompt
+    CHECK(service.savePreset("CustomPreset"), "save new CustomPreset succeeds");
+    CHECK(!service.savePreset("CustomPreset", false), "save colliding CustomPreset without allowOverwrite rejected");
+    CHECK(promptSpy.count() == 1, "colliding savePreset emits presetOverwritePrompt");
+    CHECK(promptSpy.first().at(0).toString() == "CustomPreset", "prompt argument is preset name");
+
+    // User preset overwrite confirmed
+    service.setDraftBondLength(4.0);
+    CHECK(service.savePreset("CustomPreset", true), "save colliding CustomPreset with allowOverwrite=true succeeds");
+    CHECK(service.loadPreset(service.getPresets().size() - 1), "load updated CustomPreset succeeds");
+    CHECK(service.draftBondLength() == 4.0, "updated preset has new bond length");
+
+    // Clean up created user preset
+    CHECK(service.deletePreset(service.getPresets().size() - 1), "delete custom preset succeeds");
+
     std::printf("\nSummary: %d passed, %d failed.\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

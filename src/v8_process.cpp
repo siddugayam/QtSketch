@@ -1086,6 +1086,7 @@ void V8Process::loadProject(const QUrl& fileUrl) {
     }
     m_docState->setDrawingStyle(style);
     m_docState->setPageSettings(page);
+    m_docState->clearHistory();
     m_docState->markClean();
     applyLocalState();
 }
