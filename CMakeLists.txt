@@ -39,7 +39,7 @@ set(IUPAC_NAMING_SOURCES
 set_source_files_properties(Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(StyleSheets.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
-qt_add_executable(sketch src/app/main.cpp src/app/IndigoService.h src/app/IndigoService.cpp src/app/ImagoService.h src/app/ImagoService.cpp src/v8_process.h src/v8_process.cpp src/app/FileIO.h src/app/PlacementEngines.h src/app/PlacementEngines.cpp src/app/PlacementPreviewManager.h src/app/PlacementPreviewManager.cpp src/app/AppController.h src/app/AppController.cpp src/app/DocumentManager.h src/app/DocumentManager.cpp)
+qt_add_executable(sketch src/app/main.cpp src/app/IndigoService.h src/app/IndigoService.cpp src/app/ImagoService.h src/app/ImagoService.cpp src/v8_process.h src/v8_process.cpp src/app/FileIO.h src/app/PlacementEngines.h src/app/PlacementEngines.cpp src/app/PlacementPreviewManager.h src/app/PlacementPreviewManager.cpp src/app/AppController.h src/app/AppController.cpp src/app/DocumentManager.h src/app/DocumentManager.cpp src/app/molecule/SettingsService.h src/app/molecule/SettingsService.cpp src/app/render/ExportManager.h src/app/render/ExportManager.cpp)
 if (WIN32)
     target_sources(sketch PRIVATE src/app/app_icon.rc)
 endif()
@@ -200,6 +200,8 @@ target_precompile_headers(sketch PRIVATE
 target_include_directories(sketch PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app/molecule
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app/render
     ${CMAKE_CURRENT_SOURCE_DIR}/build/vcpkg_installed/x64-mingw-dynamic/include
     ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo
     ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo-inchi
@@ -407,16 +409,12 @@ add_library(molecule_model STATIC
     src/app/molecule/DrawingStyle.cpp
     src/app/molecule/PageSettings.h
     src/app/molecule/PageSettings.cpp
-    src/app/molecule/SettingsService.h
-    src/app/molecule/SettingsService.cpp
     src/app/molecule/ProjectFile.h
     src/app/molecule/ProjectFile.cpp
     src/app/render/RenderScene.h
     src/app/render/RenderScene.cpp
     src/app/render/Exporter.h
     src/app/render/Exporter.cpp
-    src/app/render/ExportManager.h
-    src/app/render/ExportManager.cpp
     src/app/molecule/RenderPrimitivesToVariant.h
     src/app/molecule/RenderPrimitivesToVariant.cpp
     src/app/BondAngleSuggester.h
@@ -474,7 +472,7 @@ target_link_libraries(project_file_test PRIVATE Qt6::Core Qt6::Gui molecule_mode
 add_test(NAME project_file_test COMMAND project_file_test)
 
 # SettingsService test
-qt_add_executable(settings_service_test tests/settings_service_test.cpp)
+qt_add_executable(settings_service_test tests/settings_service_test.cpp src/app/molecule/SettingsService.h src/app/molecule/SettingsService.cpp)
 target_include_directories(settings_service_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app
@@ -492,7 +490,7 @@ target_link_libraries(render_scene_test PRIVATE Qt6::Core Qt6::Gui molecule_mode
 add_test(NAME render_scene_test COMMAND render_scene_test)
 
 # ExportManager test
-qt_add_executable(export_manager_test tests/export_manager_test.cpp)
+qt_add_executable(export_manager_test tests/export_manager_test.cpp src/app/render/ExportManager.h src/app/render/ExportManager.cpp)
 target_include_directories(export_manager_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app
