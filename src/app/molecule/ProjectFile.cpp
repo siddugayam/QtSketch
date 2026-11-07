@@ -410,12 +410,19 @@ bool ProjectFile::fromJson(const QJsonObject& json,
         if (chemistry.contains(kMolfile)) {
             QString molfile = chemistry[kMolfile].toString();
             if (!molfile.isEmpty()) {
-                // Load with preserveEzIntent to keep existing E/Z intent.
+                // preserveEzIntent=false: this is a genuinely new document replacing
+                // whatever was previously loaded into `molecule`, not a same-document
+                // write-back round-trip -- per loadFrom's own contract (EditableMolecule.h),
+                // passing true here would carry over the PREVIOUSLY open document's
+                // per-bond "was E/Z ever specified" flags onto this file's bonds, a stale
+                // state leak. E/Z intent for this file is captured fresh from its own
+                // molfile stereo encoding, which is what kEzIntent round-trips through.
+                //
                 // A non-empty molfile that fails to parse means the project
                 // file's chemistry is genuinely corrupt -- reporting success
                 // with a silently emptied molecule would be worse than
                 // rejecting the load outright.
-                if (!molecule.loadFrom(molfile, true)) {
+                if (!molecule.loadFrom(molfile, false)) {
                     qWarning() << "ProjectFile::fromJson: Failed to load molfile";
                     return false;
                 }
@@ -510,15 +517,15 @@ bool ProjectFile::fromJson(const QJsonObject& json,
         QJsonArray annotations = json[kAnnotations].toArray();
         for (const QJsonValue& val : annotations) {
             QJsonObject ann = val.toObject();
-            TextId textId = ann[kId].toInt();
             double x = ann[kX].toDouble();
             double y = ann[kY].toDouble();
             QString content = ann[kContent].toString();
             bool bold = ann[kBold].toBool(false);
             bool italic = ann[kItalic].toBool(false);
-            molecule.addTextAnnotation(x, y, content);
-            // Note: we can't set bold/italic on existing annotation easily
-            // This would need to be fixed in EditableMolecule
+            int newId = molecule.addTextAnnotation(x, y, content);
+            if (newId >= 0 && (bold || italic)) {
+                molecule.setTextAnnotation(newId, content, bold, italic);
+            }
         }
     }
     

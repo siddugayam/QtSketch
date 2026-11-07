@@ -29,6 +29,10 @@ V8Process::V8Process(QObject *parent, TemplateLibrary* templateLibrary)
 
 V8Process::~V8Process() = default;
 
+double V8Process::bondLength() const {
+    return m_docState->drawingStyle().bondLength;
+}
+
 void V8Process::applyLocalState(const QString &resultTag) {
     RenderPrimitives prims = RenderPrimitiveBuilder::build(m_docState->molecule(), m_docState->showExplicitH());
     m_primitives = renderPrimitivesToVariant(prims);
@@ -42,6 +46,7 @@ void V8Process::applyLocalState(const QString &resultTag) {
     emit stateUpdated(m_primitives, m_selection, m_docState->isDirty(),
                        m_docState->canUndo(), m_docState->canRedo(),
                        resultTag.isEmpty() ? QVariant() : QVariant(resultTag));
+    emit bondLengthChanged();
 }
 
 QString V8Process::buildSdfBatchListJson() const {
@@ -1071,7 +1076,7 @@ void V8Process::requestProjectSerialization(const QString& reqId) {
     emit structureReady(reqId, doc.toJson(QJsonDocument::Compact));
 }
 
-void V8Process::loadProject(const QUrl& fileUrl) {
+bool V8Process::loadProject(const QUrl& fileUrl) {
     // fileUrl arrives as a real file:// URL from QML's FileDialog (selectedFile)
     // or as a plain local path wrapped in a QUrl -- isLocalFile() distinguishes
     // the two so either form resolves to a real filesystem path, not the
@@ -1082,13 +1087,14 @@ void V8Process::loadProject(const QUrl& fileUrl) {
     QString error = ProjectFile::loadProject(filePath, m_docState->molecule(), style, page);
     if (!error.isEmpty()) {
         emit errorOccurred(QStringLiteral("Failed to load project: ") + error);
-        return;
+        return false;
     }
     m_docState->setDrawingStyle(style);
     m_docState->setPageSettings(page);
     m_docState->clearHistory();
     m_docState->markClean();
     applyLocalState();
+    return true;
 }
 
 bool V8Process::saveProject(const QUrl& fileUrl) {

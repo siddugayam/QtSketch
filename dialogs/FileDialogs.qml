@@ -49,12 +49,14 @@ Item {
             const fileStr = selectedFile.toString().toLowerCase()
             if (fileStr.endsWith(".png")) {
                 win.pendingRenderUrl = selectedFile
-                if (win.activeSketch) win.activeSketch.requestStructure("mol", "render_png")
+                // Full document snapshot (not a bare molfile) so text/images/
+                // reaction arrows/etc. reach the exported file too.
+                if (win.activeSketch) win.activeSketch.requestProjectSerialization("render_png")
                 return
             }
             if (fileStr.endsWith(".svg")) {
                 win.pendingRenderUrl = selectedFile
-                if (win.activeSketch) win.activeSketch.requestStructure("mol", "render_svg")
+                if (win.activeSketch) win.activeSketch.requestProjectSerialization("render_svg")
                 return
             }
             let fmt = "mol"
@@ -97,7 +99,7 @@ Item {
         nameFilters: ["PDF document (*.pdf)"]
         onAccepted: {
             win.pendingRenderUrl = selectedFile
-            if (win.activeSketch) win.activeSketch.requestStructure("mol", "render_pdf")
+            if (win.activeSketch) win.activeSketch.requestProjectSerialization("render_pdf")
         }
     }
 

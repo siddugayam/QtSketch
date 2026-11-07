@@ -3,6 +3,7 @@
 #include <QDir>
 #include <QFile>
 #include <QTimer>
+#include <QUuid>
 
 namespace {
 // Same "walk up from the binary, up to 5 levels" discovery pattern already proven in
@@ -56,6 +57,7 @@ int DocumentManager::addDocument() {
     auto *proc = new V8Process(this, m_templateLibrary.get());
     QTimer::singleShot(0, proc, [proc]() { proc->init(); });
     m_documents.insert(docId, proc);
+    m_recoveryIds.insert(docId, QUuid::createUuid().toString(QUuid::WithoutBraces));
     m_order.append(docId);
     emit docIdsChanged();
     setActiveDocId(docId);
@@ -65,6 +67,7 @@ int DocumentManager::addDocument() {
 void DocumentManager::closeDocument(int docId) {
     if (!m_documents.contains(docId)) return;
     V8Process *proc = m_documents.take(docId);
+    m_recoveryIds.remove(docId);
     m_order.removeAll(docId);
     proc->deleteLater();
     emit docIdsChanged();
@@ -77,4 +80,8 @@ void DocumentManager::closeDocument(int docId) {
 
 QObject* DocumentManager::documentFor(int docId) const {
     return m_documents.value(docId, nullptr);
+}
+
+QString DocumentManager::recoveryIdFor(int docId) const {
+    return m_recoveryIds.value(docId, QString::number(docId));
 }

@@ -27,12 +27,23 @@ public:
     Q_INVOKABLE void closeDocument(int docId);
     Q_INVOKABLE QObject* documentFor(int docId) const;
 
+    // A per-document identity for naming recovery/autosave files on disk, distinct
+    // from docId. docId is a small in-process counter that restarts at 1 every
+    // launch, so two different app sessions mint the exact same docId sequence --
+    // a brand-new document today could otherwise collide with, and later clean-exit
+    // delete, an unrelated earlier crash's still-unrecovered autosave file of the
+    // same number. recoveryId is a UUID, generated fresh per document and never
+    // reused across sessions, so that collision class cannot happen. Callers must
+    // look this up BEFORE closeDocument(docId) removes the mapping.
+    Q_INVOKABLE QString recoveryIdFor(int docId) const;
+
 signals:
     void docIdsChanged();
     void activeDocIdChanged();
 
 private:
     QMap<int, V8Process*> m_documents;
+    QMap<int, QString> m_recoveryIds;
     QList<int> m_order;
     int m_nextDocId = 1;
     int m_activeDocId = -1;

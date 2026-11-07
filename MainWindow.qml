@@ -245,23 +245,35 @@ ApplicationWindow {
             if (fileStr.endsWith(".sdf")) fmt = "sdf"
             else if (fileStr.endsWith(".ket")) fmt = "ket"
             else if (fileStr.endsWith(".qtsketch")) fmt = "qtsketch"
-            pendingSaveUrl = path
             addRecentFile(path)
             if (fmt === "qtsketch") {
-                // Use new project save method for .qtsketch files
+                // Use new project save method for .qtsketch files. On failure, do NOT
+                // fall back to writing a bare MOL file at the .qtsketch path (that
+                // silently downgrades/corrupts the project) and do NOT mark clean or
+                // delete the recovery file -- the document is still unsaved.
                 const success = activeSketch.saveProject(path)
-                if (!success) {
-                    activeSketch.requestStructure("mol", "save")
+                if (success) {
+                    pendingSaveUrl = path
+                    if (activeCanvas) activeCanvas.setClean()
+                    const appData = StandardPaths.writableLocation(StandardPaths.AppDataLocation)
+                    const rid = DocumentManager.recoveryIdFor(DocumentManager.activeDocId)
+                    fileIO.remove(appData + "/recovery/autosave_" + rid + ".qtsketch")
+                    fileIO.remove(appData + "/recovery/autosave_" + rid + ".ket")
+                } else {
+                    messageDialogsGroup.workerErrorDialog.errorText =
+                        "Save failed: could not write the project file to " + path + ". The document was not modified on disk; your previous save (if any) is intact."
+                    messageDialogsGroup.workerErrorDialog.severe = true
+                    messageDialogsGroup.workerErrorDialog.open()
                 }
             } else {
+                pendingSaveUrl = path
                 activeSketch.requestStructure(fmt, "save")
+                if (activeCanvas) activeCanvas.setClean()
+                const appData = StandardPaths.writableLocation(StandardPaths.AppDataLocation)
+                const rid = DocumentManager.recoveryIdFor(DocumentManager.activeDocId)
+                fileIO.remove(appData + "/recovery/autosave_" + rid + ".qtsketch")
+                fileIO.remove(appData + "/recovery/autosave_" + rid + ".ket")
             }
-            if (activeCanvas) activeCanvas.setClean()
-            // Clean up recovery file on explicit save
-            const appData = StandardPaths.writableLocation(StandardPaths.AppDataLocation)
-            // Try to remove both new and old formats
-            fileIO.remove(appData + "/recovery/autosave_" + DocumentManager.activeDocId + ".qtsketch")
-            fileIO.remove(appData + "/recovery/autosave_" + DocumentManager.activeDocId + ".ket")
         } else {
             fileDialogsGroup.saveDialog.open()
         }
@@ -325,6 +337,10 @@ ApplicationWindow {
             }
             let path = appData + "/recovery/" + sortedFiles[i]
             window.loadFromFile(Qt.url("file:///" + path.replace(/\\/g, "/")))
+            // The content is now loaded into a document with its own, freshly
+            // minted recovery id -- remove the old file under its old name so it
+            // isn't offered for recovery again on every future launch.
+            fileIO.remove(path)
         }
     }
 
@@ -472,8 +488,9 @@ ApplicationWindow {
             const appData = StandardPaths.writableLocation(StandardPaths.AppDataLocation)
             for (var j = 0; j < DocumentManager.docIds.length; j++) {
                 var docId = DocumentManager.docIds[j]
-                fileIO.remove(appData + "/recovery/autosave_" + docId + ".qtsketch")
-                fileIO.remove(appData + "/recovery/autosave_" + docId + ".ket")
+                var rid = DocumentManager.recoveryIdFor(docId)
+                fileIO.remove(appData + "/recovery/autosave_" + rid + ".qtsketch")
+                fileIO.remove(appData + "/recovery/autosave_" + rid + ".ket")
             }
         }
     }
@@ -828,7 +845,8 @@ ApplicationWindow {
                 save: (data) => fileIO.write(window.pendingSaveUrl, data),
                 autosave: (data) => {
                     const appData = StandardPaths.writableLocation(StandardPaths.AppDataLocation)
-                    fileIO.write(appData + "/recovery/autosave_" + window.activeSketch.modelData + ".qtsketch", data)
+                    const rid = DocumentManager.recoveryIdFor(window.activeSketch.modelData)
+                    fileIO.write(appData + "/recovery/autosave_" + rid + ".qtsketch", data)
                 },
                 // Ordinary single-structure export now goes through the shared
                 // ExportManager/RenderScene pipeline (resolved document style/
@@ -1584,7 +1602,8 @@ ApplicationWindow {
                                                     // This is for legacy compatibility - new autosave uses requestProjectSerialization
                                                     // which is handled by the structureResponseRoutes above
                                                     const appData = StandardPaths.writableLocation(StandardPaths.AppDataLocation)
-                                                    fileIO.write(appData + "/recovery/autosave_" + canvasInstance.modelData + ".qtsketch", data)
+                                                    const rid = DocumentManager.recoveryIdFor(canvasInstance.modelData)
+                                                    fileIO.write(appData + "/recovery/autosave_" + rid + ".qtsketch", data)
                                                 } else if (reqId === "autosave_template") {
                                                     window._finishTemplateSave(data)
                                                 }
@@ -2056,18 +2075,15 @@ ApplicationWindow {
     }
 
     // Ordinary (single-structure) PDF/SVG/PNG export via the shared
-    // ExportManager/RenderScene pipeline. `molfile` is the already-serialized
-    // structure from the requestStructure("mol", "render_*") round-trip;
-    // this passes the CURRENT document's real drawing style and page
-    // settings through as options, so export reflects the resolved
-    // document -- not a hardcoded default -- per this phase's own contract.
-    function exportCurrentDocument(molfile, format) {
+    // ExportManager/RenderScene pipeline. `projectJson` is the full document
+    // snapshot from the requestProjectSerialization("render_*") round-trip
+    // (same schema ProjectFile saves to disk) -- this carries the document's
+    // chemistry, drawing style, page settings AND extension data (text,
+    // images, reaction arrows/pluses, multitail arrows, brackets) through to
+    // the renderer, unlike a bare molfile which can only represent chemistry.
+    function exportCurrentDocument(projectJson, format) {
         if (!activeSketch) return
-        const opts = {
-            drawingStyle: activeSketch.getDrawingStyle(),
-            pageSettings: activeSketch.getPageSettings()
-        }
-        ExportManager.exportToFile(molfile, window.pendingRenderUrl, format, opts)
+        ExportManager.exportProjectToFile(projectJson, window.pendingRenderUrl, format, {})
     }
 
     Connections {
@@ -2145,9 +2161,19 @@ ApplicationWindow {
             } else if (fmt === "qtsketch" && activeSketch) {
                 // loadProject takes a QUrl directly now -- toString() kept the
                 // "file://" scheme prefix, which QFile cannot open as a path.
-                activeSketch.loadProject(fileUrl)
-                window.centerViewOnPage()
-                setDocFile(DocumentManager.activeDocId, fileUrl)
+                // Only treat the document as opened -- i.e. only update the save
+                // destination -- if the load actually succeeded; on failure the
+                // previously open document (and its own file path) must stay put.
+                const loaded = activeSketch.loadProject(fileUrl)
+                if (loaded) {
+                    window.centerViewOnPage()
+                    setDocFile(DocumentManager.activeDocId, fileUrl)
+                } else {
+                    messageDialogsGroup.workerErrorDialog.errorText =
+                        "Open failed: could not load the project file " + fileUrl + ". The previously open document is unchanged."
+                    messageDialogsGroup.workerErrorDialog.severe = false
+                    messageDialogsGroup.workerErrorDialog.open()
+                }
             } else if (activeCanvas) {
                 activeCanvas.loadStructure(fmt, data)
                 window.centerViewOnPage()

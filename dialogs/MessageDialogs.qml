@@ -33,11 +33,14 @@ Item {
                 if (win._pendingCloseDocId >= 0) {
                     var docId = win._pendingCloseDocId
                     win._pendingCloseDocId = -1
+                    // Look up the recovery id BEFORE closeDocument() removes it from
+                    // DocumentManager's bookkeeping.
+                    var rid = DocumentManager.recoveryIdFor(docId)
                     DocumentManager.closeDocument(docId)
                     const appData = StandardPaths.writableLocation(StandardPaths.AppDataLocation)
                     // Remove both new and old formats
-                    win.fileIO.remove(appData + "/recovery/autosave_" + docId + ".qtsketch")
-                    win.fileIO.remove(appData + "/recovery/autosave_" + docId + ".ket")
+                    win.fileIO.remove(appData + "/recovery/autosave_" + rid + ".qtsketch")
+                    win.fileIO.remove(appData + "/recovery/autosave_" + rid + ".ket")
                 } else {
                     if (win.discardRecoveryFiles) win.discardRecoveryFiles()
                     win._forceQuit = true

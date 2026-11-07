@@ -80,17 +80,20 @@ private:
     // Helper for arrowhead rendering
     void drawArrowhead(QPainter* painter, const QPointF& tip, const QPointF& from, double size) const;
 
-    // Paint individual element types
-    void paintAtoms(QPainter* painter) const;
-    void paintBonds(QPainter* painter) const;
-    void paintRings(QPainter* painter) const;
-    void paintSGroups(QPainter* painter) const;
+    // Paint individual element types. `ptToModel` converts a point-valued stroke
+    // width into the painter's current logical (model-unit) space, so that after
+    // the caller's CTM scales back up to device units, the on-device width is the
+    // intended point value -- see paint()'s own computation of it.
+    void paintAtoms(QPainter* painter, double ptToModel) const;
+    void paintBonds(QPainter* painter, double ptToModel) const;
+    void paintRings(QPainter* painter, double ptToModel) const;
+    void paintSGroups(QPainter* painter, double ptToModel) const;
     void paintTexts(QPainter* painter) const;
-    void paintImages(QPainter* painter) const;
-    void paintRxnArrows(QPainter* painter) const;
-    void paintRxnPluses(QPainter* painter) const;
-    void paintMultitailArrows(QPainter* painter) const;
-    void paintBrackets(QPainter* painter) const;
+    void paintImages(QPainter* painter, double ptToModel) const;
+    void paintRxnArrows(QPainter* painter, double ptToModel) const;
+    void paintRxnPluses(QPainter* painter, double ptToModel) const;
+    void paintMultitailArrows(QPainter* painter, double ptToModel) const;
+    void paintBrackets(QPainter* painter, double ptToModel) const;
     void paintRGroups(QPainter* painter) const;
 
     // Member variables

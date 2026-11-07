@@ -42,6 +42,20 @@ Item {
         // Uses onApplied (not onAccepted): standardButtons has Dialog.Apply | Dialog.Cancel,
         // and Qt Quick Dialog emits applied() for Apply-role buttons and keeps dialog open.
         onApplied: {
+            // Typed text only commits into its draft property on Return
+            // (each TextField's onAccepted). Clicking Apply right after typing,
+            // without pressing Return first, must not read the stale pre-edit
+            // draft value -- explicitly commit every field's current text here
+            // first, exactly as its own onAccepted would.
+            if (tfBondLength.acceptableInput) SettingsService.draftBondLength = parseFloat(tfBondLength.text)
+            if (tfLineWidth.acceptableInput) SettingsService.draftLineWidth = parseFloat(tfLineWidth.text)
+            if (tfPageWidth.acceptableInput) SettingsService.draftPageWidth = parseFloat(tfPageWidth.text)
+            if (tfPageHeight.acceptableInput) SettingsService.draftPageHeight = parseFloat(tfPageHeight.text)
+            if (tfMarginLeft.acceptableInput) SettingsService.draftMarginLeft = parseFloat(tfMarginLeft.text)
+            if (tfMarginRight.acceptableInput) SettingsService.draftMarginRight = parseFloat(tfMarginRight.text)
+            if (tfMarginTop.acceptableInput) SettingsService.draftMarginTop = parseFloat(tfMarginTop.text)
+            if (tfMarginBottom.acceptableInput) SettingsService.draftMarginBottom = parseFloat(tfMarginBottom.text)
+
             const doc = DocumentManager.documentFor(currentDocId)
             if (doc) {
                 const draftStyle = SettingsService.getDraftDrawingStyleJson()
@@ -95,6 +109,7 @@ Item {
                             RowLayout {
                                 Label { text: "Bond Length:" }
                                 TextField {
+                                    id: tfBondLength
                                     Layout.fillWidth: true
                                     text: SettingsService.draftBondLength.toFixed(2)
                                     validator: DoubleValidator { bottom: 0.1; top: 10; decimals: 2 }
@@ -111,6 +126,7 @@ Item {
                             RowLayout {
                                 Label { text: "Line Width:" }
                                 TextField {
+                                    id: tfLineWidth
                                     Layout.fillWidth: true
                                     text: SettingsService.draftLineWidth.toFixed(2)
                                     validator: DoubleValidator { bottom: 0.1; top: 5; decimals: 2 }
@@ -210,6 +226,7 @@ Item {
                             RowLayout {
                                 Label { text: "Width:" }
                                 TextField {
+                                    id: tfPageWidth
                                     Layout.fillWidth: true
                                     text: SettingsService.draftPageWidth.toFixed(1)
                                     validator: DoubleValidator { bottom: 10; top: 1000; decimals: 1 }
@@ -225,6 +242,7 @@ Item {
                             RowLayout {
                                 Label { text: "Height:" }
                                 TextField {
+                                    id: tfPageHeight
                                     Layout.fillWidth: true
                                     text: SettingsService.draftPageHeight.toFixed(1)
                                     validator: DoubleValidator { bottom: 10; top: 1000; decimals: 1 }
@@ -249,6 +267,7 @@ Item {
                             RowLayout {
                                 Label { text: "Left:" }
                                 TextField {
+                                    id: tfMarginLeft
                                     width: 100
                                     text: SettingsService.draftMarginLeft.toFixed(1)
                                     validator: DoubleValidator { bottom: 0; top: 100; decimals: 1 }
@@ -262,6 +281,7 @@ Item {
 
                                 Label { text: "Right:" }
                                 TextField {
+                                    id: tfMarginRight
                                     width: 100
                                     text: SettingsService.draftMarginRight.toFixed(1)
                                     validator: DoubleValidator { bottom: 0; top: 100; decimals: 1 }
@@ -277,6 +297,7 @@ Item {
                             RowLayout {
                                 Label { text: "Top:" }
                                 TextField {
+                                    id: tfMarginTop
                                     width: 100
                                     text: SettingsService.draftMarginTop.toFixed(1)
                                     validator: DoubleValidator { bottom: 0; top: 100; decimals: 1 }
@@ -290,6 +311,7 @@ Item {
 
                                 Label { text: "Bottom:" }
                                 TextField {
+                                    id: tfMarginBottom
                                     width: 100
                                     text: SettingsService.draftMarginBottom.toFixed(1)
                                     validator: DoubleValidator { bottom: 0; top: 100; decimals: 1 }

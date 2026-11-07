@@ -6,6 +6,7 @@
 #include "molecule/EditableMolecule.h"
 #include "molecule/DrawingStyle.h"
 #include "molecule/PageSettings.h"
+#include "molecule/ProjectFile.h"
 #include "indigo.h"
 #include "indigo-renderer.h"
 #include <QFile>
@@ -127,7 +128,85 @@ bool ExportManager::buildSceneFromMolfile(const QString& molfile, RenderScene& s
     return scene.build(prims, drawingStyle, pageSettings);
 }
 
-void ExportManager::exportToFile(const QString& molfile, const QUrl& fileUrl, 
+bool ExportManager::buildSceneFromProjectJson(const QString& projectJson, RenderScene& scene) {
+    if (projectJson.isEmpty()) return false;
+
+    QJsonParseError parseError;
+    QJsonDocument doc = QJsonDocument::fromJson(projectJson.toUtf8(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) return false;
+
+    QString validationError;
+    QJsonObject json = doc.object();
+    if (!ProjectFile::validateProjectJson(json, validationError)) return false;
+
+    EditableMolecule mol;
+    DrawingStyle drawingStyle = DrawingStyle::defaults();
+    PageSettings pageSettings = PageSettings::defaults();
+    if (!ProjectFile::fromJson(json, mol, drawingStyle, pageSettings)) return false;
+    if (!mol.isValid()) return false;
+
+    RenderPrimitives prims = RenderPrimitiveBuilder::build(mol, /*showExplicitH=*/false);
+    return scene.build(prims, drawingStyle, pageSettings);
+}
+
+void ExportManager::exportProjectToFile(const QString& projectJson, const QUrl& fileUrl,
+                                         const QString& format, const QVariantMap& options) {
+    QString path = fileUrl.toLocalFile();
+    if (path.isEmpty()) {
+        emit exportFinished(false, "Invalid file path");
+        return;
+    }
+
+    QPointer<ExportManager> self = this;
+    QtConcurrent::run([self, projectJson, path, format, options]() {
+        bool success = false;
+        QString error;
+
+        QString actualFormat = format;
+        if (actualFormat.isEmpty()) {
+            actualFormat = self ? self->detectFormatFromPath(path) : "png";
+        }
+
+        Exporter* exporter = self ? self->createExporter(actualFormat) : nullptr;
+        if (!exporter) {
+            error = "Unsupported format: " + actualFormat;
+            emitOnGuiThread(self, [success, error](ExportManager* m) {
+                emit m->exportFinished(success, error);
+            });
+            return;
+        }
+
+        exporter->setExportOptions(options);
+
+        RenderScene scene;
+        if (!self || !self->buildSceneFromProjectJson(projectJson, scene)) {
+            error = "Failed to build render scene from document snapshot";
+            delete exporter;
+            emitOnGuiThread(self, [success, error](ExportManager* m) {
+                emit m->exportFinished(success, error);
+            });
+            return;
+        }
+
+        if (scene.fontSubstituted()) {
+            qWarning() << "Font substitution detected:"
+                       << scene.requestedFontFamily() << "->" << scene.resolvedFontFamily();
+        }
+
+        success = exporter->exportToFile(scene, path);
+        if (!success) {
+            error = exporter->lastError();
+        }
+
+        delete exporter;
+
+        emitOnGuiThread(self, [success, error](ExportManager* m) {
+            emit m->exportFinished(success, error);
+        });
+    });
+}
+
+void ExportManager::exportToFile(const QString& molfile, const QUrl& fileUrl,
                                   const QString& format, const QVariantMap& options) {
     QString path = fileUrl.toLocalFile();
     if (path.isEmpty()) {

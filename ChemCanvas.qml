@@ -25,7 +25,11 @@ Item {
 
     // Bound by MainWindow's per-document Repeater to this canvas's V8Process instance.
     property var sketch: null
-    readonly property real docBondLength: (sketch && typeof sketch.getDrawingStyle === "function" && sketch.getDrawingStyle().bondLength > 0) ? sketch.getDrawingStyle().bondLength : 1.5
+    // sketch.bondLength is a real NOTIFY-backed Q_PROPERTY (unlike
+    // getDrawingStyle(), a plain invokable QML cannot track as a binding
+    // dependency), so this re-evaluates after style changes, undo, redo,
+    // and project load, not just when `sketch` itself is reassigned.
+    readonly property real docBondLength: (sketch && sketch.bondLength > 0) ? sketch.bondLength : 1.5
     property string currentTool: "SELECT" // "SELECT", "BOND", "ATOM", "BENZENE"
     property string currentArrowMode: "filled-triangle" // default reaction arrow mode
     property bool showExplicitH: false

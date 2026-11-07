@@ -19,9 +19,21 @@ public:
     explicit ExportManager(QObject* parent = nullptr);
     ~ExportManager();
 
-    // Export a molecule (via molfile) to a file
-    Q_INVOKABLE void exportToFile(const QString& molfile, const QUrl& fileUrl, 
+    // Export a molecule (via molfile) to a file. Chemistry only -- any text
+    // annotations, images, reaction arrows/pluses, multitail arrows, or
+    // brackets the live document holds are NOT representable in a bare
+    // molfile and so never reach the renderer through this entry point.
+    Q_INVOKABLE void exportToFile(const QString& molfile, const QUrl& fileUrl,
                                    const QString& format, const QVariantMap& options = QVariantMap());
+
+    // Export a full document snapshot (the same JSON ProjectFile::toJson/
+    // V8Process::requestProjectSerialization produce) to a file. Unlike
+    // exportToFile, this reconstructs the document's extension data (text,
+    // images, reaction arrows/pluses, multitail arrows, brackets) as well as
+    // its chemistry, drawing style and page settings, so the export matches
+    // what the live canvas actually shows.
+    Q_INVOKABLE void exportProjectToFile(const QString& projectJson, const QUrl& fileUrl,
+                                          const QString& format, const QVariantMap& options = QVariantMap());
 
     // Export reaction grid to file
     Q_INVOKABLE void exportReactionGridToFile(const QString& molfile, const QUrl& fileUrl,
@@ -58,6 +70,12 @@ private:
     // defaults()/PageSettings::defaults() when absent.
     bool buildSceneFromMolfile(const QString& molfile, RenderScene& scene,
                                const QVariantMap& options = QVariantMap());
+
+    // Build RenderScene from a full project JSON snapshot (ProjectFile schema),
+    // reconstructing the document's extension data (text/images/arrows/etc.)
+    // along with its chemistry, drawing style and page settings -- all taken
+    // from the snapshot itself, not from `options`.
+    bool buildSceneFromProjectJson(const QString& projectJson, RenderScene& scene);
 };
 
 #endif // EXPORTMANAGER_H

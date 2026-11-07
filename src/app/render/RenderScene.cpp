@@ -1,9 +1,11 @@
 // src/app/render/RenderScene.cpp
 #include "RenderScene.h"
 #include <QPainter>
+#include <QPolygonF>
 #include <QFontDatabase>
 #include <QDebug>
 #include <QFile>
+#include <cmath>
 #include "molecule/RenderPrimitives.h"
 
 namespace {
@@ -30,6 +32,19 @@ namespace {
     // Bracket rendering
     const double kBracketPadding = 0.3;
     const double kBracketLineWidth = 0.6;
+
+    // Wedge/hash stereo bond rendering. wedgeTaperRatio mirrors the live
+    // canvas's own constant (MoleculeLayer.qml / StyleSheets.qml -- 0.139 is
+    // the value shared by every built-in style sheet except RSC's 0.128) and
+    // is a ratio of the bond's own length, so it is scale-invariant and
+    // carries over to model-unit space unchanged. The live canvas instead
+    // picks its hash count from a style-sheet pixel-spacing constant
+    // calibrated for screen space at a given zoom; that constant has no
+    // well-defined equivalent in model-unit export space, so a fixed count
+    // is used here instead -- still a genuine tapered fan, just not
+    // length-adaptive the way the live canvas's is.
+    const double kWedgeTaperRatio = 0.139;
+    const int kHashCount = 6;
 }
 
 RenderScene::RenderScene(QObject* parent) 
@@ -227,10 +242,21 @@ void RenderScene::paint(QPainter* painter) const {
     // Model coordinates are directly used, with scale applied
     // The caller is responsible for any additional transformations
     
-    // Apply the drawing style's line width
-    const double lineWidthPt = m_drawingStyle.lineWidth;
-    const double lineWidthPx = lineWidthPt * painter->device()->logicalDpiX() / kPtsPerInch;
-    
+    // Point-valued widths (DrawingStyle::lineWidth, kArrowLineWidth,
+    // kBracketLineWidth, and the few hardcoded pen widths below) are stroke
+    // widths in real points, NOT model units. The caller (Exporter) has
+    // already scaled this painter's CTM by model-unit-to-device-unit before
+    // calling paint(), so a raw point value handed straight to QPen would be
+    // multiplied by that same scale again, inflating a 0.6pt stroke to
+    // several points. ptToModel converts a point value into the painter's
+    // current logical (model-unit) space so the CTM's scaling brings it back
+    // to the correct absolute device width: points -> device units (via the
+    // device's own DPI) -> model units (dividing by the CTM's own scale).
+    const double ctmScale = qAbs(painter->worldTransform().m11());
+    const double ptToModel = (ctmScale > 1e-9)
+        ? (painter->device()->logicalDpiX() / kPtsPerInch) / ctmScale
+        : 1.0;
+
     // Paint in the correct order (matching QML layering):
     // 1. Bonds (behind atoms)
     // 2. Rings
@@ -244,27 +270,27 @@ void RenderScene::paint(QPainter* painter) const {
     // 10. Reaction pluses
     // 11. Multitail arrows
     
-    paintBonds(painter);
-    paintRings(painter);
-    paintAtoms(painter);
-    paintBrackets(painter);
+    paintBonds(painter, ptToModel);
+    paintRings(painter, ptToModel);
+    paintAtoms(painter, ptToModel);
+    paintBrackets(painter, ptToModel);
     paintRGroups(painter);
-    paintSGroups(painter);
+    paintSGroups(painter, ptToModel);
     paintTexts(painter);
-    paintImages(painter);
-    paintRxnArrows(painter);
-    paintRxnPluses(painter);
-    paintMultitailArrows(painter);
+    paintImages(painter, ptToModel);
+    paintRxnArrows(painter, ptToModel);
+    paintRxnPluses(painter, ptToModel);
+    paintMultitailArrows(painter, ptToModel);
     
     // Restore painter state
     painter->restore();
 }
 
-void RenderScene::paintAtoms(QPainter* painter) const {
+void RenderScene::paintAtoms(QPainter* painter, double ptToModel) const {
     if (m_prims.atoms.isEmpty()) return;
-    
+
     const double labelMargin = kAtomLabelMargin;
-    const double lineWidth = m_drawingStyle.lineWidth;
+    const double lineWidth = m_drawingStyle.lineWidth * ptToModel;
     const bool monochrome = m_drawingStyle.monochrome;
     
     for (const AtomPrim& atom : m_prims.atoms) {
@@ -355,10 +381,10 @@ void RenderScene::paintAtoms(QPainter* painter) const {
     }
 }
 
-void RenderScene::paintBonds(QPainter* painter) const {
+void RenderScene::paintBonds(QPainter* painter, double ptToModel) const {
     if (m_prims.bonds.isEmpty()) return;
-    
-    const double lineWidth = m_drawingStyle.lineWidth;
+
+    const double lineWidth = m_drawingStyle.lineWidth * ptToModel;
     const bool monochrome = m_drawingStyle.monochrome;
     const double bondLength = m_drawingStyle.bondLength;
     
@@ -395,48 +421,61 @@ void RenderScene::paintBonds(QPainter* painter) const {
         if (!startFound || !endFound) continue;
         
         painter->save();
-        
+
         // Determine bond color
         QColor color = monochrome ? Qt::black : Qt::black;
-        
-        // Set pen based on bond type and stereo
-        QPen pen(color, lineWidth);
-        
+
         if (bond.stereo == 1) {
-            // Wedge bond (up)
-            pen.setWidthF(lineWidth * 2);
-            pen.setStyle(Qt::SolidLine);
+            // Wedge bond (up): a filled triangle, narrow at the begin atom and
+            // widening toward the end atom -- matches the live canvas's own
+            // wedge geometry (MoleculeLayer.qml), not a thick solid line.
+            QPointF d = endPos - startPos;
+            double len = std::sqrt(d.x() * d.x() + d.y() * d.y());
+            double w = kWedgeTaperRatio * len;
+            QPointF n = (len > 1e-9) ? QPointF(d.y() / len * w, -d.x() / len * w) : QPointF();
+            QPolygonF wedge;
+            wedge << startPos << (endPos + n) << (endPos - n);
+            painter->setPen(Qt::NoPen);
+            painter->setBrush(color);
+            painter->drawPolygon(wedge);
         } else if (bond.stereo == 6) {
-            // Hash bond (down)
-            pen.setWidthF(lineWidth * 2);
-            pen.setStyle(Qt::DashLine);
-        } else if (bond.type == 2) {
-            // Double bond
-            pen.setWidthF(lineWidth * 1.5);
-        } else if (bond.type == 3) {
-            // Triple bond
-            pen.setWidthF(lineWidth * 2);
+            // Hash bond (down): a fan of perpendicular marks widening toward
+            // the end atom -- matches the live canvas's own hash geometry,
+            // not a thick dashed line.
+            QPointF d = endPos - startPos;
+            double len = std::sqrt(d.x() * d.x() + d.y() * d.y());
+            double maxW = kWedgeTaperRatio * len;
+            painter->setPen(QPen(color, lineWidth));
+            for (int j = 1; j <= kHashCount; ++j) {
+                double t = double(j) / kHashCount;
+                QPointF c = startPos + d * t;
+                double hw = t * maxW;
+                QPointF hn = (len > 1e-9) ? QPointF(d.y() / len * hw, -d.x() / len * hw) : QPointF();
+                painter->drawLine(c + hn, c - hn);
+            }
+        } else {
+            // Plain, double, or triple bond: unchanged QPen-based line(s).
+            QPen pen(color, lineWidth);
+            if (bond.type == 2) {
+                pen.setWidthF(lineWidth * 1.5);
+            } else if (bond.type == 3) {
+                pen.setWidthF(lineWidth * 2);
+            }
+            painter->setPen(pen);
+            painter->drawLine(startPos, endPos);
+
+            if (bond.type == 2) {
+                QPointF offset = computeDoubleBondOffset(startPos, endPos, bondLength);
+                painter->drawLine(startPos + offset, endPos + offset);
+            }
+            if (bond.type == 3) {
+                QPointF offset1 = computeDoubleBondOffset(startPos, endPos, bondLength);
+                QPointF offset2 = -offset1;
+                painter->drawLine(startPos + offset1, endPos + offset1);
+                painter->drawLine(startPos + offset2, endPos + offset2);
+            }
         }
-        
-        painter->setPen(pen);
-        
-        // Draw the bond line
-        painter->drawLine(startPos, endPos);
-        
-        // For double bonds, draw the second line
-        if (bond.type == 2) {
-            QPointF offset = computeDoubleBondOffset(startPos, endPos, bondLength);
-            painter->drawLine(startPos + offset, endPos + offset);
-        }
-        
-        // For triple bonds, draw the second and third lines
-        if (bond.type == 3) {
-            QPointF offset1 = computeDoubleBondOffset(startPos, endPos, bondLength);
-            QPointF offset2 = -offset1;
-            painter->drawLine(startPos + offset1, endPos + offset1);
-            painter->drawLine(startPos + offset2, endPos + offset2);
-        }
-        
+
         painter->restore();
     }
 }
@@ -456,10 +495,10 @@ QPointF RenderScene::computeDoubleBondOffset(const QPointF& start, const QPointF
     return perp * kBondSpacing;
 }
 
-void RenderScene::paintRings(QPainter* painter) const {
+void RenderScene::paintRings(QPainter* painter, double ptToModel) const {
     if (m_prims.rings.isEmpty()) return;
-    
-    const double lineWidth = m_drawingStyle.lineWidth;
+
+    const double lineWidth = m_drawingStyle.lineWidth * ptToModel;
     const bool monochrome = m_drawingStyle.monochrome;
     
     for (const RingPrim& ring : m_prims.rings) {
@@ -475,7 +514,7 @@ void RenderScene::paintRings(QPainter* painter) const {
     }
 }
 
-void RenderScene::paintSGroups(QPainter* painter) const {
+void RenderScene::paintSGroups(QPainter* painter, double ptToModel) const {
     if (m_prims.sgroups.isEmpty()) return;
     
     const bool monochrome = m_drawingStyle.monochrome;
@@ -511,7 +550,7 @@ void RenderScene::paintSGroups(QPainter* painter) const {
         painter->drawRoundedRect(pillRect, kSgroupPillRadius, kSgroupPillRadius);
         
         // Draw label
-        painter->setPen(QPen(textColor, 0.5));
+        painter->setPen(QPen(textColor, 0.5 * ptToModel));
         painter->setFont(m_regularFont);
         painter->drawText(
             pillRect.left() + (pillWidth - labelSize.width()) / 2,
@@ -544,28 +583,28 @@ void RenderScene::paintTexts(QPainter* painter) const {
     }
 }
 
-void RenderScene::paintImages(QPainter* painter) const {
+void RenderScene::paintImages(QPainter* painter, double ptToModel) const {
     if (m_prims.images.isEmpty()) return;
-    
+
     for (const ImagePrim& image : m_prims.images) {
         QPointF pos(image.x, image.y);
         QSizeF size(image.w, image.h);
-        
+
         // For now, just draw a placeholder rectangle
         // In a full implementation, we would decode the PNG data
         painter->save();
         painter->setBrush(QColor(220, 220, 220));
-        painter->setPen(QPen(Qt::gray, 0.5));
+        painter->setPen(QPen(Qt::gray, 0.5 * ptToModel));
         painter->drawRect(QRectF(pos - QPointF(size.width() / 2, size.height() / 2), size));
         painter->restore();
     }
 }
 
-void RenderScene::paintRxnArrows(QPainter* painter) const {
+void RenderScene::paintRxnArrows(QPainter* painter, double ptToModel) const {
     if (m_prims.rxnArrows.isEmpty()) return;
-    
+
     const double arrowheadSize = kArrowheadSize;
-    const double lineWidth = kArrowLineWidth;
+    const double lineWidth = kArrowLineWidth * ptToModel;
     
     for (const RxnArrowPrim& arrow : m_prims.rxnArrows) {
         QPointF p1(arrow.p1x, arrow.p1y);
@@ -605,11 +644,11 @@ void RenderScene::paintRxnArrows(QPainter* painter) const {
     }
 }
 
-void RenderScene::paintRxnPluses(QPainter* painter) const {
+void RenderScene::paintRxnPluses(QPainter* painter, double ptToModel) const {
     if (m_prims.rxnPluses.isEmpty()) return;
-    
+
     const double plusSize = kPlusSignSize;
-    const double lineWidth = kArrowLineWidth;
+    const double lineWidth = kArrowLineWidth * ptToModel;
     
     for (const RxnPlusPrim& plus : m_prims.rxnPluses) {
         QPointF center(plus.x, plus.y);
@@ -632,10 +671,10 @@ void RenderScene::paintRxnPluses(QPainter* painter) const {
     }
 }
 
-void RenderScene::paintMultitailArrows(QPainter* painter) const {
+void RenderScene::paintMultitailArrows(QPainter* painter, double ptToModel) const {
     if (m_prims.multitailArrows.isEmpty()) return;
-    
-    const double lineWidth = kArrowLineWidth;
+
+    const double lineWidth = kArrowLineWidth * ptToModel;
     
     for (const MultitailArrowPrim& arrow : m_prims.multitailArrows) {
         QPointF head(arrow.headX, arrow.headY);
@@ -656,10 +695,10 @@ void RenderScene::paintMultitailArrows(QPainter* painter) const {
     }
 }
 
-void RenderScene::paintBrackets(QPainter* painter) const {
+void RenderScene::paintBrackets(QPainter* painter, double ptToModel) const {
     if (m_prims.brackets.isEmpty()) return;
-    
-    const double lineWidth = kBracketLineWidth;
+
+    const double lineWidth = kBracketLineWidth * ptToModel;
     const double padding = kBracketPadding;
     
     for (const BracketPrim& bracket : m_prims.brackets) {

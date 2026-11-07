@@ -20,6 +20,11 @@ class V8Process : public QObject {
     Q_PROPERTY(QVariantMap primitives READ primitives NOTIFY primitivesChanged)
     Q_PROPERTY(QVariantMap selection READ selection NOTIFY selectionChanged)
     Q_PROPERTY(QVariantMap overlayState READ overlayState WRITE setOverlayState NOTIFY overlayStateChanged)
+    // A real NOTIFY-backed property (unlike getDrawingStyle(), a plain invokable with
+    // no dependency tracking) so QML bindings on it actually re-evaluate after style
+    // changes, undo, redo, or a project load -- every one of those already funnels
+    // through applyLocalState(), which emits bondLengthChanged().
+    Q_PROPERTY(double bondLength READ bondLength NOTIFY bondLengthChanged)
 
 public:
     // Every document runs on DocumentState; there is no other engine.
@@ -34,6 +39,7 @@ public:
     QVariantMap selection() const { return m_selection; }
     QVariantMap overlayState() const { return m_overlayState; }
     void setOverlayState(const QVariantMap& state);
+    double bondLength() const;
 
     Q_INVOKABLE void init();
     Q_INVOKABLE void loadMol(const QString& molfile);
@@ -152,7 +158,7 @@ public:
     
     // Project file serialization
     Q_INVOKABLE void requestProjectSerialization(const QString& reqId);
-    Q_INVOKABLE void loadProject(const QUrl& fileUrl);
+    Q_INVOKABLE bool loadProject(const QUrl& fileUrl);
     Q_INVOKABLE bool saveProject(const QUrl& fileUrl);
     
     // Get current drawing style as JSON
@@ -172,6 +178,7 @@ signals:
     void primitivesChanged();
     void selectionChanged();
     void overlayStateChanged();
+    void bondLengthChanged();
     void structureReady(const QString& reqId, const QString& data);
     void errorOccurred(const QString& error);
 
