@@ -6184,8 +6184,7 @@ QString nameBranchGraph(const Graph &g, int rootIdx, int parentIdx, const std::v
         }
     }
 
-    auto nameGivenPath = [&](const std::vector<int> &candPath, bool *blockedByPoint4 = nullptr) -> QString {
-        if (blockedByPoint4) *blockedByPoint4 = false;
+    auto nameGivenPath = [&](const std::vector<int> &candPath) -> QString {
         int bLen = static_cast<int>(candPath.size());
         std::set<int> pathSet(candPath.begin(), candPath.end());
 
@@ -6253,12 +6252,10 @@ QString nameBranchGraph(const Graph &g, int rootIdx, int parentIdx, const std::v
                 }
                 if (isBranchPoint) {
                     if (unsaturatedNodes.count(cNode)) {
-                        if (blockedByPoint4) *blockedByPoint4 = true;
                         return "";
                     }
                     for (int nei : g.nodes[cNode].neighbors) {
                         if (unsaturatedNodes.count(nei)) {
-                            if (blockedByPoint4) *blockedByPoint4 = true;
                             return "";
                         }
                     }
@@ -6387,18 +6384,30 @@ QString nameBranchGraph(const Graph &g, int rootIdx, int parentIdx, const std::v
         return baseStem;
     };
 
-    // Check if every candidate in tiedBest was rejected specifically by Point 4.
-    bool allTiedPoint4 = !tiedBest.empty();
+    // Check if every candidate in tiedBest failed to produce a name at all. This used to require
+    // the failure to be specifically a Point 4 rejection (branch point coincides with/is adjacent
+    // to unsaturation), but a structurally identical shape can fail for a DIFFERENT reason first:
+    // when the unsaturation sits on the SHORTER of two arms off rootIdx (e.g. but-1-en-2-yl,
+    // `c1ccccc1C(=C)CC`), the longest-path selection above picks the longer, saturated arm, whose
+    // only unsaturated neighbor is a side branch -- Point 4's own "isUnsaturated" guard never even
+    // runs for that candidate, since isUnsaturated is computed from the CHOSEN path's own edges,
+    // not its side branches. That candidate instead fails later when the side branch (a plain,
+    // terminal =CH2 double-bonded straight back to the chain) can't be named as a substituent
+    // prefix. Gating the fallback on "failed for any reason" rather than "failed via Point 4
+    // specifically" is safe: the fallback has its own complete, independent validation (cumulated
+    // bonds, mixed double/triple bonds, acyl-carbon rejection, direct-Indigo stereo rejection) and
+    // only ever returns a name when a candidate it enumerates itself passes every one of those
+    // checks -- it can't launder an unrelated, genuinely-unfixable rejection into a wrong name.
+    bool allTiedFailed = !tiedBest.empty();
     for (const auto &c : tiedBest) {
-        bool point4 = false;
-        QString name = nameGivenPath(c.path, &point4);
-        if (!name.isEmpty() || !point4) {
-            allTiedPoint4 = false;
+        QString name = nameGivenPath(c.path);
+        if (!name.isEmpty()) {
+            allTiedFailed = false;
             break;
         }
     }
 
-    if (!allTiedPoint4) {
+    if (!allTiedFailed) {
         // Point 2: If choice after tiebreaks is genuinely ambiguous, return ""
         QString firstName = nameGivenPath(tiedBest[0].path);
         if (firstName.isEmpty()) return "";

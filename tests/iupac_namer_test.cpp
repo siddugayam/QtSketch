@@ -8362,6 +8362,7 @@ int main() {
             {"N-phenyl-2-methylprop-2-enamide", "c1ccccc1NC(=O)C(=C)C", "N-phenyl-2-methylprop-2-enamide"},
             {"stereo confined to parent", "[C@@H]1(CCCC1)C(=C)C", "(1R)-prop-1-en-2-ylcyclopentane"},
             {"acyclic acid with unspecified sec-butenyl", "CCCCCCC(C(C)C=C)CCCCCC(=O)O", "7-but-3-en-2-yltridecanoic acid"},
+            {"but-1-en-2-ylbenzene", "c1ccccc1C(=C)CC", "but-1-en-2-ylbenzene"},
         };
         for (const auto &c : cases) {
             int m = indigoLoadMoleculeFromString(c.smiles);
@@ -8404,7 +8405,6 @@ int main() {
             {"branch E/Z bond rejection specified E/Z control", "c1ccccc1C/C(C)=C/C", "E/Z descriptors on substituent branches are not supported in this phase."},
             {"branch stereocenter atom-order variant enantiomer 1", "C=C[C@@H](C)c1ccccc1", "Unrecognized or unsupported substituent on ring."},
             {"branch stereocenter atom-order variant enantiomer 2", "C=C[C@H](C)c1ccccc1", "Unrecognized or unsupported substituent on ring."},
-            {"but-1-en-2-ylbenzene unsupported branch length asymmetry", "c1ccccc1C(=C)CC", "Unrecognized or unsupported substituent on ring."},
         };
         for (const auto &rc : rejectCases) {
             int m = indigoLoadMoleculeFromString(rc.smiles.c_str());
