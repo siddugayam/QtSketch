@@ -8608,6 +8608,20 @@ QString nameAmineSubstituentPrefix(int nNode, int fromNode, const Graph &g,
                 return nameRingAsSubstituent(g, ring, r, nNode, allIndependentRings, forbiddenNodes, {}, nullptr, {}, {}, nullptr, mol);
             }
         }
+        if (g.nodes[r].atomicNumber == 16) {
+            std::vector<int> sHeavy;
+            for (int sNei : g.nodes[r].neighbors) {
+                if (sNei != nNode && g.nodes[sNei].atomicNumber > 1) sHeavy.push_back(sNei);
+            }
+            if (sHeavy.empty()) return "sulfanyl";
+            if (sHeavy.size() != 1) return "";
+            std::set<int> sForbidden = forbiddenNodes;
+            sForbidden.insert(nNode);
+            sForbidden.insert(r);
+            QString alkylName = nameBranchGraph(g, sHeavy[0], r, allIndependentRings, sForbidden, {}, nullptr, mol);
+            if (alkylName.isEmpty()) return "";
+            return wrapCompoundSuffix(alkylName, "sulfanyl");
+        }
         std::set<int> newForbidden = forbiddenNodes;
         newForbidden.insert(nNode);
         return nameBranchGraph(g, r, nNode, allIndependentRings, newForbidden, {}, nullptr, mol);
