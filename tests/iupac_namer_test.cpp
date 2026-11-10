@@ -7483,6 +7483,96 @@ int main() {
         }
     }
 
+    // Tests: Branching molecule with a saturated leaf (CYCLOALKANE) in place of
+    // one of the two benzo leaves -- regression tests for the branching
+    // classifier call (previously passed neither allowSaturated nor
+    // fusionBonds, so saturated/heteroatom rings could never be classified at
+    // all in a branching system) plus the missing all-carbon CYCLOALKANE
+    // fallback and the whitelist widening that followed. Each now correctly
+    // names with a hydro-prefix instead of rejecting with "Failed to classify
+    // ring type in branching system."
+    {
+        int m = indigoLoadMoleculeFromString("c12c(CCCC2)c3c(cccc3)c4c1(nccc4)");
+        if (m >= 0) {
+            auto result = IupacNamer::generateName(m);
+            QString expectedName = "2,3,4,5-tetrahydrodibenzo[1b,5a:5b,9a]benzo[b]pyridine";
+            if (result.success && result.name == expectedName) {
+                std::cout << "[PASS] Branching molecule with CYCLOALKANE leaf (A): " << result.name.toStdString() << "\n";
+                passed++;
+            } else {
+                std::cout << "[FAIL] Branching molecule with CYCLOALKANE leaf (A): expected '" << expectedName.toStdString()
+                          << "', got success=" << result.success << " name='" << result.name.toStdString() << "' error='" << result.error.toStdString() << "'\n";
+                failed++;
+            }
+            indigoFree(m);
+        } else {
+            std::cout << "[FAIL] Branching molecule with CYCLOALKANE leaf (A) SMILES did not load\n";
+            failed++;
+        }
+    }
+    {
+        int m = indigoLoadMoleculeFromString("c12c(cccc2)c3c(CCCC3)c4c1(nccc4)");
+        if (m >= 0) {
+            auto result = IupacNamer::generateName(m);
+            QString expectedName = "6,7,8,9-tetrahydrodibenzo[1b,5a:5b,9a]benzo[b]pyridine";
+            if (result.success && result.name == expectedName) {
+                std::cout << "[PASS] Branching molecule with CYCLOALKANE leaf (B): " << result.name.toStdString() << "\n";
+                passed++;
+            } else {
+                std::cout << "[FAIL] Branching molecule with CYCLOALKANE leaf (B): expected '" << expectedName.toStdString()
+                          << "', got success=" << result.success << " name='" << result.name.toStdString() << "' error='" << result.error.toStdString() << "'\n";
+                failed++;
+            }
+            indigoFree(m);
+        } else {
+            std::cout << "[FAIL] Branching molecule with CYCLOALKANE leaf (B) SMILES did not load\n";
+            failed++;
+        }
+    }
+
+    // Tests: Branching system with all three outer leaves saturated
+    // (piperidine-family and piperazine-family), proving the saturation
+    // classification/numbering generalization works across multiple
+    // saturated components at once, not just a single leaf.
+    {
+        int m = indigoLoadMoleculeFromString("C12CNCCC1C1CNCCC1C1CNCCC12");
+        if (m >= 0) {
+            auto result = IupacNamer::generateName(m);
+            QString expectedName = "1,2,3,4,4a,4b,5,6,7,8,8a,8b,9,10,11,12,12a,12b-octadecahydrodipyrido[4b,8a:8b,12a]benzo[c]pyridine";
+            if (result.success && result.name == expectedName) {
+                std::cout << "[PASS] Branching molecule with 3 piperidine-family leaves: " << result.name.toStdString() << "\n";
+                passed++;
+            } else {
+                std::cout << "[FAIL] Branching molecule with 3 piperidine-family leaves: expected '" << expectedName.toStdString()
+                          << "', got success=" << result.success << " name='" << result.name.toStdString() << "' error='" << result.error.toStdString() << "'\n";
+                failed++;
+            }
+            indigoFree(m);
+        } else {
+            std::cout << "[FAIL] Branching molecule with 3 piperidine-family leaves SMILES did not load\n";
+            failed++;
+        }
+    }
+    {
+        int m = indigoLoadMoleculeFromString("C12NCCNC1C1NCCNC1C1NCCNC12");
+        if (m >= 0) {
+            auto result = IupacNamer::generateName(m);
+            QString expectedName = "1,1a,1b,2,3,4,5,5a,5b,6,7,8,9,9a,9b,10,11,12-octadecahydrodipyrazino[1b,5a:5b,9a]benzo[b]pyrazine";
+            if (result.success && result.name == expectedName) {
+                std::cout << "[PASS] Branching molecule with 3 piperazine-family leaves: " << result.name.toStdString() << "\n";
+                passed++;
+            } else {
+                std::cout << "[FAIL] Branching molecule with 3 piperazine-family leaves: expected '" << expectedName.toStdString()
+                          << "', got success=" << result.success << " name='" << result.name.toStdString() << "' error='" << result.error.toStdString() << "'\n";
+                failed++;
+            }
+            indigoFree(m);
+        } else {
+            std::cout << "[FAIL] Branching molecule with 3 piperazine-family leaves SMILES did not load\n";
+            failed++;
+        }
+    }
+
     // Test: Branching molecule with substituent on bridgehead atom (Wave 3, Item
     // toInt->locantLess fix) - a bridgehead (fusion carbon) substituent is now
     // named instead of honestly rejected. Also a regression guard against a

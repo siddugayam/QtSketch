@@ -11402,6 +11402,181 @@ std::vector<RingSystemNameResult> nameLinearChainFusion(
     return {RingSystemNameResult{false, "Linear chain: no match", "", {}}};
 }
 
+struct BranchingSaturationResult {
+    bool success = false;
+    std::set<int> hydroNodes;
+    std::vector<int> indicatedHCandidates;
+};
+
+static BranchingSaturationResult modelBranchingSystemSaturation(
+    const Graph &g,
+    const std::vector<std::set<int>> &nodesN_d,
+    const std::set<int> &allSystemNodes,
+    int freeValenceAtom,
+    const FusedParentContext *parentCtx) {
+    BranchingSaturationResult result;
+    if (nodesN_d.empty()) return result;
+
+    std::vector<int> V(allSystemNodes.begin(), allSystemNodes.end());
+    int numV = static_cast<int>(V.size());
+    std::map<int, int> vToLocal;
+    for (int i = 0; i < numV; ++i) vToLocal[V[i]] = i;
+
+    // Collect internal bonds in the fused system
+    std::vector<std::pair<int, int>> E;
+    std::vector<int> edgeBondOrder;
+    for (const auto &gb : g.bonds) {
+        if (allSystemNodes.count(gb.u) && allSystemNodes.count(gb.v)) {
+            E.push_back({vToLocal[gb.u], vToLocal[gb.v]});
+            edgeBondOrder.push_back(gb.order);
+        }
+    }
+
+    // Determine double-bond capacity in the mancude assignment for each atom in V
+    std::vector<int> capacity(numV, 0);
+    for (int i = 0; i < numV; ++i) {
+        int v = V[i];
+        int z = g.nodes[v].atomicNumber;
+        bool hasExoDouble = false;
+        bool hasExoSingle = false;
+        for (size_t ni = 0; ni < g.nodes[v].neighbors.size(); ++ni) {
+            int nei = g.nodes[v].neighbors[ni];
+            if (!allSystemNodes.count(nei) && g.nodes[nei].atomicNumber != 1) {
+                if (v == freeValenceAtom) continue;
+                if (parentCtx && parentCtx->handledExocyclicNeighbors.count(nei)) continue;
+                int order = g.nodes[v].bondOrders[ni];
+                if (order >= 2) hasExoDouble = true;
+                else hasExoSingle = true;
+            }
+        }
+
+        if (z == 8 || z == 16 || z == 34 || z == 52) {
+            // Divalent heteroatoms (O, S, Se, Te) have valence 2, already satisfied by ring bonds
+            capacity[i] = 0;
+        } else if (hasExoDouble) {
+            capacity[i] = 0;
+        } else if (z == 6) {
+            capacity[i] = 1;
+        } else if (z == 7) {
+            // Nitrogen: bridgehead has 3 ring single bonds (valence 3) -> capacity 0
+            // Peripheral N with exocyclic single bond -> capacity 0
+            // Peripheral N without exocyclic bond -> capacity 1
+            int ringDegree = 0;
+            for (const auto &e : E) {
+                if (e.first == i || e.second == i) ringDegree++;
+            }
+            if (ringDegree >= 3 || hasExoSingle) capacity[i] = 0;
+            else capacity[i] = 1;
+        } else {
+            capacity[i] = 1;
+        }
+    }
+
+    // Candidate edges for double bonds in mancude system
+    std::vector<int> candEdges;
+    for (size_t ei = 0; ei < E.size(); ++ei) {
+        int u = E[ei].first;
+        int w = E[ei].second;
+        if (capacity[u] >= 1 && capacity[w] >= 1) {
+            candEdges.push_back(static_cast<int>(ei));
+        }
+    }
+
+    // Enumerate noncumulative mancude double bond assignments (maximum matchings)
+    std::vector<bool> matched(numV, false);
+    std::vector<int> currentMatching;
+    int maxMatchingSize = 0;
+    std::vector<std::vector<int>> allMaxMatchings;
+
+    std::function<void(int)> dfsMatch = [&](int edgeIdx) {
+        if (edgeIdx == static_cast<int>(candEdges.size())) {
+            int sz = static_cast<int>(currentMatching.size());
+            if (sz > maxMatchingSize) {
+                maxMatchingSize = sz;
+                allMaxMatchings.clear();
+                allMaxMatchings.push_back(currentMatching);
+            } else if (sz == maxMatchingSize && sz > 0) {
+                allMaxMatchings.push_back(currentMatching);
+            }
+            return;
+        }
+
+        int ei = candEdges[edgeIdx];
+        int u = E[ei].first;
+        int w = E[ei].second;
+        if (!matched[u] && !matched[w]) {
+            matched[u] = matched[w] = true;
+            currentMatching.push_back(ei);
+            dfsMatch(edgeIdx + 1);
+            currentMatching.pop_back();
+            matched[u] = matched[w] = false;
+        }
+
+        int remainingEdges = static_cast<int>(candEdges.size()) - 1 - edgeIdx;
+        if (static_cast<int>(currentMatching.size()) + remainingEdges >= maxMatchingSize) {
+            dfsMatch(edgeIdx + 1);
+        }
+    };
+
+    dfsMatch(0);
+
+    // Any capacity-1 atom that is left unmatched in ALL maximum matchings is an indicated-H candidate
+    if (maxMatchingSize > 0 && !allMaxMatchings.empty()) {
+        std::set<int> unmatchedInAny;
+        for (const auto &m : allMaxMatchings) {
+            std::vector<bool> mMatched(numV, false);
+            for (int ei : m) {
+                mMatched[E[ei].first] = true;
+                mMatched[E[ei].second] = true;
+            }
+            for (int i = 0; i < numV; ++i) {
+                if (capacity[i] == 1 && !mMatched[i]) {
+                    unmatchedInAny.insert(V[i]);
+                }
+            }
+        }
+        for (int node : unmatchedInAny) {
+            result.indicatedHCandidates.push_back(node);
+        }
+    }
+
+    // Compare actual bond pattern against mancude model to derive hydroNodes
+    for (int i = 0; i < numV; ++i) {
+        int v = V[i];
+        int z = g.nodes[v].atomicNumber;
+        if (z == 8 || z == 16 || z == 34 || z == 52) continue; // divalent heteroatoms never cited as hydro
+
+        bool hasExoDouble = false;
+        for (size_t ni = 0; ni < g.nodes[v].neighbors.size(); ++ni) {
+            int nei = g.nodes[v].neighbors[ni];
+            if (!allSystemNodes.count(nei) && g.nodes[nei].atomicNumber != 1) {
+                if (v == freeValenceAtom) continue;
+                if (parentCtx && parentCtx->handledExocyclicNeighbors.count(nei)) continue;
+                if (g.nodes[v].bondOrders[ni] >= 2) hasExoDouble = true;
+            }
+        }
+        if (hasExoDouble) continue;
+
+        // Check internal ring bonds
+        bool allRingBondsSingle = true;
+        for (size_t ei = 0; ei < E.size(); ++ei) {
+            if (E[ei].first == i || E[ei].second == i) {
+                if (edgeBondOrder[ei] != 1) {
+                    allRingBondsSingle = false;
+                    break;
+                }
+            }
+        }
+
+        if (allRingBondsSingle) {
+            result.hydroNodes.insert(v);
+        }
+    }
+
+    result.success = true;
+    return result;
+}
+
 std::vector<RingSystemNameResult> nameBranchingFusion(
     const Graph &g,
     int mol,
@@ -11491,12 +11666,6 @@ std::vector<RingSystemNameResult> nameBranchingFusion(
             FusedRingOrientationResult orientation = computePreferredOrientation(detectedInputGraph);
             if (!orientation.success) {
                 return {RingSystemNameResult{false, orientation.error.c_str(), "", {}}};
-            }
-            
-            // Compute peripheral numbering
-            std::map<int, QString> periphNum = computePeripheralNumberingGeneral(g, detectedInputGraph);
-            if (periphNum.empty()) {
-                return {RingSystemNameResult{false, "Failed to compute peripheral numbering for branching system.", "", {}}};
             }
             
             int N_d = static_cast<int>(detectedInputGraph.ringAtoms.size());
@@ -11658,6 +11827,34 @@ std::vector<RingSystemNameResult> nameBranchingFusion(
                 }
             }
 
+            // Union all system nodes for whole-system saturation and substituent analysis
+            std::set<int> allSystemNodesUnion;
+            for (const auto &ringNodes : nodesN_d) {
+                allSystemNodesUnion.insert(ringNodes.begin(), ringNodes.end());
+            }
+
+            // Phase 3: Model saturation across the whole branching fused ring system
+            BranchingSaturationResult satModel = modelBranchingSystemSaturation(
+                g, nodesN_d, allSystemNodesUnion, freeValenceAtom, parentCtx);
+
+            if (!satModel.hydroNodes.empty()) {
+                for (int i = 0; i < N_d; ++i) {
+                    if (typesN_d[i] == RingType::CYCLOALKANE || typesN_d[i] == RingType::CYCLOALKENE) {
+                        typesN_d[i] = RingType::BENZENE;
+                    } else if (typesN_d[i] == RingType::PIPERIDINE) {
+                        typesN_d[i] = RingType::PYRIDINE;
+                    } else if (typesN_d[i] == RingType::PIPERAZINE) {
+                        typesN_d[i] = RingType::PYRAZINE;
+                    } else if (typesN_d[i] == RingType::MORPHOLINE || typesN_d[i] == RingType::THIOMORPHOLINE) {
+                        RingType mancudeType;
+                        QString mancudeNameRoot;
+                        if (classifyMancudeFusionComponent(g, rHeteroN_d[i], static_cast<int>(nodesN_d[i].size()), cyclesN_d[i], mancudeType, mancudeNameRoot)) {
+                            typesN_d[i] = mancudeType;
+                        }
+                    }
+                }
+            }
+
             // Retained-name-collision guard (P-25.1 mandatory retained PINs): an
             // all-carbocyclic branching topology can collide with a Blue Book name that
             // has its own special numbering, rather than being named systematically.
@@ -11665,34 +11862,20 @@ std::vector<RingSystemNameResult> nameBranchingFusion(
             // retained name and proceed through the normal path below unaffected.
             //
             // This guard must not fire when the ring system carries any exocyclic
-            // substituent: it returns a bare retained name ("triphenylene") with no
-            // mechanism to attach substituent prefixes to it, so applying it
-            // unconditionally silently drops a real substituent (confirmed live: an
-            // acid chain on a triphenylene-shaped system was dropped entirely,
-            // returning plain "triphenylene" instead of naming the chain or rejecting).
-            // Skipping the shortcut when a substituent is present instead falls
-            // through to the normal substituent-collection path below, which rejects
-            // correctly with "Substituents on branching fused ring systems are not yet
-            // supported." when it can't name it -- the same rejection message this
-            // mechanism's own chain-vs-ring fallback (in generateName()) already
-            // listens for.
+            // substituent, nor when any ring has saturation (satModel.hydroNodes non-empty):
+            // triphenylene is a fully mancude name.
             bool hasAnyExocyclicSubstituent = false;
-            {
-                std::set<int> allSystemNodesUnionPreCheck;
-                for (const auto &ringNodes : nodesN_d) {
-                    allSystemNodesUnionPreCheck.insert(ringNodes.begin(), ringNodes.end());
-                }
-                for (int node : allSystemNodesUnionPreCheck) {
-                    for (int nei : g.nodes[node].neighbors) {
-                        if (!allSystemNodesUnionPreCheck.count(nei) && g.nodes[nei].atomicNumber != 1 && node != freeValenceAtom) {
-                            hasAnyExocyclicSubstituent = true;
-                            break;
-                        }
+            for (int node : allSystemNodesUnion) {
+                for (int nei : g.nodes[node].neighbors) {
+                    if (!allSystemNodesUnion.count(nei) && g.nodes[nei].atomicNumber != 1 && node != freeValenceAtom) {
+                        hasAnyExocyclicSubstituent = true;
+                        break;
                     }
-                    if (hasAnyExocyclicSubstituent) break;
                 }
+                if (hasAnyExocyclicSubstituent) break;
             }
-            if (!hasAnyExocyclicSubstituent) {
+
+            if (!hasAnyExocyclicSubstituent && satModel.hydroNodes.empty()) {
                 bool allBenzeneBranching = true;
                 for (int i = 0; i < N_d; ++i) {
                     if (typesN_d[i] != RingType::BENZENE) { allBenzeneBranching = false; break; }
@@ -11711,39 +11894,13 @@ std::vector<RingSystemNameResult> nameBranchingFusion(
                     // Triphenylene: one central benzo ring fused to exactly 3 other benzo
                     // rings (each a degree-1 leaf) on alternating sides.
                     if (N_d == 4 && degree3Count == 1 && degree1Count == 3) {
-                        // Return single-element vector: today's existing single-best-answer
-                        // behavior. True multi-candidate exploration (calling
-                        // computeAllPreferredOrientations directly instead of
-                        // computePreferredOrientation, to get the full tied-orientation
-                        // set for Task 4's attachment-locant tie-break) is deferred until
-                        // nameRingSystemAsSubstituent (Task 4) actually needs it.
                         return {RingSystemNameResult{true, "", "triphenylene", {}}};
                     }
                     return {RingSystemNameResult{false, "This all-carbocyclic branching ring system may require a retained name not yet recognized by this mechanism.", "", {}}};
                 }
             }
 
-            // STEP 2: Select parent component using compareRingSeniority
-            int parentRing = 0;
-            for (int i = 1; i < N_d; ++i) {
-                int cmp = compareRingSeniority(g, nodesN_d[parentRing], nodesN_d[i]);
-                if (cmp < 0) { // i has higher seniority
-                    parentRing = i;
-                }
-            }
-            
-            // Build adjacency from detectedInputGraph.fusions
-            std::vector<std::vector<int>> fusionAdj(N_d);
-            for (const auto &f : detectedInputGraph.fusions) {
-                fusionAdj[f.ring1].push_back(f.ring2);
-                fusionAdj[f.ring2].push_back(f.ring1);
-            }
-            
             // Check for substituents on any ring atom - classify and collect
-            std::set<int> allSystemNodesUnion;
-            for (const auto &ringNodes : nodesN_d) {
-                allSystemNodesUnion.insert(ringNodes.begin(), ringNodes.end());
-            }
             std::vector<std::pair<int, QString>> collectedSubstituents;
             bool hasUnsupportedSubstituent = false;
             std::set<int> scannedNodesBranching;
@@ -11758,9 +11915,7 @@ std::vector<RingSystemNameResult> nameBranchingFusion(
             for (int i = 0; i < N_d; ++i) {
                 for (int node : nodesN_d[i]) {
                     // A bridgehead atom belongs to more than one ring's nodesN_d[i] set;
-                    // scan its exocyclic neighbors only once (see the identical fix in
-                    // nameLinearChainFusion -- otherwise a single bridgehead substituent
-                    // gets collected once per ring it's shared between).
+                    // scan its exocyclic neighbors only once.
                     if (!scannedNodesBranching.insert(node).second) continue;
                     const GraphNode &n = g.nodes[node];
                     for (size_t j = 0; j < n.neighbors.size(); ++j) {
@@ -11781,6 +11936,88 @@ std::vector<RingSystemNameResult> nameBranchingFusion(
             }
             if (hasUnsupportedSubstituent) {
                 return {RingSystemNameResult{false, "Substituents on branching fused ring systems are not yet supported.", "", {}}};
+            }
+
+            // Inject any caller-supplied extra substituents
+            for (const auto &es : extraSubstituents) collectedSubstituents.push_back(es);
+
+            std::set<int> substituentBearingNodes;
+            for (const auto &sub : collectedSubstituents) {
+                substituentBearingNodes.insert(sub.first);
+            }
+
+            // STEP 2: Jointly evaluate all candidate parent rings and tied peripheral numberings
+            std::vector<std::map<int, QString>> tiedPeriphMaps;
+            std::map<int, QString> periphNumInitial = computePeripheralNumberingGeneral(
+                g, detectedInputGraph, substituentBearingNodes, satModel.hydroNodes, &tiedPeriphMaps, false, principalRingAtomsSet);
+            if (periphNumInitial.empty()) {
+                return {RingSystemNameResult{false, "Failed to compute peripheral numbering for branching system.", "", {}}};
+            }
+            if (tiedPeriphMaps.empty()) {
+                tiedPeriphMaps.push_back(periphNumInitial);
+            }
+
+            std::map<int, QString> periphNum = periphNumInitial;
+
+            // Find all rings tied for highest seniority
+            std::vector<int> seniorRings;
+            int bestSeniorityIdx = 0;
+            for (int i = 1; i < N_d; ++i) {
+                int cmp = compareRingSeniority(g, nodesN_d[bestSeniorityIdx], nodesN_d[i]);
+                if (cmp < 0) {
+                    bestSeniorityIdx = i;
+                }
+            }
+            for (int i = 0; i < N_d; ++i) {
+                if (compareRingSeniority(g, nodesN_d[bestSeniorityIdx], nodesN_d[i]) == 0) {
+                    seniorRings.push_back(i);
+                }
+            }
+
+            auto locantLess = [](const QString &a, const QString &b) {
+                int numA = 0, numB = 0;
+                int i = 0, j = 0;
+                while (i < a.size() && a[i].isDigit()) { numA = numA * 10 + a[i].digitValue(); i++; }
+                while (j < b.size() && b[j].isDigit()) { numB = numB * 10 + b[j].digitValue(); j++; }
+                if (numA != numB) return numA < numB;
+                return a.mid(i) < b.mid(j);
+            };
+
+            auto minLocantInRing = [&](int rIdx, const std::map<int, QString> &pMap) -> QString {
+                QString minLoc;
+                for (int node : detectedInputGraph.ringAtoms[rIdx]) {
+                    auto it = pMap.find(node);
+                    if (it != pMap.end()) {
+                        bool isPureDigit = true;
+                        for (QChar c : it->second) {
+                            if (!c.isDigit()) { isPureDigit = false; break; }
+                        }
+                        if (isPureDigit) {
+                            if (minLoc.isEmpty() || locantLess(it->second, minLoc)) {
+                                minLoc = it->second;
+                            }
+                        }
+                    }
+                }
+                return minLoc;
+            };
+
+            int parentRing = seniorRings[0];
+            QString bestMinLoc = minLocantInRing(parentRing, periphNum);
+            for (size_t i = 1; i < seniorRings.size(); ++i) {
+                int cand = seniorRings[i];
+                QString candMinLoc = minLocantInRing(cand, periphNum);
+                if (!candMinLoc.isEmpty() && (bestMinLoc.isEmpty() || locantLess(candMinLoc, bestMinLoc))) {
+                    bestMinLoc = candMinLoc;
+                    parentRing = cand;
+                }
+            }
+            
+            // Build adjacency from detectedInputGraph.fusions
+            std::vector<std::vector<int>> fusionAdj(N_d);
+            for (const auto &f : detectedInputGraph.fusions) {
+                fusionAdj[f.ring1].push_back(f.ring2);
+                fusionAdj[f.ring2].push_back(f.ring1);
             }
             
             // Helper functions
@@ -12011,14 +12248,6 @@ std::vector<RingSystemNameResult> nameBranchingFusion(
                         // (lowest-locants convention) -- this is what makes "b" (locants 2,3), not
                         // its mirror-equivalent "e" (locants 5,6), come out for a fusion bond one
                         // step from N, matching quinoline's own confirmed C2-C3 precedent.
-                        std::vector<int> parentCycle = cyclesN_d[treeParent];
-                        if (rHeteroN_d[treeParent].size() == 1) {
-                            auto heteroIt = std::find(parentCycle.begin(), parentCycle.end(), rHeteroN_d[treeParent][0]);
-                            if (heteroIt != parentCycle.end()) {
-                                std::rotate(parentCycle.begin(), heteroIt, parentCycle.end());
-                            }
-                        }
-
                         auto letterForCycle = [&](const std::vector<int> &cyc) -> char {
                             int pos0 = -1, pos1 = -1;
                             for (int i = 0; i < static_cast<int>(cyc.size()); ++i) {
@@ -12037,18 +12266,69 @@ std::vector<RingSystemNameResult> nameBranchingFusion(
                             return '?';
                         };
 
-                        std::vector<int> reversedCycle = parentCycle;
-                        if (reversedCycle.size() > 1) {
-                            std::reverse(reversedCycle.begin() + 1, reversedCycle.end());
+                        std::vector<std::vector<int>> parentCands;
+                        RingType pt = typesN_d[treeParent];
+                        const auto &pHetero = rHeteroN_d[treeParent];
+                        int pSize = static_cast<int>(cyclesN_d[treeParent].size());
+                        const auto &pCycle = cyclesN_d[treeParent];
+
+                        if (pHetero.size() == 1) {
+                            int hNode = pHetero[0];
+                            int hIdx = -1;
+                            for (int i = 0; i < pSize; ++i) {
+                                if (pCycle[i] == hNode) { hIdx = i; break; }
+                            }
+                            if (hIdx != -1) {
+                                std::vector<int> fwd(pSize), bwd(pSize);
+                                for (int i = 0; i < pSize; ++i) {
+                                    fwd[i] = pCycle[(hIdx + i) % pSize];
+                                    bwd[i] = pCycle[(hIdx - i + pSize) % pSize];
+                                }
+                                parentCands.push_back(fwd);
+                                parentCands.push_back(bwd);
+                            }
+                        } else if (pHetero.size() == 2 && (pt == RingType::PYRAZINE || pt == RingType::PYRIMIDINE || pt == RingType::PYRIDAZINE)) {
+                            int n1 = pHetero[0];
+                            int n2 = pHetero[1];
+                            int idx1 = -1, idx2 = -1;
+                            for (int i = 0; i < pSize; ++i) {
+                                if (pCycle[i] == n1) idx1 = i;
+                                if (pCycle[i] == n2) idx2 = i;
+                            }
+                            if (idx1 != -1 && idx2 != -1) {
+                                int reqOtherIdx = (pt == RingType::PYRIDAZINE) ? 1 : ((pt == RingType::PYRIMIDINE) ? 2 : 3);
+                                std::vector<int> fwd1(pSize), bwd1(pSize);
+                                for (int i = 0; i < pSize; ++i) {
+                                    fwd1[i] = pCycle[(idx1 + i) % pSize];
+                                    bwd1[i] = pCycle[(idx1 - i + pSize) % pSize];
+                                }
+                                if (fwd1[reqOtherIdx] == n2) parentCands.push_back(fwd1);
+                                if (bwd1[reqOtherIdx] == n2) parentCands.push_back(bwd1);
+
+                                std::vector<int> fwd2(pSize), bwd2(pSize);
+                                for (int i = 0; i < pSize; ++i) {
+                                    fwd2[i] = pCycle[(idx2 + i) % pSize];
+                                    bwd2[i] = pCycle[(idx2 - i + pSize) % pSize];
+                                }
+                                if (fwd2[reqOtherIdx] == n1) parentCands.push_back(fwd2);
+                                if (bwd2[reqOtherIdx] == n1) parentCands.push_back(bwd2);
+                            }
+                        } else {
+                            parentCands.push_back(pCycle);
+                            std::vector<int> rev = pCycle;
+                            std::reverse(rev.begin(), rev.end());
+                            parentCands.push_back(rev);
                         }
 
-                        char letterForward = letterForCycle(parentCycle);
-                        char letterReversed = letterForCycle(reversedCycle);
-                        if (letterForward != '?' && (letterReversed == '?' || letterForward <= letterReversed)) {
-                            sideLetter = letterForward;
-                        } else if (letterReversed != '?') {
-                            sideLetter = letterReversed;
-                        } else {
+                        for (const auto &cand : parentCands) {
+                            char letter = letterForCycle(cand);
+                            if (letter != '?') {
+                                if (sideLetter == '?' || letter < sideLetter) {
+                                    sideLetter = letter;
+                                }
+                            }
+                        }
+                        if (sideLetter == '?') {
                             sideLetter = getSideLetterFromLocants(loc1, loc2);
                         }
                     }
@@ -12083,7 +12363,13 @@ std::vector<RingSystemNameResult> nameBranchingFusion(
                     } else {
                         // Fusion to a non-parent attached component: cite the numeric peripheral
                         // locants of the host ring at the fusion bond (lowest-first).
-                        if (!locantOmittable) {
+                        // Generalize for Phase 4: allow 6-membered aromatic/heteroaromatic components
+                        // whose saturation is modeled across the system (e.g. pyridine, pyrazine);
+                        // unsaturated non-benzo carbocycles (like CYCLOPENTADIENE) remain honestly rejected.
+                        bool isSupportedLevel2 = (rt == RingType::BENZENE || rt == RingType::PYRIDINE ||
+                                                  rt == RingType::PYRAZINE || rt == RingType::PYRIMIDINE ||
+                                                  rt == RingType::PYRIDAZINE || rt == RingType::GENERAL_HETEROCYCLE);
+                        if (!isSupportedLevel2) {
                             return {RingSystemNameResult{false, QString("Fusion of a non-hydrocarbon component to another attached component (level %1) is not yet supported.").arg(level).toStdString().c_str(), "", {}}};
                         }
                         auto locantKey = [](const QString &s) -> std::pair<int, QString> {
@@ -12198,44 +12484,17 @@ std::vector<RingSystemNameResult> nameBranchingFusion(
             // Join all parts
             QString resultName = nameParts.join("");
 
-            // Inject any caller-supplied extra substituents (e.g. a whole separate
-            // ring system attached elsewhere in the molecule, named by the caller
-            // since this mechanism's own substituent scan only handles simple
-            // non-ring substituents) -- unlike the linear-chain sibling, this
-            // mechanism's own computePeripheralNumberingGeneral is not restricted
-            // to any specific N, so this is safe regardless of ring count.
-            for (const auto &es : extraSubstituents) collectedSubstituents.push_back(es);
-
-            // Handle substituents for branching case: build prefix string
-            if (!collectedSubstituents.empty() || !principalRingAtomsSet.empty()) {
-                // Build bridgehead set: any atom that is a member of 2+ rings
-                std::set<int> bheads;
-                for (int node : allSystemNodesUnion) {
-                    int ringCount = 0;
-                    for (const auto &ringNodes : nodesN_d) {
-                        if (ringNodes.count(node)) ringCount++;
-                    }
-                    if (ringCount >= 2) {
-                        bheads.insert(node);
-                    }
-                }
-                // Collect substituent-bearing nodes
-                std::set<int> substituentBearingNodes;
-                for (const auto &sub : collectedSubstituents) {
-                    substituentBearingNodes.insert(sub.first);
-                }
-                // Compute peripheral numbering with substituent set
-                std::map<int, QString> periphMapWithSubs = computePeripheralNumberingGeneral(g, detectedInputGraph, substituentBearingNodes, {}, nullptr, false, principalRingAtomsSet);
-                
+            // Handle substituents and hydro prefix for branching case
+            if (!collectedSubstituents.empty() || !principalRingAtomsSet.empty() || !satModel.hydroNodes.empty()) {
                 // Build named substituents with locants
                 std::vector<std::pair<QString, QString>> namedSubstituents;
                 for (const auto &sub : collectedSubstituents) {
                     int ringNode = sub.first;
                     QString subName = sub.second;
-                    if (!periphMapWithSubs.count(ringNode)) {
+                    if (!periphNum.count(ringNode)) {
                         return {RingSystemNameResult{false, "Failed to compute peripheral locant for substituent.", "", {}}};
                     }
-                    QString locStr = periphMapWithSubs[ringNode];
+                    QString locStr = periphNum[ringNode];
                     namedSubstituents.push_back({subName, locStr});
                 }
                 
@@ -12281,7 +12540,39 @@ std::vector<RingSystemNameResult> nameBranchingFusion(
                     for (const auto &pg : pGroups) pStrs.append(pg.formattedStr);
                     prefixPart = pStrs.join("-");
                 }
+
+                // Format hydro prefix
+                QString hydroPrefix;
+                if (!satModel.hydroNodes.empty()) {
+                    std::vector<QString> hydroLocStrs;
+                    for (int node : satModel.hydroNodes) {
+                        if (!periphNum.count(node)) {
+                            return {RingSystemNameResult{false, "Failed to compute peripheral locant for hydro-prefix.", "", {}}};
+                        }
+                        hydroLocStrs.push_back(periphNum[node]);
+                    }
+                    auto locantLess = [](const QString &a, const QString &b) {
+                        int numA = 0, numB = 0;
+                        int i = 0, j = 0;
+                        while (i < a.size() && a[i].isDigit()) { numA = numA * 10 + a[i].digitValue(); i++; }
+                        while (j < b.size() && b[j].isDigit()) { numB = numB * 10 + b[j].digitValue(); j++; }
+                        if (numA != numB) return numA < numB;
+                        return a.mid(i) < b.mid(j);
+                    };
+                    std::sort(hydroLocStrs.begin(), hydroLocStrs.end(), locantLess);
+
+                    QString countWord = multiPrefix(static_cast<int>(hydroLocStrs.size()));
+                    if (countWord.isEmpty()) {
+                        return {RingSystemNameResult{false, "Unsupported hydro-prefix position count.", "", {}}};
+                    }
+                    QStringList hydroLocQList;
+                    for (const QString &s : hydroLocStrs) hydroLocQList.append(s);
+                    hydroPrefix = hydroLocQList.join(",") + "-" + countWord + "hydro";
+                }
                 
+                if (!hydroPrefix.isEmpty()) {
+                    resultName = hydroPrefix + resultName;
+                }
                 if (!prefixPart.isEmpty()) {
                     // See the equivalent fix in Phase 31 / the chain mechanism.
                     QString sep = (!resultName.isEmpty() && resultName[0].isDigit()) ? "-" : "";
@@ -12289,16 +12580,16 @@ std::vector<RingSystemNameResult> nameBranchingFusion(
                 }
 
                 // Wave 3 Part 2: append the principal characteristic group suffix
-                // (e.g. "-4-amine") using the SAME periphMapWithSubs that just
+                // (e.g. "-4-amine") using the SAME periphNum that just
                 // numbered the detachable substituents, so both agree on one
                 // winning numbering -- same pattern as nameLinearChainFusion.
                 if (parentCtx && !parentCtx->principalRingAtoms.empty() && !parentCtx->suffixWord.isEmpty()) {
                     std::vector<QString> pLocStrs;
                     for (int pNode : parentCtx->principalRingAtoms) {
-                        if (!periphMapWithSubs.count(pNode)) {
+                        if (!periphNum.count(pNode)) {
                             return {RingSystemNameResult{false, "Failed to compute peripheral locant for principal group.", "", {}}};
                         }
-                        QString locStr = periphMapWithSubs[pNode];
+                        QString locStr = periphNum[pNode];
                         bool okInt = false;
                         locStr.toInt(&okInt);
                         if (!okInt) {
