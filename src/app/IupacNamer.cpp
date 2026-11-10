@@ -1331,6 +1331,11 @@ QString getFusionPrefixShared(RingType t) {
     if (t == RingType::IMIDAZOLIDINE) return "imidazolidino";
     if (t == RingType::OXAZOLIDINE) return "oxazolidino";
     if (t == RingType::THIAZOLIDINE) return "thiazolidino";
+    if (t == RingType::PIPERAZINE) return "piperazino";
+    if (t == RingType::MORPHOLINE) return "morpholino";
+    if (t == RingType::THIOMORPHOLINE) return "thiomorpholino";
+    if (t == RingType::CYCLOALKANE) return "cyclohexano";
+    if (t == RingType::CYCLOALKENE) return "cyclohexeno";
     return "";
 }
 
@@ -1371,6 +1376,11 @@ QString getBaseNameShared(RingType t) {
     if (t == RingType::IMIDAZOLIDINE) return "imidazolidine";
     if (t == RingType::OXAZOLIDINE) return "oxazolidine";
     if (t == RingType::THIAZOLIDINE) return "thiazolidine";
+    if (t == RingType::PIPERAZINE) return "piperazine";
+    if (t == RingType::MORPHOLINE) return "morpholine";
+    if (t == RingType::THIOMORPHOLINE) return "thiomorpholine";
+    if (t == RingType::CYCLOALKANE) return "cyclohexane";
+    if (t == RingType::CYCLOALKENE) return "cyclohexene";
     return "";
 }
 
@@ -11499,7 +11509,9 @@ std::vector<RingSystemNameResult> nameBranchingFusion(
             
             for (int i = 0; i < N_d; ++i) {
                 nodesN_d[i] = detectedInputGraph.ringAtoms[i];
-                
+            }
+            
+            for (int i = 0; i < N_d; ++i) {
                 // Build cycle from ring atoms
                 auto buildCycle = [&](const std::set<int> &rNodes) -> std::vector<int> {
                     int rSize = static_cast<int>(rNodes.size());
@@ -11541,10 +11553,60 @@ std::vector<RingSystemNameResult> nameBranchingFusion(
                     }
                 }
                 
+                // Compute fusion bonds for ring i
+                std::vector<std::pair<int, int>> ringIFusionBonds;
+                for (int j = 0; j < N_d; ++j) {
+                    if (j == i) continue;
+                    std::vector<int> shared;
+                    for (int a : nodesN_d[i]) {
+                        if (nodesN_d[j].count(a)) shared.push_back(a);
+                    }
+                    if (shared.size() == 2) {
+                        ringIFusionBonds.push_back({shared[0], shared[1]});
+                    }
+                }
+
                 // Use the same classification as linear chain
                 if (cyclesN_d[i].size() == nodesN_d[i].size()) {
                     QString d1, d2;
-                    bool classOk = classifyMonocyclicHeteroRing(g, rHeteroN_d[i], static_cast<int>(nodesN_d[i].size()), cyclesN_d[i], typesN_d[i], d1, d2);
+                    bool classOk = classifyMonocyclicHeteroRing(g, rHeteroN_d[i], static_cast<int>(nodesN_d[i].size()), cyclesN_d[i], typesN_d[i], d1, d2, true, ringIFusionBonds);
+                    if (!classOk && rHeteroN_d[i].empty()) {
+                        int ringSize = static_cast<int>(nodesN_d[i].size());
+                        bool allAromatic = true;
+                        bool allSingle = true;
+                        bool hasDouble = false;
+                        bool hasTriple = false;
+                        for (const auto &gb : g.bonds) {
+                            if (nodesN_d[i].count(gb.u) && nodesN_d[i].count(gb.v)) {
+                                bool isAromaticFusionBond = false;
+                                if (gb.order == 4) {
+                                    for (const auto &fb : ringIFusionBonds) {
+                                        if ((fb.first == gb.u && fb.second == gb.v) || (fb.first == gb.v && fb.second == gb.u)) {
+                                            isAromaticFusionBond = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (isAromaticFusionBond) continue;
+                                if (gb.order != 4) allAromatic = false;
+                                if (gb.order != 1) allSingle = false;
+                                if (gb.order == 2) hasDouble = true;
+                                if (gb.order == 3) hasTriple = true;
+                            }
+                        }
+                        if (!hasTriple) {
+                            if (ringSize == 6 && (allAromatic || (!allSingle && !hasDouble))) {
+                                typesN_d[i] = RingType::BENZENE;
+                                classOk = true;
+                            } else if (allSingle) {
+                                typesN_d[i] = RingType::CYCLOALKANE;
+                                classOk = true;
+                            } else {
+                                typesN_d[i] = RingType::CYCLOALKENE;
+                                classOk = true;
+                            }
+                        }
+                    }
                     if (!classOk) {
                         return {RingSystemNameResult{false, "Failed to classify ring type in branching system.", "", {}}};
                     }
@@ -11577,7 +11639,10 @@ std::vector<RingSystemNameResult> nameBranchingFusion(
                        t == RingType::TETRAHYDROFURAN || t == RingType::TETRAHYDROTHIOPHENE ||
                        t == RingType::PYRAZOLIDINE || t == RingType::ISOXAZOLIDINE ||
                        t == RingType::ISOTHIAZOLIDINE || t == RingType::IMIDAZOLIDINE ||
-                       t == RingType::OXAZOLIDINE || t == RingType::THIAZOLIDINE;
+                       t == RingType::OXAZOLIDINE || t == RingType::THIAZOLIDINE ||
+                       t == RingType::CYCLOALKANE || t == RingType::CYCLOALKENE ||
+                       t == RingType::PIPERAZINE || t == RingType::MORPHOLINE ||
+                       t == RingType::THIOMORPHOLINE;
             };
 
             for (int i = 0; i < N_d; ++i) {
