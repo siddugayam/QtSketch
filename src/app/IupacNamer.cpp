@@ -8472,6 +8472,44 @@ QString tryNameHydrazinylSubstituent(int nNode, int fromNode, int farN, const Gr
         if (g.nodes[fn].atomicNumber == 8 && g.nodes[fromNode].bondOrders[k] == 2) return "";
     }
 
+    std::vector<int> chain = {nNode, farN};
+    while (true) {
+        int cur = chain.back();
+        int prev = chain[chain.size() - 2];
+        std::vector<int> extraHeavy;
+        for (size_t k = 0; k < g.nodes[cur].neighbors.size(); ++k) {
+            int nb = g.nodes[cur].neighbors[k];
+            if (nb == prev) continue;
+            if (g.nodes[nb].atomicNumber > 1) {
+                extraHeavy.push_back(nb);
+            }
+        }
+        if (extraHeavy.size() == 1) {
+            int nextNode = extraHeavy[0];
+            int order = 1;
+            for (size_t k = 0; k < g.nodes[cur].neighbors.size(); ++k) {
+                if (g.nodes[cur].neighbors[k] == nextNode) {
+                    order = g.nodes[cur].bondOrders[k];
+                    break;
+                }
+            }
+            if (order == 1 && g.nodes[nextNode].atomicNumber == 7 &&
+                !isNitrosoNitrogen(nextNode, cur, g) &&
+                !isNitroNitrogen(nextNode, cur, g)) {
+                bool inRing = false;
+                for (const auto &ring : allIndependentRings) {
+                    if (ring.count(nextNode)) { inRing = true; break; }
+                }
+                if (!inRing) {
+                    chain.push_back(nextNode);
+                    if (chain.size() > 6) return "";
+                    continue;
+                }
+            }
+        }
+        break;
+    }
+
     auto collectCarbonSubs = [&](int center, const std::set<int> &exclude) -> std::vector<int> {
         std::vector<int> subs;
         for (size_t k = 0; k < g.nodes[center].neighbors.size(); ++k) {
@@ -8484,17 +8522,28 @@ QString tryNameHydrazinylSubstituent(int nNode, int fromNode, int farN, const Gr
         return subs;
     };
 
-    std::vector<int> n1Subs = collectCarbonSubs(nNode, {fromNode, farN});
-    std::vector<int> n2Subs = collectCarbonSubs(farN, {nNode});
-    if (n1Subs.size() > 1 || n2Subs.size() > 2) return "";
+    int termNode = chain.back();
+    int termPrev = chain[chain.size() - 2];
+    std::vector<int> n1Subs = collectCarbonSubs(nNode, {fromNode, chain[1]});
+    std::vector<int> nTermSubs = collectCarbonSubs(termNode, {termPrev});
+    if (n1Subs.size() > 1 || nTermSubs.size() > 2) return "";
     for (int s : n1Subs) if (s < 0) return "";
-    for (int s : n2Subs) if (s < 0) return "";
+    for (int s : nTermSubs) if (s < 0) return "";
 
-    if (n1Subs.empty() && n2Subs.empty()) return "hydrazinyl";
+    QString stem;
+    switch (chain.size()) {
+        case 2: stem = "hydrazin"; break;
+        case 3: stem = "triazan"; break;
+        case 4: stem = "tetrazan"; break;
+        case 5: stem = "pentazan"; break;
+        case 6: stem = "hexazan"; break;
+        default: return "";
+    }
+
+    if (n1Subs.empty() && nTermSubs.empty()) return stem + "yl";
 
     std::set<int> branchForbidden = forbiddenNodes;
-    branchForbidden.insert(nNode);
-    branchForbidden.insert(farN);
+    for (int cNode : chain) branchForbidden.insert(cNode);
     branchForbidden.insert(fromNode);
 
     std::vector<std::pair<int, QString>> locNamePairs;
@@ -8503,10 +8552,11 @@ QString tryNameHydrazinylSubstituent(int nNode, int fromNode, int farN, const Gr
         if (name.isEmpty()) return "";
         locNamePairs.push_back({1, name});
     }
-    for (int s : n2Subs) {
-        QString name = nameBranchGraph(g, s, farN, allIndependentRings, branchForbidden, {}, nullptr, mol);
+    int termLocant = static_cast<int>(chain.size());
+    for (int s : nTermSubs) {
+        QString name = nameBranchGraph(g, s, termNode, allIndependentRings, branchForbidden, {}, nullptr, mol);
         if (name.isEmpty()) return "";
-        locNamePairs.push_back({2, name});
+        locNamePairs.push_back({termLocant, name});
     }
 
     auto stripOuter = [](const QString &s) -> QString {
@@ -8537,7 +8587,7 @@ QString tryNameHydrazinylSubstituent(int nNode, int fromNode, int farN, const Gr
         QString term = needsWrap ? ((locs.size() > 1 ? "bis(" : "(") + name + ")") : (multPrefix + name);
         body += locStrs.join(",") + "-" + term;
     }
-    body += "hydrazin-1-yl";
+    body += stem + "-1-yl";
 
     return (body.contains('(') ? "[" : "(") + body + (body.contains('(') ? "]" : ")");
 }

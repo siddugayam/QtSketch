@@ -709,9 +709,9 @@ int main() {
         // to Wave 4A (confirmed live: even a plain unsubstituted
         // cyclohexylhydrazine, C1CCCCC1NN, is rejected the same way).
         {"C1CCCCC1CNNCCCC(=O)O", "4-(2-cyclohexylmethylhydrazin-1-yl)butanoic acid"},
-        // Longer N-N-N chain (triazanyl) still rejects cleanly rather than
-        // being misnamed as a two-nitrogen hydrazinyl group.
-        {"NNNCCCC(=O)O", "", true, ""},
+        // Longer N-N-N chain now names correctly as a triazanyl substituent
+        // (bare, since N1 and the terminal N carry no further substituent).
+        {"NNNCCCC(=O)O", "4-triazanylbutanoic acid"},
         // Acyl-linked hydrazide (-C(=O)-NH-NH2 cited as a substituent) stays
         // rejected: this is a structurally different shape (the hydrazine
         // hangs off an acyl carbon, not a plain chain/ring atom) that Wave 4A
