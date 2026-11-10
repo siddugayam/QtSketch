@@ -13269,6 +13269,51 @@ static FunctionalGroupClassification classifyFunctionalGroups(
     return result;
 }
 
+static bool detectPeriFusion(const Graph &g, const std::vector<std::set<int>> &allSSSRRings, std::set<int> *outPeriCenters = nullptr) {
+    int N_rings = static_cast<int>(allSSSRRings.size());
+    bool hasPeri = false;
+    for (int i = 0; i < N_rings; ++i) {
+        bool riDouble = false;
+        for (int n : allSSSRRings[i]) {
+            for (int order : g.nodes[n].bondOrders) {
+                if (order == 2 || order == 4) riDouble = true;
+            }
+        }
+        for (int j = i + 1; j < N_rings; ++j) {
+            bool rjDouble = false;
+            for (int n : allSSSRRings[j]) {
+                for (int order : g.nodes[n].bondOrders) {
+                    if (order == 2 || order == 4) rjDouble = true;
+                }
+            }
+            for (int k = j + 1; k < N_rings; ++k) {
+                bool rkDouble = false;
+                for (int n : allSSSRRings[k]) {
+                    for (int order : g.nodes[n].bondOrders) {
+                        if (order == 2 || order == 4) rkDouble = true;
+                    }
+                }
+
+                if (riDouble && rjDouble && rkDouble) {
+                    std::vector<int> common;
+                    for (int n : allSSSRRings[i]) {
+                        if (allSSSRRings[j].count(n) && allSSSRRings[k].count(n)) {
+                            common.push_back(n);
+                        }
+                    }
+                    if (!common.empty()) {
+                        hasPeri = true;
+                        if (outPeriCenters) {
+                            for (int c : common) outPeriCenters->insert(c);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return hasPeri;
+}
+
 // Thin public wrapper that normalizes status for success results (Task C)
 // Public entry point: thin status-normalizing wrapper around generateNameImpl.
 // This applies the SystematicIupacName default to any success result that
@@ -25581,6 +25626,10 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
             }
         }
 
+        if (validPreconditions && detectPeriFusion(g, allSSSRRings)) {
+            validPreconditions = false;
+        }
+
         bool polycyclicSkeletonValid = validPreconditions;
         if (polycyclicSkeletonValid) {
             PolycyclicEvalResult evalCheck = evaluatePolycyclicVonBaeyerSystem(g, ringUnionNodes, {});
@@ -26637,26 +26686,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
         
         // 2. Detect True Peri-Fusion (P-25.3.1.1.2): 3 rings sharing a central atom
         std::set<int> periCenters;
-        for (int i = 0; i < N_rings; ++i) {
-            bool riDouble = false; for (int n : allSSSRRings[i]) { for (int order : g.nodes[n].bondOrders) if (order == 2 || order == 4) riDouble = true; }
-            for (int j = i + 1; j < N_rings; ++j) {
-                bool rjDouble = false; for (int n : allSSSRRings[j]) { for (int order : g.nodes[n].bondOrders) if (order == 2 || order == 4) rjDouble = true; }
-                for (int k = j + 1; k < N_rings; ++k) {
-                    bool rkDouble = false; for (int n : allSSSRRings[k]) { for (int order : g.nodes[n].bondOrders) if (order == 2 || order == 4) rkDouble = true; }
-                    
-                    if (riDouble && rjDouble && rkDouble) {
-                        std::vector<int> common;
-                        for (int n : allSSSRRings[i]) {
-                            if (allSSSRRings[j].count(n) && allSSSRRings[k].count(n)) common.push_back(n);
-                        }
-                        if (!common.empty()) {
-                            hasPeri = true;
-                            for (int c : common) periCenters.insert(c);
-                        }
-                    }
-                }
-            }
-        }
+        hasPeri = detectPeriFusion(g, allSSSRRings, &periCenters);
         
         // 3. Detect P-25.5 (3-component peri-fusion): > 1 peri center, or 4 rings involved in peri fusion
         if (hasPeri && periCenters.size() >= 2) {
