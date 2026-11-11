@@ -3724,9 +3724,9 @@ struct NumberingCand {
 
     std::vector<int> principalLocants;
 
-    std::vector<int> doubleBondLocants;
+    std::vector<std::pair<int,int>> doubleBondLocants;
 
-    std::vector<int> tripleBondLocants;
+    std::vector<std::pair<int,int>> tripleBondLocants;
 
     std::vector<int> subLocants;
 
@@ -4082,11 +4082,12 @@ BicyclicEvalResult evaluateBicyclicSystem(const Graph& g, const std::set<int>& r
 
                                 if (itU != cand.locantOf.end() && itV != cand.locantOf.end()) {
 
-                                    int minLoc = std::min(itU->second, itV->second);
+                                    int loc1 = std::min(itU->second, itV->second);
+                                    int loc2 = std::max(itU->second, itV->second);
 
-                                    if (gb.order == 2) cand.doubleBondLocants.push_back(minLoc);
+                                    if (gb.order == 2) cand.doubleBondLocants.push_back({loc1, loc2});
 
-                                    if (gb.order == 3) cand.tripleBondLocants.push_back(minLoc);
+                                    if (gb.order == 3) cand.tripleBondLocants.push_back({loc1, loc2});
 
                                 }
 
@@ -4124,9 +4125,44 @@ BicyclicEvalResult evaluateBicyclicSystem(const Graph& g, const std::set<int>& r
 
                     if (a.principalLocants != b.principalLocants) return a.principalLocants < b.principalLocants;
 
-                    if (a.doubleBondLocants != b.doubleBondLocants) return a.doubleBondLocants < b.doubleBondLocants;
+                    auto compareBondLocs = [](const std::vector<std::pair<int, int>> &aBonds,
+                                              const std::vector<std::pair<int, int>> &bBonds) {
+                        if (aBonds != bBonds) {
+                            auto countCompound = [](const std::vector<std::pair<int, int>> &bonds) {
+                                int cnt = 0;
+                                for (const auto &p : bonds) if (p.second - p.first != 1) cnt++;
+                                return cnt;
+                            };
+                            int aComp = countCompound(aBonds), bComp = countCompound(bBonds);
+                            if (aComp != bComp) return aComp < bComp;
 
-                    if (a.tripleBondLocants != b.tripleBondLocants) return a.tripleBondLocants < b.tripleBondLocants;
+                            std::vector<int> aPrim, bPrim;
+                            aPrim.reserve(aBonds.size());
+                            bPrim.reserve(bBonds.size());
+                            for (const auto &p : aBonds) aPrim.push_back(p.first);
+                            for (const auto &p : bBonds) bPrim.push_back(p.first);
+                            if (aPrim != bPrim) return aPrim < bPrim;
+
+                            auto buildFullSet = [](const std::vector<std::pair<int, int>> &bonds) {
+                                std::vector<int> s;
+                                for (const auto &p : bonds) {
+                                    s.push_back(p.first);
+                                    if (p.second - p.first != 1) s.push_back(p.second);
+                                }
+                                std::sort(s.begin(), s.end());
+                                return s;
+                            };
+                            std::vector<int> aFull = buildFullSet(aBonds), bFull = buildFullSet(bBonds);
+                            if (aFull != bFull) return aFull < bFull;
+
+                            return aBonds < bBonds;
+                        }
+                        return false;
+                    };
+                    if (a.doubleBondLocants != b.doubleBondLocants)
+                        return compareBondLocs(a.doubleBondLocants, b.doubleBondLocants);
+                    if (a.tripleBondLocants != b.tripleBondLocants)
+                        return compareBondLocs(a.tripleBondLocants, b.tripleBondLocants);
 
                     if (a.subLocants != b.subLocants) return a.subLocants < b.subLocants;
 
@@ -4218,9 +4254,9 @@ QString buildBicyclicBaseName(
 
     std::vector<int> lengths = evalRes.lengths;
 
-    std::vector<int> dbLocs = cand.doubleBondLocants;
+    std::vector<std::pair<int, int>> dbLocs = cand.doubleBondLocants;
 
-    std::vector<int> tbLocs = cand.tripleBondLocants;
+    std::vector<std::pair<int, int>> tbLocs = cand.tripleBondLocants;
 
 
 
@@ -4282,6 +4318,11 @@ QString buildBicyclicBaseName(
 
 
 
+    auto formatBondLoc = [](const std::pair<int, int> &p) -> QString {
+        if (p.second - p.first == 1) return QString::number(p.first);
+        return QString("%1(%2)").arg(p.first).arg(p.second);
+    };
+
     QString infix;
 
     if (dbLocs.empty() && tbLocs.empty()) {
@@ -4292,7 +4333,7 @@ QString buildBicyclicBaseName(
 
         if (dbLocs.size() == 1) {
 
-            infix = QString("-%1-ene").arg(dbLocs[0]);
+            infix = QString("-%1-ene").arg(formatBondLoc(dbLocs[0]));
 
         } else {
 
@@ -4300,7 +4341,7 @@ QString buildBicyclicBaseName(
 
             QStringList lStrs;
 
-            for (int l : dbLocs) lStrs.append(QString::number(l));
+            for (const auto &p : dbLocs) lStrs.append(formatBondLoc(p));
 
             infix = QString("-%1-%2ene").arg(lStrs.join(","), multiPrefix(static_cast<int>(dbLocs.size())));
 
@@ -4310,7 +4351,7 @@ QString buildBicyclicBaseName(
 
         if (tbLocs.size() == 1) {
 
-            infix = QString("-%1-yne").arg(tbLocs[0]);
+            infix = QString("-%1-yne").arg(formatBondLoc(tbLocs[0]));
 
         } else {
 
@@ -4318,7 +4359,7 @@ QString buildBicyclicBaseName(
 
             QStringList lStrs;
 
-            for (int l : tbLocs) lStrs.append(QString::number(l));
+            for (const auto &p : tbLocs) lStrs.append(formatBondLoc(p));
 
             infix = QString("-%1-%2yne").arg(lStrs.join(","), multiPrefix(static_cast<int>(tbLocs.size())));
 
@@ -4328,9 +4369,9 @@ QString buildBicyclicBaseName(
 
         QStringList dStrs, tStrs;
 
-        for (int l : dbLocs) dStrs.append(QString::number(l));
+        for (const auto &p : dbLocs) dStrs.append(formatBondLoc(p));
 
-        for (int l : tbLocs) tStrs.append(QString::number(l));
+        for (const auto &p : tbLocs) tStrs.append(formatBondLoc(p));
 
         QString dPart = (dbLocs.size() > 1) ? QString("%1-%2en").arg(dStrs.join(","), multiPrefix(static_cast<int>(dbLocs.size()))) : QString("%1-en").arg(dStrs[0]);
 
@@ -4491,8 +4532,8 @@ QString buildPolycyclicBaseName(
     if (!evalRes.valid || evalRes.mainRingAndBridgeLengths.size() != 3) return "";
 
     std::vector<int> lengths = evalRes.mainRingAndBridgeLengths;
-    std::vector<int> dbLocs = cand.doubleBondLocants;
-    std::vector<int> tbLocs = cand.tripleBondLocants;
+    std::vector<std::pair<int, int>> dbLocs = cand.doubleBondLocants;
+    std::vector<std::pair<int, int>> tbLocs = cand.tripleBondLocants;
 
     for (const auto &gb : g.bonds) {
         if (ringUnionNodes.count(gb.u) && ringUnionNodes.count(gb.v)) {
@@ -4507,31 +4548,36 @@ QString buildPolycyclicBaseName(
     QString root = chainRoot(totalCarbons);
     if (root.isEmpty()) return "";
 
+    auto formatBondLoc = [](const std::pair<int, int> &p) -> QString {
+        if (p.second - p.first == 1) return QString::number(p.first);
+        return QString("%1(%2)").arg(p.first).arg(p.second);
+    };
+
     QString infix;
     if (dbLocs.empty() && tbLocs.empty()) {
         infix = "ane";
     } else if (!dbLocs.empty() && tbLocs.empty()) {
         if (dbLocs.size() == 1) {
-            infix = QString("-%1-ene").arg(dbLocs[0]);
+            infix = QString("-%1-ene").arg(formatBondLoc(dbLocs[0]));
         } else {
             root += "a";
             QStringList lStrs;
-            for (int l : dbLocs) lStrs.append(QString::number(l));
+            for (const auto &p : dbLocs) lStrs.append(formatBondLoc(p));
             infix = QString("-%1-%2ene").arg(lStrs.join(","), multiPrefix(static_cast<int>(dbLocs.size())));
         }
     } else if (dbLocs.empty() && !tbLocs.empty()) {
         if (tbLocs.size() == 1) {
-            infix = QString("-%1-yne").arg(tbLocs[0]);
+            infix = QString("-%1-yne").arg(formatBondLoc(tbLocs[0]));
         } else {
             root += "a";
             QStringList lStrs;
-            for (int l : tbLocs) lStrs.append(QString::number(l));
+            for (const auto &p : tbLocs) lStrs.append(formatBondLoc(p));
             infix = QString("-%1-%2yne").arg(lStrs.join(","), multiPrefix(static_cast<int>(tbLocs.size())));
         }
     } else {
         QStringList dStrs, tStrs;
-        for (int l : dbLocs) dStrs.append(QString::number(l));
-        for (int l : tbLocs) tStrs.append(QString::number(l));
+        for (const auto &p : dbLocs) dStrs.append(formatBondLoc(p));
+        for (const auto &p : tbLocs) tStrs.append(formatBondLoc(p));
         QString dPart = (dbLocs.size() > 1) ? QString("%1-%2en").arg(dStrs.join(","), multiPrefix(static_cast<int>(dbLocs.size()))) : QString("%1-en").arg(dStrs[0]);
         QString tPart = (tbLocs.size() > 1) ? QString("%1-%2yne").arg(tStrs.join(","), multiPrefix(static_cast<int>(tbLocs.size()))) : QString("%1-yne").arg(tStrs[0]);
         infix = QString("-%1-%2").arg(dPart, tPart);
@@ -4899,9 +4945,10 @@ PolycyclicEvalResult evaluatePolycyclicVonBaeyerSystem(
                                 auto itU = cand.locantOf.find(gb.u);
                                 auto itV = cand.locantOf.find(gb.v);
                                 if (itU != cand.locantOf.end() && itV != cand.locantOf.end()) {
-                                    int minLoc = std::min(itU->second, itV->second);
-                                    if (gb.order == 2) cand.doubleBondLocants.push_back(minLoc);
-                                    if (gb.order == 3) cand.tripleBondLocants.push_back(minLoc);
+                                    int loc1 = std::min(itU->second, itV->second);
+                                    int loc2 = std::max(itU->second, itV->second);
+                                    if (gb.order == 2) cand.doubleBondLocants.push_back({loc1, loc2});
+                                    if (gb.order == 3) cand.tripleBondLocants.push_back({loc1, loc2});
                                 }
                             }
                         }
@@ -4929,8 +4976,44 @@ PolycyclicEvalResult evaluatePolycyclicVonBaeyerSystem(
         if (a.heteroatomLocants != b.heteroatomLocants) return a.heteroatomLocants < b.heteroatomLocants;
         if (a.heteroatomSeniorityLocants != b.heteroatomSeniorityLocants) return a.heteroatomSeniorityLocants < b.heteroatomSeniorityLocants;
         if (a.principalLocants != b.principalLocants) return a.principalLocants < b.principalLocants;
-        if (a.doubleBondLocants != b.doubleBondLocants) return a.doubleBondLocants < b.doubleBondLocants;
-        if (a.tripleBondLocants != b.tripleBondLocants) return a.tripleBondLocants < b.tripleBondLocants;
+        auto compareBondLocs = [](const std::vector<std::pair<int, int>> &aBonds,
+                                  const std::vector<std::pair<int, int>> &bBonds) {
+            if (aBonds != bBonds) {
+                auto countCompound = [](const std::vector<std::pair<int, int>> &bonds) {
+                    int cnt = 0;
+                    for (const auto &p : bonds) if (p.second - p.first != 1) cnt++;
+                    return cnt;
+                };
+                int aComp = countCompound(aBonds), bComp = countCompound(bBonds);
+                if (aComp != bComp) return aComp < bComp;
+
+                std::vector<int> aPrim, bPrim;
+                aPrim.reserve(aBonds.size());
+                bPrim.reserve(bBonds.size());
+                for (const auto &p : aBonds) aPrim.push_back(p.first);
+                for (const auto &p : bBonds) bPrim.push_back(p.first);
+                if (aPrim != bPrim) return aPrim < bPrim;
+
+                auto buildFullSet = [](const std::vector<std::pair<int, int>> &bonds) {
+                    std::vector<int> s;
+                    for (const auto &p : bonds) {
+                        s.push_back(p.first);
+                        if (p.second - p.first != 1) s.push_back(p.second);
+                    }
+                    std::sort(s.begin(), s.end());
+                    return s;
+                };
+                std::vector<int> aFull = buildFullSet(aBonds), bFull = buildFullSet(bBonds);
+                if (aFull != bFull) return aFull < bFull;
+
+                return aBonds < bBonds;
+            }
+            return false;
+        };
+        if (a.doubleBondLocants != b.doubleBondLocants)
+            return compareBondLocs(a.doubleBondLocants, b.doubleBondLocants);
+        if (a.tripleBondLocants != b.tripleBondLocants)
+            return compareBondLocs(a.tripleBondLocants, b.tripleBondLocants);
         if (a.subLocants != b.subLocants) return a.subLocants < b.subLocants;
 
         auto firstAlpha = [](const std::vector<std::pair<QString,int>> &nm) {
@@ -25493,37 +25576,42 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                                         else prefixPart = heteroPrefix + "-" + prefixPart;
                                     }
 
-                                    std::vector<int> dbLocs = best.doubleBondLocants;
-                                    std::vector<int> tbLocs = best.tripleBondLocants;
+                                    std::vector<std::pair<int, int>> dbLocs = best.doubleBondLocants;
+                                    std::vector<std::pair<int, int>> tbLocs = best.tripleBondLocants;
 
                                     if (lengths[2] == 0 && (!dbLocs.empty() || !tbLocs.empty())) {
                                         // Unsaturated ortho-fused rings fall through to fusion nomenclature
                                     } else {
+                                        auto formatBondLoc = [](const std::pair<int, int> &p) -> QString {
+                                            if (p.second - p.first == 1) return QString::number(p.first);
+                                            return QString("%1(%2)").arg(p.first).arg(p.second);
+                                        };
+
                                         QString infix;
                                         if (dbLocs.empty() && tbLocs.empty()) {
                                             infix = "ane";
                                         } else if (!dbLocs.empty() && tbLocs.empty()) {
                                             if (dbLocs.size() == 1) {
-                                                infix = QString("-%1-ene").arg(dbLocs[0]);
+                                                infix = QString("-%1-ene").arg(formatBondLoc(dbLocs[0]));
                                             } else {
                                                 root += "a";
                                                 QStringList lStrs;
-                                                for (int l : dbLocs) lStrs.append(QString::number(l));
+                                                for (const auto &p : dbLocs) lStrs.append(formatBondLoc(p));
                                                 infix = QString("-%1-%2ene").arg(lStrs.join(","), multiPrefix(static_cast<int>(dbLocs.size())));
                                             }
                                         } else if (dbLocs.empty() && !tbLocs.empty()) {
                                             if (tbLocs.size() == 1) {
-                                                infix = QString("-%1-yne").arg(tbLocs[0]);
+                                                infix = QString("-%1-yne").arg(formatBondLoc(tbLocs[0]));
                                             } else {
                                                 root += "a";
                                                 QStringList lStrs;
-                                                for (int l : tbLocs) lStrs.append(QString::number(l));
+                                                for (const auto &p : tbLocs) lStrs.append(formatBondLoc(p));
                                                 infix = QString("-%1-%2yne").arg(lStrs.join(","), multiPrefix(static_cast<int>(tbLocs.size())));
                                             }
                                         } else {
                                             QStringList dStrs, tStrs;
-                                            for (int l : dbLocs) dStrs.append(QString::number(l));
-                                            for (int l : tbLocs) tStrs.append(QString::number(l));
+                                            for (const auto &p : dbLocs) dStrs.append(formatBondLoc(p));
+                                            for (const auto &p : tbLocs) tStrs.append(formatBondLoc(p));
                                             QString dPart = (dbLocs.size() > 1) ? QString("%1-%2en").arg(dStrs.join(","), multiPrefix(static_cast<int>(dbLocs.size()))) : QString("%1-en").arg(dStrs[0]);
                                             QString tPart = (tbLocs.size() > 1) ? QString("%1-%2yne").arg(tStrs.join(","), multiPrefix(static_cast<int>(tbLocs.size()))) : QString("%1-yne").arg(tStrs[0]);
                                             infix = QString("-%1-%2").arg(dPart, tPart);
@@ -26217,8 +26305,8 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                             std::map<int,int> locantOf;
                             std::vector<int> heteroatomLocants;
                             std::vector<int> heteroatomSeniorityLocants;
-                            std::vector<int> doubleBondLocants;
-                            std::vector<int> tripleBondLocants;
+                            std::vector<std::pair<int,int>> doubleBondLocants;
+                            std::vector<std::pair<int,int>> tripleBondLocants;
                             std::vector<int> subLocants;
                             std::vector<std::pair<QString,int>> namedSubs;
                         };
@@ -26284,9 +26372,10 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                                                 auto itU = cand.locantOf.find(gb.u);
                                                 auto itV = cand.locantOf.find(gb.v);
                                                 if (itU != cand.locantOf.end() && itV != cand.locantOf.end()) {
-                                                    int minLoc = std::min(itU->second, itV->second);
-                                                    if (gb.order == 2) cand.doubleBondLocants.push_back(minLoc);
-                                                    if (gb.order == 3) cand.tripleBondLocants.push_back(minLoc);
+                                                    int loc1 = std::min(itU->second, itV->second);
+                                                    int loc2 = std::max(itU->second, itV->second);
+                                                    if (gb.order == 2) cand.doubleBondLocants.push_back({loc1, loc2});
+                                                    if (gb.order == 3) cand.tripleBondLocants.push_back({loc1, loc2});
                                                 }
                                             }
                                         }
@@ -26304,8 +26393,44 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                                 [](const NumberingCand &a, const NumberingCand &b) {
                                     if (a.heteroatomLocants != b.heteroatomLocants) return a.heteroatomLocants < b.heteroatomLocants;
                                     if (a.heteroatomSeniorityLocants != b.heteroatomSeniorityLocants) return a.heteroatomSeniorityLocants < b.heteroatomSeniorityLocants;
-                                    if (a.doubleBondLocants != b.doubleBondLocants) return a.doubleBondLocants < b.doubleBondLocants;
-                                    if (a.tripleBondLocants != b.tripleBondLocants) return a.tripleBondLocants < b.tripleBondLocants;
+                                    auto compareBondLocs = [](const std::vector<std::pair<int, int>> &aBonds,
+                                                              const std::vector<std::pair<int, int>> &bBonds) {
+                                        if (aBonds != bBonds) {
+                                            auto countCompound = [](const std::vector<std::pair<int, int>> &bonds) {
+                                                int cnt = 0;
+                                                for (const auto &p : bonds) if (p.second - p.first != 1) cnt++;
+                                                return cnt;
+                                            };
+                                            int aComp = countCompound(aBonds), bComp = countCompound(bBonds);
+                                            if (aComp != bComp) return aComp < bComp;
+
+                                            std::vector<int> aPrim, bPrim;
+                                            aPrim.reserve(aBonds.size());
+                                            bPrim.reserve(bBonds.size());
+                                            for (const auto &p : aBonds) aPrim.push_back(p.first);
+                                            for (const auto &p : bBonds) bPrim.push_back(p.first);
+                                            if (aPrim != bPrim) return aPrim < bPrim;
+
+                                            auto buildFullSet = [](const std::vector<std::pair<int, int>> &bonds) {
+                                                std::vector<int> s;
+                                                for (const auto &p : bonds) {
+                                                    s.push_back(p.first);
+                                                    if (p.second - p.first != 1) s.push_back(p.second);
+                                                }
+                                                std::sort(s.begin(), s.end());
+                                                return s;
+                                            };
+                                            std::vector<int> aFull = buildFullSet(aBonds), bFull = buildFullSet(bBonds);
+                                            if (aFull != bFull) return aFull < bFull;
+
+                                            return aBonds < bBonds;
+                                        }
+                                        return false;
+                                    };
+                                    if (a.doubleBondLocants != b.doubleBondLocants)
+                                        return compareBondLocs(a.doubleBondLocants, b.doubleBondLocants);
+                                    if (a.tripleBondLocants != b.tripleBondLocants)
+                                        return compareBondLocs(a.tripleBondLocants, b.tripleBondLocants);
                                     if (a.subLocants != b.subLocants) return a.subLocants < b.subLocants;
                                     auto firstAlpha = [](const std::vector<std::pair<QString,int>> &nm) {
                                         return std::min_element(nm.begin(), nm.end(),
@@ -26365,33 +26490,37 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                                 else prefixPart = heteroPrefix + "-" + prefixPart;
                             }
 
-                            std::vector<int> dbLocs = best.doubleBondLocants;
-                            std::vector<int> tbLocs = best.tripleBondLocants;
+                            std::vector<std::pair<int, int>> dbLocs = best.doubleBondLocants;
+                            std::vector<std::pair<int, int>> tbLocs = best.tripleBondLocants;
+                            auto formatBondLoc = [](const std::pair<int, int> &p) -> QString {
+                                if (p.second - p.first == 1) return QString::number(p.first);
+                                return QString("%1(%2)").arg(p.first).arg(p.second);
+                            };
                             QString infix;
                             if (dbLocs.empty() && tbLocs.empty()) {
                                 infix = "ane";
                             } else if (!dbLocs.empty() && tbLocs.empty()) {
                                 if (dbLocs.size() == 1) {
-                                    infix = QString("-%1-ene").arg(dbLocs[0]);
+                                    infix = QString("-%1-ene").arg(formatBondLoc(dbLocs[0]));
                                 } else {
                                     root += "a";
                                     QStringList lStrs;
-                                    for (int l : dbLocs) lStrs.append(QString::number(l));
+                                    for (const auto &p : dbLocs) lStrs.append(formatBondLoc(p));
                                     infix = QString("-%1-%2ene").arg(lStrs.join(","), multiPrefix(static_cast<int>(dbLocs.size())));
                                 }
                             } else if (dbLocs.empty() && !tbLocs.empty()) {
                                 if (tbLocs.size() == 1) {
-                                    infix = QString("-%1-yne").arg(tbLocs[0]);
+                                    infix = QString("-%1-yne").arg(formatBondLoc(tbLocs[0]));
                                 } else {
                                     root += "a";
                                     QStringList lStrs;
-                                    for (int l : tbLocs) lStrs.append(QString::number(l));
+                                    for (const auto &p : tbLocs) lStrs.append(formatBondLoc(p));
                                     infix = QString("-%1-%2yne").arg(lStrs.join(","), multiPrefix(static_cast<int>(tbLocs.size())));
                                 }
                             } else {
                                 QStringList dStrs, tStrs;
-                                for (int l : dbLocs) dStrs.append(QString::number(l));
-                                for (int l : tbLocs) tStrs.append(QString::number(l));
+                                for (const auto &p : dbLocs) dStrs.append(formatBondLoc(p));
+                                for (const auto &p : tbLocs) tStrs.append(formatBondLoc(p));
                                 QString dPart = (dbLocs.size() > 1) ? QString("%1-%2en").arg(dStrs.join(","), multiPrefix(static_cast<int>(dbLocs.size()))) : QString("%1-en").arg(dStrs[0]);
                                 QString tPart = (tbLocs.size() > 1) ? QString("%1-%2yne").arg(tStrs.join(","), multiPrefix(static_cast<int>(tbLocs.size()))) : QString("%1-yne").arg(tStrs[0]);
                                 infix = QString("-%1-%2").arg(dPart, tPart);
