@@ -26,6 +26,7 @@ set(IUPAC_NAMING_SOURCES
     src/app/RetainedRingMatcher.h src/app/RetainedRingMatcher.cpp
     src/app/PeripheralNumbering.h src/app/PeripheralNumbering.cpp
     src/app/FusionGraphContext.h src/app/FusionGraphContext.cpp
+    src/app/FusedSystemTopology.h src/app/FusedSystemTopology.cpp
     src/app/NameAssembly.h src/app/NameAssembly.cpp
     src/app/retained/HydrocarbonFamily.h src/app/retained/HydrocarbonFamily.cpp
     src/app/retained/QuinolineFamily.h src/app/retained/QuinolineFamily.cpp
@@ -329,6 +330,19 @@ else()
     target_link_libraries(fused_ring_direction_detector_test PRIVATE ${INDIGO_LIB_DIR}/indigo.dll)
 endif()
 add_test(NAME fused_ring_direction_detector_test COMMAND fused_ring_direction_detector_test)
+
+qt_add_executable(fused_system_topology_test tests/fused_system_topology_test.cpp src/app/FusedSystemTopology.h src/app/FusedSystemTopology.cpp)
+target_include_directories(fused_system_topology_test PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app
+    ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo
+)
+if (MSVC)
+    target_link_libraries(fused_system_topology_test PRIVATE Qt6::Core ${INDIGO_LIB_DIR}/indigo.lib)
+else()
+    target_link_libraries(fused_system_topology_test PRIVATE ${INDIGO_LIB_DIR}/indigo.dll)
+endif()
+add_test(NAME fused_system_topology_test COMMAND fused_system_topology_test)
 
 qt_add_executable(naming_validation_test tests/naming_validation_test.cpp src/app/NamingValidation.h src/app/NamingValidation.cpp src/app/FusedRingOrientation.h src/app/FusedRingOrientation.cpp src/app/NamingTypes.h)
 target_include_directories(naming_validation_test PRIVATE
