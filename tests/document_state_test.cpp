@@ -4557,7 +4557,48 @@ static void test_historyStaysConsistentAcrossDeleteAndRedo() {
     }
 }
 
+static void test_redoOfTemplateInsertKeepsIdsOnTheSameAtoms() {
+    std::printf("--- Test: redoing a structure insert hands each id back to the atom that had it ---\n");
+    // A two-atom O-C molfile: O is source atom 0, C is source atom 1.
+    const QString mf = QStringLiteral(
+        "\n  test\n\n  2  1  0  0  0  0  0  0  0  0999 V2000\n"
+        "    0.0000    0.0000    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0\n"
+        "    1.5000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n"
+        "  1  2  1  0\nM  END\n");
+    auto idOf = [](DocumentState& doc, const char* sym) {
+        for (AtomId id : doc.molecule().atomIds())
+            if (doc.molecule().atomSymbol(id) == QLatin1String(sym)) return id;
+        return AtomId(-1);
+    };
+    // Variants differ in how many index slots earlier edits freed before the insert, because
+    // indigo fills freed slots in an order of its own.
+    for (int gaps = 0; gaps <= 3; ++gaps) {
+        for (int reuseOrder = 0; reuseOrder < 2; ++reuseOrder) {
+            DocumentState doc;
+            QList<AtomId> filler;
+            for (int i = 0; i < gaps; ++i) filler.append(doc.addAtom(QStringLiteral("N"), 10 + i, 10));
+            // free the slots in ascending or descending order
+            if (reuseOrder == 0) { for (AtomId f : filler) doc.molecule().removeAtom(f); }
+            else { for (int i = filler.size() - 1; i >= 0; --i) doc.molecule().removeAtom(filler[i]); }
+            doc.insertStructureAt(mf, 0, 0);
+            const AtomId o = idOf(doc, "O"), c = idOf(doc, "C");
+            const QString tag = QStringLiteral(" (gaps=%1, order=%2)").arg(gaps).arg(reuseOrder);
+            CHECK(o >= 0 && c >= 0, qPrintable(QStringLiteral("insert created O and C") + tag));
+            doc.changeAtomCharge(o, -1);
+            doc.undo();
+            doc.undo();
+            doc.redo();
+            doc.redo();
+            CHECK(doc.molecule().atomSymbol(o) == QLatin1String("O") && doc.molecule().atomCharge(o) == -1,
+                  qPrintable(QStringLiteral("the oxygen id still names the charged oxygen after redo") + tag));
+            CHECK(doc.molecule().atomSymbol(c) == QLatin1String("C") && doc.molecule().atomCharge(c) == 0,
+                  qPrintable(QStringLiteral("the carbon id still names the uncharged carbon after redo") + tag));
+        }
+    }
+}
+
 int main() {
+    test_redoOfTemplateInsertKeepsIdsOnTheSameAtoms();
     test_historyStaysConsistentAcrossDeleteAndRedo();
     test_applyDrawingStyleWithRescaleRejectsNonPositiveBondLength();
     test_singleEntityDeleteRedoAfterUndo();

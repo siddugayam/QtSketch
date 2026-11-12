@@ -3,6 +3,7 @@
 #include "MoleculeSnapshot.h"
 #include "indigo.h"
 #include <algorithm>
+#include <limits>
 #include <utility>
 #include <cmath>
 #include <QSet>
@@ -1335,7 +1336,15 @@ EditableMolecule::InsertResult EditableMolecule::insertStructure(const QString& 
     // does not alter atom coordinates, every new destination atom's xyz is an exact match (same
     // float bits) for exactly one clone atom's recorded transformed position -- a reliable,
     // order-independent way to recover the true source index.
-    QList<AtomId> newAtomIds;
+    //
+    // The ids themselves are then handed out in SOURCE order, not in the destination order the
+    // atoms were found in. When this call is re-run (redo), the destination order can differ from
+    // the first run, and every later history step addresses these atoms by the ids of the first
+    // run. Handing out ids by source order makes "source atom k gets the k-th new id" hold on
+    // every run, so the same ids name the same atoms each time.
+    constexpr int kUnmatched = std::numeric_limits<int>::max();
+    struct NewAtom { int destIdx; int sourceIdx; };
+    QList<NewAtom> newAtoms;
     {
         int it = indigoIterateAtoms(m_mol);
         if (it >= 0) {
@@ -1343,11 +1352,6 @@ EditableMolecule::InsertResult EditableMolecule::insertStructure(const QString& 
             while ((a = indigoNext(it)) > 0) {
                 int idx = indigoIndex(a);
                 if (!atomIdxBefore.contains(idx)) {
-                    AtomId id = m_nextAtomId++;
-                    m_atomIdx.insert(id, idx);
-                    m_idxToAtom.insert(idx, id);
-                    newAtomIds.append(id);
-
                     int sourceIdx = -1;
                     float* xyz = indigoXYZ(a);
                     if (xyz) {
@@ -1360,52 +1364,106 @@ EditableMolecule::InsertResult EditableMolecule::insertStructure(const QString& 
                             }
                         }
                     }
-                    if (sourceIdx >= 0) result.sourceIndexToNewAtomId.insert(sourceIdx, id);
+                    newAtoms.append({ idx, sourceIdx });
                 }
                 indigoFree(a);
             }
             indigoFree(it);
         }
     }
+    std::stable_sort(newAtoms.begin(), newAtoms.end(), [kUnmatched](const NewAtom& l, const NewAtom& r) {
+        const int ls = l.sourceIdx >= 0 ? l.sourceIdx : kUnmatched;
+        const int rs = r.sourceIdx >= 0 ? r.sourceIdx : kUnmatched;
+        return ls != rs ? ls < rs : l.destIdx < r.destIdx;
+    });
+    QHash<int, int> sourceIdxByDestIdx;
+    QList<AtomId> newAtomIds;
+    for (const NewAtom& na : newAtoms) {
+        AtomId id = m_nextAtomId++;
+        m_atomIdx.insert(id, na.destIdx);
+        m_idxToAtom.insert(na.destIdx, id);
+        newAtomIds.append(id);
+        if (na.sourceIdx >= 0) {
+            result.sourceIndexToNewAtomId.insert(na.sourceIdx, id);
+            sourceIdxByDestIdx.insert(na.destIdx, na.sourceIdx);
+        }
+    }
     result.createdAtoms = newAtomIds;
 
-    // New bonds: same idea, using m_nextBondId.
+    // New bonds: same idea, using m_nextBondId, ordered by the source atoms at their ends so a
+    // re-run hands the same bond id to the same bond.
     {
+        struct NewBond { int destIdx; int lo; int hi; };
+        QList<NewBond> newBonds;
         int it = indigoIterateBonds(m_mol);
         if (it >= 0) {
             int b;
             while ((b = indigoNext(it)) > 0) {
                 int idx = indigoIndex(b);
                 if (!bondIdxBefore.contains(idx)) {
-                    BondId id = m_nextBondId++;
-                    m_bondIdx.insert(id, idx);
-                    m_idxToBond.insert(idx, id);
-                    result.createdBonds.append(id);
+                    int ends[2] = { kUnmatched, kUnmatched };
+                    int src = indigoSource(b), dst = indigoDestination(b);
+                    if (src >= 0) { ends[0] = sourceIdxByDestIdx.value(indigoIndex(src), kUnmatched); indigoFree(src); }
+                    if (dst >= 0) { ends[1] = sourceIdxByDestIdx.value(indigoIndex(dst), kUnmatched); indigoFree(dst); }
+                    newBonds.append({ idx, std::min(ends[0], ends[1]), std::max(ends[0], ends[1]) });
                 }
                 indigoFree(b);
             }
             indigoFree(it);
         }
+        std::stable_sort(newBonds.begin(), newBonds.end(), [](const NewBond& l, const NewBond& r) {
+            if (l.lo != r.lo) return l.lo < r.lo;
+            if (l.hi != r.hi) return l.hi < r.hi;
+            return l.destIdx < r.destIdx;
+        });
+        for (const NewBond& nb : newBonds) {
+            BondId id = m_nextBondId++;
+            m_bondIdx.insert(id, nb.destIdx);
+            m_idxToBond.insert(nb.destIdx, id);
+            result.createdBonds.append(id);
+        }
     }
 
     // New sgroups: any superatom index not present before the merge. Assign
     // each a fresh stable SGroupId, defaulting expanded=true (chem-core's own
-    // default for sg.data.expanded). Uses indigoIterateSuperatoms, NOT an
-    // indigoCountSuperatoms-bounded indigoGetSuperatom(mol, i) loop -- see the
-    // sgroupIdxBefore block above for why that pattern is broken.
-    int supIter = indigoIterateSuperatoms(m_mol);
-    if (supIter >= 0) {
-        int sup;
-        while ((sup = indigoNext(supIter)) > 0) {
-            int idx = indigoIndex(sup);
-            indigoFree(sup);
-            if (sgroupIdxBefore.contains(idx)) continue;
+    // default for sg.data.expanded), ordered by the lowest source atom among its members.
+    // Uses indigoIterateSuperatoms, NOT an indigoCountSuperatoms-bounded
+    // indigoGetSuperatom(mol, i) loop -- see the sgroupIdxBefore block above for why that
+    // pattern is broken.
+    {
+        struct NewSGroup { int destIdx; int firstSource; };
+        QList<NewSGroup> newSGroups;
+        int supIter = indigoIterateSuperatoms(m_mol);
+        if (supIter >= 0) {
+            int sup;
+            while ((sup = indigoNext(supIter)) > 0) {
+                int idx = indigoIndex(sup);
+                if (!sgroupIdxBefore.contains(idx)) {
+                    int first = kUnmatched;
+                    int aIter = indigoIterateAtoms(sup);
+                    if (aIter >= 0) {
+                        int a;
+                        while ((a = indigoNext(aIter)) > 0) {
+                            first = std::min(first, sourceIdxByDestIdx.value(indigoIndex(a), kUnmatched));
+                            indigoFree(a);
+                        }
+                        indigoFree(aIter);
+                    }
+                    newSGroups.append({ idx, first });
+                }
+                indigoFree(sup);
+            }
+            indigoFree(supIter);
+        }
+        std::stable_sort(newSGroups.begin(), newSGroups.end(), [](const NewSGroup& l, const NewSGroup& r) {
+            return l.firstSource != r.firstSource ? l.firstSource < r.firstSource : l.destIdx < r.destIdx;
+        });
+        for (const NewSGroup& ns : newSGroups) {
             SGroupId sgId = m_nextSGroupId++;
-            m_sgroupIdx.insert(sgId, idx);
+            m_sgroupIdx.insert(sgId, ns.destIdx);
             m_sgroupExpanded.insert(sgId, true);
             result.createdSGroups.append(sgId);
         }
-        indigoFree(supIter);
     }
 
     return result;
