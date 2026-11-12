@@ -71,8 +71,13 @@ private:
     // Helper to create a QFont with the requested family
     QFont createFont(const QString& family, int pointSize, bool bold = false) const;
 
-    // Helper to measure text with the appropriate font
+    // Text size in points.
     QSizeF measureText(const QString& text, bool bold = false) const;
+
+    // Draws upright text at a model point. offsetPt is in points, y down.
+    void drawLabel(QPainter* painter, const QFont& font, const QPointF& modelPos,
+                   const QString& text, Qt::Alignment align,
+                   const QPointF& offsetPt = QPointF()) const;
 
     // Helper for bond rendering
     QPointF computeDoubleBondOffset(const QPointF& start, const QPointF& end, double bondLength) const;

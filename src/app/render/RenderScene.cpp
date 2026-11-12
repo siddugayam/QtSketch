@@ -5,6 +5,7 @@
 #include <QFontDatabase>
 #include <QDebug>
 #include <QFile>
+#include <QImage>
 #include <cmath>
 #include "molecule/RenderPrimitives.h"
 
@@ -20,7 +21,6 @@ namespace {
     const double kBondLineWidth = 0.6;  // points
     
     // Atom rendering
-    const double kAtomLabelMargin = 0.6;
     const double kSgroupPillRadius = 0.8;
     const double kRGroupCircleRadius = 0.7;
     
@@ -115,9 +115,12 @@ bool RenderScene::build(const RenderPrimitives& prims,
         );
     }
     
-    // Set up font metrics
-    m_regularFontMetrics = QFontMetricsF(m_regularFont);
-    m_boldFontMetrics = QFontMetricsF(m_boldFont);
+    // Measure on a 72 dpi device so metrics are in points.
+    QImage pointDevice(1, 1, QImage::Format_ARGB32);
+    pointDevice.setDotsPerMeterX(qRound(kPtsPerInch / 0.0254));
+    pointDevice.setDotsPerMeterY(qRound(kPtsPerInch / 0.0254));
+    m_regularFontMetrics = QFontMetricsF(m_regularFont, &pointDevice);
+    m_boldFontMetrics = QFontMetricsF(m_boldFont, &pointDevice);
 
     // Expand bounds to cover every painted primitive, not just atom
     // positions -- an annotation, image, or bracket placed away from the
@@ -141,20 +144,35 @@ bool RenderScene::build(const RenderPrimitives& prims,
         includePoint(x1, y1);
     };
 
-    // NOTE: atom labels and TextPrim content are deliberately NOT measured
-    // into these bounds. measureText()/QFontMetricsF report sizes in font
-    // logical-pixel units, not model units -- unioning that directly into
-    // m_modelBounds (confirmed via direct debug measurement: it inflated a
-    // ~1.5x1.3 model-unit molecule's bounds to ~10.9x14.5) silently blows up
-    // every export far beyond the real geometry. Converting correctly would
-    // need the same points/pixels-per-model-unit factor the exporters now
-    // apply (modelToMmScale * device DPI), which isn't available at build()
-    // time (no target device yet) -- left as a known follow-up rather than
-    // risk a wrong conversion. Position-only primitives below (images,
-    // brackets, arrows) are safe: their coordinates are already in model
-    // units, same as atoms.
+    // Label boxes: points -> mm -> model units.
+    const double ptToModelUnits = (m_modelToMmScale > 0.0)
+        ? (kMmPerInch / kPtsPerInch) / m_modelToMmScale : 0.0;
+    auto includeBox = [&](double cx, double cy, const QSizeF& sizePt) {
+        const double hw = sizePt.width() * ptToModelUnits / 2.0;
+        const double hh = sizePt.height() * ptToModelUnits / 2.0;
+        includeRect(cx - hw, cy - hh, cx + hw, cy + hh);
+    };
+    for (const AtomPrim& atom : m_prims.atoms) {
+        if (atom.isSgroup) continue;
+        const double halfLabelPt = atom.label.isEmpty() ? 0.0 : measureText(atom.label).width() / 2;
+        if (!atom.label.isEmpty())
+            includeBox(atom.x, atom.y, measureText(atom.label));
+        // Charge and isotope, placed as in paintAtoms.
+        const double superY = atom.y + m_regularFontMetrics.ascent() / 2 * ptToModelUnits;
+        if (atom.charge != 0) {
+            const QSizeF sz = measureText(QString(std::abs(atom.charge), atom.charge > 0 ? '+' : '-'));
+            includeBox(atom.x + (halfLabelPt + sz.width() / 2) * ptToModelUnits, superY, sz);
+        }
+        if (atom.isotope > 0) {
+            const QSizeF sz = measureText(QString::number(atom.isotope));
+            includeBox(atom.x - (halfLabelPt + sz.width() / 2) * ptToModelUnits, superY, sz);
+        }
+    }
+    for (const SgroupPrim& sg : m_prims.sgroups) {
+        includeBox(sg.x, sg.y, measureText(sg.label));
+    }
     for (const TextPrim& text : m_prims.texts) {
-        includePoint(text.x, text.y);
+        includeBox(text.x, text.y, measureText(text.content, text.bold) * 2.0);
     }
     for (const ImagePrim& img : m_prims.images) {
         includeRect(img.x, img.y, img.x + img.w, img.y + img.h);
@@ -165,6 +183,19 @@ bool RenderScene::build(const RenderPrimitives& prims,
     for (const RxnArrowPrim& arrow : m_prims.rxnArrows) {
         includePoint(arrow.p1x, arrow.p1y);
         includePoint(arrow.p2x, arrow.p2y);
+        // Arrowhead tip, drawn past p2, plus its outline.
+        const QPointF d(arrow.p2x - arrow.p1x, arrow.p2y - arrow.p1y);
+        const double len = std::hypot(d.x(), d.y());
+        const double tip = kArrowheadSize + kArrowLineWidth * ptToModelUnits;
+        if (len > 1e-9)
+            includePoint(arrow.p2x + d.x() / len * tip, arrow.p2y + d.y() / len * tip);
+        // Conditions text above and below the midpoint (2 pt gap each side).
+        if (arrow.conditionsAbove.isEmpty() && arrow.conditionsBelow.isEmpty()) continue;
+        const QSizeF above = measureText(arrow.conditionsAbove);
+        const QSizeF below = measureText(arrow.conditionsBelow);
+        const double textH = std::max(above.height(), below.height()) + 2.0;
+        includeBox((arrow.p1x + arrow.p2x) / 2, (arrow.p1y + arrow.p2y) / 2,
+                   QSizeF(std::max(above.width(), below.width()), textH * 2));
     }
     for (const RxnPlusPrim& plus : m_prims.rxnPluses) {
         includePoint(plus.x, plus.y);
@@ -289,7 +320,6 @@ void RenderScene::paint(QPainter* painter) const {
 void RenderScene::paintAtoms(QPainter* painter, double ptToModel) const {
     if (m_prims.atoms.isEmpty()) return;
 
-    const double labelMargin = kAtomLabelMargin;
     const double lineWidth = m_drawingStyle.lineWidth * ptToModel;
     const bool monochrome = m_drawingStyle.monochrome;
     
@@ -323,21 +353,14 @@ void RenderScene::paintAtoms(QPainter* painter, double ptToModel) const {
                 // Keep regular font
             }
             // For chiral centers with implicit H, the label might be "CH" etc.
-            painter->setFont(font);
-            
-            // Get text size
-            QSizeF textSize = measureText(atom.label);
-            
-            // Position text (centered on atom position)
-            QPointF textPos = pos - QPointF(textSize.width() / 2, textSize.height() / 2);
-            
-            // Apply label offset for retraction
-            // This is simplified - full retraction logic is complex
-            // For now, just draw the label
-            painter->drawText(textPos, atom.label);
-            
+            drawLabel(painter, font, pos, atom.label, Qt::AlignHCenter | Qt::AlignVCenter);
+
             painter->restore();
         }
+
+        // Charge and isotope sit at the label's upper corners.
+        const double halfLabelPt = atom.label.isEmpty() ? 0.0 : measureText(atom.label).width() / 2;
+        const double superPt = -m_regularFontMetrics.ascent() / 2;
         
         // Draw R-group circle for R-group atoms
         if (atom.isRGroup) {
@@ -363,9 +386,8 @@ void RenderScene::paintAtoms(QPainter* painter, double ptToModel) const {
             } else {
                 chargeStr = QString(-atom.charge, '-');
             }
-            painter->setFont(m_regularFont);
-            QSizeF chargeSize = measureText(chargeStr);
-            painter->drawText(pos + QPointF(labelMargin, -labelMargin), chargeStr);
+            drawLabel(painter, m_regularFont, pos, chargeStr, Qt::AlignLeft | Qt::AlignVCenter,
+                      QPointF(halfLabelPt, superPt));
             painter->restore();
         }
         
@@ -373,9 +395,8 @@ void RenderScene::paintAtoms(QPainter* painter, double ptToModel) const {
             // Draw isotope number
             painter->save();
             QString isoStr = QString::number(atom.isotope);
-            painter->setFont(m_regularFont);
-            QSizeF isoSize = measureText(isoStr);
-            painter->drawText(pos + QPointF(-labelMargin - isoSize.width(), -labelMargin), isoStr);
+            drawLabel(painter, m_regularFont, pos, isoStr, Qt::AlignRight | Qt::AlignVCenter,
+                      QPointF(-halfLabelPt, superPt));
             painter->restore();
         }
     }
@@ -391,15 +412,18 @@ void RenderScene::paintBonds(QPainter* painter, double ptToModel) const {
     for (const BondPrim& bond : m_prims.bonds) {
         // Get atom positions
         QPointF startPos, endPos;
+        QString startLabel, endLabel;
         bool startFound = false, endFound = false;
-        
+
         for (const AtomPrim& atom : m_prims.atoms) {
             if (atom.id == bond.begin) {
                 startPos = QPointF(atom.x, atom.y);
+                startLabel = atom.isSgroup ? QString() : atom.label;
                 startFound = true;
             }
             if (atom.id == bond.end) {
                 endPos = QPointF(atom.x, atom.y);
+                endLabel = atom.isSgroup ? QString() : atom.label;
                 endFound = true;
             }
         }
@@ -419,7 +443,25 @@ void RenderScene::paintBonds(QPainter* painter, double ptToModel) const {
         }
         
         if (!startFound || !endFound) continue;
-        
+
+        // Stop the bond at the edge of a label box so it does not cross the text.
+        // Returns the fraction of the bond hidden under the label.
+        const QPointF d = endPos - startPos;
+        auto hidden = [&](const QString& label) {
+            if (label.isEmpty()) return 0.0;
+            const double padPt = 1.0;
+            const double hw = (measureText(label).width() / 2 + padPt) * ptToModel;
+            const double hh = (m_regularFontMetrics.ascent() / 2 + padPt) * ptToModel;
+            const double tx = std::abs(d.x()) > 1e-9 ? hw / std::abs(d.x()) : 1e9;
+            const double ty = std::abs(d.y()) > 1e-9 ? hh / std::abs(d.y()) : 1e9;
+            return std::min(tx, ty);
+        };
+        const double t0 = hidden(startLabel);
+        const double t1 = hidden(endLabel);
+        if (t0 + t1 >= 1.0) continue;
+        endPos = startPos + d * (1.0 - t1);
+        startPos = startPos + d * t0;
+
         painter->save();
 
         // Determine bond color
@@ -535,7 +577,7 @@ void RenderScene::paintSGroups(QPainter* painter, double ptToModel) const {
         painter->setPen(Qt::NoPen);
         
         // Calculate pill size based on label
-        QSizeF labelSize = measureText(sg.label);
+        QSizeF labelSize = measureText(sg.label) * ptToModel;
         const double pillWidth = labelSize.width() + kSgroupPillRadius * 2;
         const double pillHeight = std::max(labelSize.height(), kSgroupPillRadius * 2);
         
@@ -551,12 +593,8 @@ void RenderScene::paintSGroups(QPainter* painter, double ptToModel) const {
         
         // Draw label
         painter->setPen(QPen(textColor, 0.5 * ptToModel));
-        painter->setFont(m_regularFont);
-        painter->drawText(
-            pillRect.left() + (pillWidth - labelSize.width()) / 2,
-            pillRect.top() + (pillHeight + labelSize.height()) / 2 - m_regularFontMetrics.descent(),
-            sg.label
-        );
+        drawLabel(painter, m_regularFont, QPointF(sg.x, sg.y), sg.label,
+                  Qt::AlignHCenter | Qt::AlignVCenter);
         
         painter->restore();
     }
@@ -572,12 +610,9 @@ void RenderScene::paintTexts(QPainter* painter) const {
         if (text.italic) {
             font.setItalic(true);
         }
-        painter->setFont(font);
-        
-        QSizeF textSize = measureText(text.content, text.bold);
-        
         painter->setPen(Qt::black);
-        painter->drawText(QPointF(text.x, text.y) - QPointF(textSize.width() / 2, 0), text.content);
+        drawLabel(painter, font, QPointF(text.x, text.y), text.content,
+                  Qt::AlignHCenter | Qt::AlignBaseline);
         
         painter->restore();
     }
@@ -622,22 +657,16 @@ void RenderScene::paintRxnArrows(QPainter* painter, double ptToModel) const {
             drawArrowhead(painter, p2, p1, arrowheadSize);
         }
         
-        // Draw conditions text
+        // Conditions sit above and below the middle of the arrow.
+        const QPointF mid = (p1 + p2) / 2;
+        const double gapPt = 2.0;
         if (!arrow.conditionsAbove.isEmpty()) {
-            painter->setFont(m_regularFont);
-            QSizeF aboveSize = measureText(arrow.conditionsAbove);
-            painter->drawText(
-                p2 + QPointF(0, -arrowheadSize - aboveSize.height()),
-                arrow.conditionsAbove
-            );
+            drawLabel(painter, m_regularFont, mid, arrow.conditionsAbove,
+                      Qt::AlignHCenter | Qt::AlignBottom, QPointF(0, -gapPt));
         }
         if (!arrow.conditionsBelow.isEmpty()) {
-            painter->setFont(m_regularFont);
-            QSizeF belowSize = measureText(arrow.conditionsBelow);
-            painter->drawText(
-                p2 + QPointF(0, arrowheadSize + m_regularFontMetrics.height()),
-                arrow.conditionsBelow
-            );
+            drawLabel(painter, m_regularFont, mid, arrow.conditionsBelow,
+                      Qt::AlignHCenter | Qt::AlignTop, QPointF(0, gapPt));
         }
         
         painter->restore();
@@ -720,48 +749,28 @@ void RenderScene::paintRGroups(QPainter* painter) const {
     if (m_prims.rgroups.isEmpty()) return;
     
     for (const RGroupPrim& rg : m_prims.rgroups) {
-        // Draw bracket around each member fragment
+        // Brackets are drawn in paintBrackets; here only the label's anchor is needed.
+        double minX = std::numeric_limits<double>::max();
+        double maxY = -std::numeric_limits<double>::max();
         for (const RGroupMemberPrim& member : rg.members) {
-            QRectF bracket;
-            // Calculate bracket from atom positions
-            double minX = std::numeric_limits<double>::max();
-            double minY = std::numeric_limits<double>::max();
-            double maxX = -std::numeric_limits<double>::max();
-            double maxY = -std::numeric_limits<double>::max();
-            
             for (AtomId atomId : member.atomIds) {
                 for (const AtomPrim& atom : m_prims.atoms) {
                     if (atom.id == atomId) {
-                        if (atom.x < minX) minX = atom.x;
-                        if (atom.x > maxX) maxX = atom.x;
-                        if (atom.y < minY) minY = atom.y;
-                        if (atom.y > maxY) maxY = atom.y;
+                        minX = std::min(minX, atom.x);
+                        maxY = std::max(maxY, atom.y);
                     }
                 }
             }
-            
-            if (minX <= maxX && minY <= maxY) {
-                bracket = QRectF(minX, minY, maxX - minX, maxY - minY);
-            } else {
-                continue;
-            }
-            
-            // For now, skip bracket drawing as it's handled in paintBrackets
         }
-        
-        // Draw R-group label
-        if (!rg.range.isEmpty()) {
-            QString label = QStringLiteral("R") + QString::number(rg.number);
-            if (!rg.range.isEmpty()) {
-                label += QStringLiteral(" (") + rg.range + QStringLiteral(")");
-            }
-            
+
+        // Label goes above the top-left of the member atoms.
+        if (!rg.range.isEmpty() && minX != std::numeric_limits<double>::max()) {
+            QString label = QStringLiteral("R") + QString::number(rg.number)
+                          + QStringLiteral(" (") + rg.range + QStringLiteral(")");
             painter->save();
-            painter->setFont(m_regularFont);
-            QSizeF labelSize = measureText(label);
-            
-            // Position label near the bracket
-            painter->drawText(0, 0, label);  // Simplified positioning
+            painter->setPen(Qt::black);
+            drawLabel(painter, m_regularFont, QPointF(minX, maxY), label,
+                      Qt::AlignLeft | Qt::AlignBottom, QPointF(0, -m_regularFontMetrics.height()));
             painter->restore();
         }
     }
@@ -788,6 +797,30 @@ void RenderScene::drawArrowhead(QPainter* painter, const QPointF& tip, const QPo
     QPolygonF triangle;
     triangle << p1 << p2 << p3;
     painter->drawPolygon(triangle);
+}
+
+void RenderScene::drawLabel(QPainter* painter, const QFont& font, const QPointF& modelPos,
+                            const QString& text, Qt::Alignment align,
+                            const QPointF& offsetPt) const {
+    // Fonts are in points, so draw in device space instead of the scaled, y-flipped model space.
+    const double ptToDevice = painter->device()->logicalDpiY() / kPtsPerInch;
+    const QPointF anchor = painter->worldTransform().map(modelPos) + offsetPt * ptToDevice;
+    const QFontMetricsF fm(font, painter->device());
+
+    double x = anchor.x();
+    if (align & Qt::AlignHCenter) x -= fm.horizontalAdvance(text) / 2;
+    else if (align & Qt::AlignRight) x -= fm.horizontalAdvance(text);
+
+    double y = anchor.y();
+    if (align & Qt::AlignVCenter) y += (fm.ascent() - fm.descent()) / 2;
+    else if (align & Qt::AlignTop) y += fm.ascent();
+    else if (align & Qt::AlignBottom) y -= fm.descent();
+
+    painter->save();
+    painter->resetTransform();
+    painter->setFont(font);
+    painter->drawText(QPointF(x, y), text);
+    painter->restore();
 }
 
 QSizeF RenderScene::measureText(const QString& text, bool bold) const {

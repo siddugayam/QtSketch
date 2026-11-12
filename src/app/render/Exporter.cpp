@@ -35,9 +35,7 @@ bool PdfExporter::exportToFile(const RenderScene& scene, const QString& filePath
     const double marginMm = 10.0;
     
     QSizeF pageSizeMm = m_pageSizeMm;
-    // m_pageSizeMm may arrive in either orientation; turn it only when it disagrees with
-    // the requested one (the old `if (!m_landscape) transpose()` turned a portrait A4
-    // request into a landscape page).
+    // m_pageSizeMm can be in either orientation
     if (m_landscape != (pageSizeMm.width() > pageSizeMm.height())) {
         pageSizeMm.transpose();
     }
@@ -92,10 +90,7 @@ bool PdfExporter::exportToFile(const RenderScene& scene, const QString& filePath
     
     painter.save();
     
-    // Translate to center. The scale below flips Y, so the scene's largest model y (the
-    // rect's bottom()) is the edge that lands at the top of the centred box: device y =
-    // ty - y, hence ty = topMargin + bottom(). Anchoring on top() instead is only right
-    // for a scene whose y range is symmetric about 0.
+    // Translate to center. Y is flipped below, so bottom() lands at the top.
     painter.translate(
         (writer.width() - sceneBoundsMm.width() * mmToPoints) / 2 - sceneBoundsMm.left() * mmToPoints,
         (writer.height() - sceneBoundsMm.height() * mmToPoints) / 2 + sceneBoundsMm.bottom() * mmToPoints
@@ -182,10 +177,7 @@ bool SvgExporter::exportToFile(const RenderScene& scene, const QString& filePath
     );
     generator.setSize(sizePt);
     
-    // The painter transform below already maps the scene's bounds onto
-    // (0,0)-(width,height) in device units, so the viewBox must start at the origin.
-    // Offsetting it by the scene's own position shifted the visible window away from
-    // the drawing for any scene not touching the model origin.
+    // the painter maps the scene to (0,0)-(width,height)
     generator.setViewBox(QRectF(
         0, 0,
         sceneBoundsMm.width() * mmToPoints,
@@ -298,6 +290,9 @@ bool PngExporter::exportToFile(const RenderScene& scene, const QString& filePath
     // Create image
     QImage image(imageSize, QImage::Format_ARGB32);
     image.fill(m_backgroundColor);
+    // Point sizes (fonts, pen widths) scale by the image's DPI, which defaults to 96.
+    image.setDotsPerMeterX(qRound(m_dpi / 0.0254));
+    image.setDotsPerMeterY(qRound(m_dpi / 0.0254));
     
     // Create painter
     QPainter painter(&image);
@@ -317,11 +312,7 @@ bool PngExporter::exportToFile(const RenderScene& scene, const QString& filePath
     painter.setRenderHint(QPainter::TextAntialiasing);
     painter.setRenderHint(QPainter::Antialiasing);
     
-    // Scale (with the Y flip) first, then shift in model units so the scene's left edge
-    // lands on pixel column 0 and its largest model y on pixel row 0 -- the same order
-    // SvgExporter uses. The previous device-space translate (-left, -top + height) only
-    // lined up for a scene whose smallest y is exactly 0; anything else was drawn partly
-    // or wholly outside the image.
+    // Scale with the Y flip, then shift so the scene's left/top edge is at pixel 0.
     // scene.paint() works in raw model units -- the full chain to pixels is
     // modelUnit -> mm (modelToMmScale) -> pixels (dpi / 25.4). A bare
     // scale(1, -1) (Y-flip only, no actual magnification) was the most
