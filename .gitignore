@@ -84,3 +84,6 @@ Journal Templates/
 # for local reference only, no longer tracked/pushed. Same "on disk, not in history"
 # treatment as indigo/ and imago/ above.
 archive/js-engine/
+
+# macOS app and disk image made by packaging/macos
+/dist/

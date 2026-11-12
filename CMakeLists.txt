@@ -14,6 +14,42 @@ find_package(Qt6 6.6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Concu
 qt_standard_project_setup(REQUIRES 6.6)
 qt_policy(SET QTP0004 OLD)
 
+if (MSVC)
+    # Official EPAM MSVC build (indigo-libs-windows-x86_64, v1.43.0) — the vendored
+    # indigo/lib/indigo.dll is MinGW-built (Itanium-mangled exports) and cannot be
+    # linked directly by link.exe. indigo.lib/indigo-inchi.lib here are generated import
+    # libraries (dumpbin /exports -> .def -> lib.exe /def:), since EPAM's MSVC zip ships
+    # only DLLs.
+    set(INDIGO_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/indigo-libs-windows-x86_64/lib/windows-x86_64)
+    set(INDIGO_LIB ${INDIGO_LIB_DIR}/indigo.lib)
+    set(INDIGO_INCHI_LIB ${INDIGO_LIB_DIR}/indigo-inchi.lib)
+    set(INDIGO_RENDERER_LIB ${INDIGO_LIB_DIR}/indigo-renderer.lib)
+    set(INDIGO_RUNTIME_FILES
+        ${INDIGO_LIB_DIR}/indigo.dll
+        ${INDIGO_LIB_DIR}/indigo-inchi.dll
+        ${INDIGO_LIB_DIR}/indigo-renderer.dll
+        ${INDIGO_LIB_DIR}/msvcp140.dll
+        ${INDIGO_LIB_DIR}/vcruntime140.dll
+        ${INDIGO_LIB_DIR}/vcruntime140_1.dll
+    )
+elseif (APPLE)
+    # packaging/macos/fetch_indigo.sh fills indigo/ with the EPAM macOS libraries.
+    set(INDIGO_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/indigo/lib)
+    set(INDIGO_LIB ${INDIGO_LIB_DIR}/libindigo.dylib)
+    set(INDIGO_INCHI_LIB ${INDIGO_LIB_DIR}/libindigo-inchi.dylib)
+    set(INDIGO_RENDERER_LIB ${INDIGO_LIB_DIR}/libindigo-renderer.dylib)
+    set(CMAKE_BUILD_RPATH ${INDIGO_LIB_DIR})
+else()
+    set(INDIGO_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/indigo/lib)
+    set(IMAGO_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/imago/lib)
+    set(INDIGO_LIB ${INDIGO_LIB_DIR}/indigo.dll)
+    set(INDIGO_INCHI_LIB ${INDIGO_LIB_DIR}/indigo-inchi.dll)
+    set(INDIGO_RENDERER_LIB ${INDIGO_LIB_DIR}/indigo-renderer.dll)
+    set(IMAGO_LIB ${IMAGO_LIB_DIR}/imago.dll)
+    set(INDIGO_RUNTIME_FILES ${INDIGO_LIB} ${INDIGO_INCHI_LIB} ${INDIGO_RENDERER_LIB} ${IMAGO_LIB})
+endif()
+
+
 # Central naming source list: IupacNamer + its fused-ring geometry helpers
 set(IUPAC_NAMING_SOURCES
     src/app/IupacNamer.h src/app/IupacNamer.cpp
@@ -62,6 +98,19 @@ endif()
 # stderr no longer show in a terminal) -- run with a debugger attached, or
 # temporarily comment this back out, if console output is needed.
 set_target_properties(sketch PROPERTIES WIN32_EXECUTABLE TRUE)
+
+if (APPLE)
+    # Imago is not built for macOS, so image recognition reports an error there.
+    set_source_files_properties(src/app/ImagoService.cpp PROPERTIES HEADER_FILE_ONLY ON)
+    target_sources(sketch PRIVATE src/app/ImagoServiceStub.cpp)
+    set_target_properties(sketch PROPERTIES
+        MACOSX_BUNDLE TRUE
+        OUTPUT_NAME QtSketch
+        MACOSX_BUNDLE_BUNDLE_NAME QtSketch
+        MACOSX_BUNDLE_GUI_IDENTIFIER org.qtsketch.app
+        MACOSX_BUNDLE_SHORT_VERSION_STRING 0.1
+        MACOSX_BUNDLE_BUNDLE_VERSION 1)
+endif()
 
 qt_add_qml_module(sketch
     URI Sketch.App
@@ -211,34 +260,15 @@ target_include_directories(sketch PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/imago/include
 )
 
-if (MSVC)
-    # Official EPAM MSVC build (indigo-libs-windows-x86_64, v1.43.0) — the vendored
-    # indigo/lib/indigo.dll is MinGW-built (Itanium-mangled exports) and cannot be
-    # linked directly by link.exe. indigo.lib/indigo-inchi.lib here are generated import
-    # libraries (dumpbin /exports -> .def -> lib.exe /def:), since EPAM's MSVC zip ships
-    # only DLLs.
-    set(INDIGO_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/indigo-libs-windows-x86_64/lib/windows-x86_64)
-    target_link_libraries(sketch PRIVATE ${INDIGO_LIB_DIR}/indigo.lib ${INDIGO_LIB_DIR}/indigo-inchi.lib ${INDIGO_LIB_DIR}/indigo-renderer.lib)
-    set(INDIGO_RUNTIME_FILES
-        ${INDIGO_LIB_DIR}/indigo.dll
-        ${INDIGO_LIB_DIR}/indigo-inchi.dll
-        ${INDIGO_LIB_DIR}/indigo-renderer.dll
-        ${INDIGO_LIB_DIR}/msvcp140.dll
-        ${INDIGO_LIB_DIR}/vcruntime140.dll
-        ${INDIGO_LIB_DIR}/vcruntime140_1.dll
-    )
-else()
-    set(INDIGO_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/indigo/lib)
-    set(IMAGO_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/imago/lib)
-    target_link_libraries(sketch PRIVATE ${INDIGO_LIB_DIR}/indigo.dll ${INDIGO_LIB_DIR}/indigo-inchi.dll ${INDIGO_LIB_DIR}/indigo-renderer.dll ${IMAGO_LIB_DIR}/imago.dll)
-    set(INDIGO_RUNTIME_FILES ${INDIGO_LIB_DIR}/indigo.dll ${INDIGO_LIB_DIR}/indigo-inchi.dll ${INDIGO_LIB_DIR}/indigo-renderer.dll ${IMAGO_LIB_DIR}/imago.dll)
-endif()
+target_link_libraries(sketch PRIVATE ${INDIGO_LIB} ${INDIGO_INCHI_LIB} ${INDIGO_RENDERER_LIB} ${IMAGO_LIB})
 
-add_custom_command(TARGET sketch POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${INDIGO_RUNTIME_FILES}
-        $<TARGET_FILE_DIR:sketch>
-)
+if (INDIGO_RUNTIME_FILES)
+    add_custom_command(TARGET sketch POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${INDIGO_RUNTIME_FILES}
+            $<TARGET_FILE_DIR:sketch>
+    )
+endif()
 
 add_custom_command(TARGET sketch POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory
@@ -255,11 +285,7 @@ target_include_directories(iupac_namer_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo
     ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo-inchi
 )
-if (MSVC)
-    target_link_libraries(iupac_namer_test PRIVATE Qt6::Core ${INDIGO_LIB_DIR}/indigo.lib ${INDIGO_LIB_DIR}/indigo-inchi.lib)
-else()
-    target_link_libraries(iupac_namer_test PRIVATE ${INDIGO_LIB_DIR}/indigo.dll ${INDIGO_LIB_DIR}/indigo-inchi.dll)
-endif()
+target_link_libraries(iupac_namer_test PRIVATE Qt6::Core ${INDIGO_LIB} ${INDIGO_INCHI_LIB})
 
 enable_testing()
 add_test(NAME iupac_namer_test COMMAND iupac_namer_test)
@@ -274,11 +300,7 @@ target_include_directories(iupac_golden_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo
     ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo-inchi
 )
-if (MSVC)
-    target_link_libraries(iupac_golden_test PRIVATE Qt6::Core ${INDIGO_LIB_DIR}/indigo.lib ${INDIGO_LIB_DIR}/indigo-inchi.lib)
-else()
-    target_link_libraries(iupac_golden_test PRIVATE Qt6::Core ${INDIGO_LIB_DIR}/indigo.dll ${INDIGO_LIB_DIR}/indigo-inchi.dll)
-endif()
+target_link_libraries(iupac_golden_test PRIVATE Qt6::Core ${INDIGO_LIB} ${INDIGO_INCHI_LIB})
 add_test(NAME iupac_golden_test COMMAND iupac_golden_test)
 
 # Atom order randomization tool (Task A/B)
@@ -290,11 +312,7 @@ target_include_directories(randomize_atom_order PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo
     ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo-inchi
 )
-if (MSVC)
-    target_link_libraries(randomize_atom_order PRIVATE Qt6::Core ${INDIGO_LIB_DIR}/indigo.lib ${INDIGO_LIB_DIR}/indigo-inchi.lib)
-else()
-    target_link_libraries(randomize_atom_order PRIVATE Qt6::Core ${INDIGO_LIB_DIR}/indigo.dll ${INDIGO_LIB_DIR}/indigo-inchi.dll)
-endif()
+target_link_libraries(randomize_atom_order PRIVATE Qt6::Core ${INDIGO_LIB} ${INDIGO_INCHI_LIB})
 
 qt_add_executable(smiles_driver_v72 tools/iupac/smiles_driver.cpp ${IUPAC_NAMING_SOURCES} src/app/BondStereoPerception.h src/app/BondStereoPerception.cpp)
 target_include_directories(smiles_driver_v72 PRIVATE
@@ -303,11 +321,7 @@ target_include_directories(smiles_driver_v72 PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo
     ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo-inchi
 )
-if (MSVC)
-    target_link_libraries(smiles_driver_v72 PRIVATE Qt6::Core ${INDIGO_LIB_DIR}/indigo.lib ${INDIGO_LIB_DIR}/indigo-inchi.lib)
-else()
-    target_link_libraries(smiles_driver_v72 PRIVATE Qt6::Core ${INDIGO_LIB_DIR}/indigo.dll ${INDIGO_LIB_DIR}/indigo-inchi.dll)
-endif()
+target_link_libraries(smiles_driver_v72 PRIVATE Qt6::Core ${INDIGO_LIB} ${INDIGO_INCHI_LIB})
 
 qt_add_executable(fused_ring_orientation_test tests/fused_ring_orientation_test.cpp src/app/FusedRingOrientation.h src/app/FusedRingOrientation.cpp)
 target_include_directories(fused_ring_orientation_test PRIVATE
@@ -325,11 +339,7 @@ target_include_directories(fused_ring_direction_detector_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app
     ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo
 )
-if (MSVC)
-    target_link_libraries(fused_ring_direction_detector_test PRIVATE Qt6::Core ${INDIGO_LIB_DIR}/indigo.lib)
-else()
-    target_link_libraries(fused_ring_direction_detector_test PRIVATE ${INDIGO_LIB_DIR}/indigo.dll)
-endif()
+target_link_libraries(fused_ring_direction_detector_test PRIVATE Qt6::Core ${INDIGO_LIB})
 add_test(NAME fused_ring_direction_detector_test COMMAND fused_ring_direction_detector_test)
 
 qt_add_executable(fused_system_topology_test tests/fused_system_topology_test.cpp src/app/FusedSystemTopology.h src/app/FusedSystemTopology.cpp)
@@ -338,11 +348,7 @@ target_include_directories(fused_system_topology_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app
     ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo
 )
-if (MSVC)
-    target_link_libraries(fused_system_topology_test PRIVATE Qt6::Core ${INDIGO_LIB_DIR}/indigo.lib)
-else()
-    target_link_libraries(fused_system_topology_test PRIVATE ${INDIGO_LIB_DIR}/indigo.dll)
-endif()
+target_link_libraries(fused_system_topology_test PRIVATE Qt6::Core ${INDIGO_LIB})
 add_test(NAME fused_system_topology_test COMMAND fused_system_topology_test)
 
 qt_add_executable(naming_validation_test tests/naming_validation_test.cpp src/app/NamingValidation.h src/app/NamingValidation.cpp src/app/FusedRingOrientation.h src/app/FusedRingOrientation.cpp src/app/NamingTypes.h)
@@ -364,11 +370,7 @@ target_include_directories(retained_ring_registry_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo
     ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo-inchi
 )
-if (MSVC)
-    target_link_libraries(retained_ring_registry_test PRIVATE Qt6::Core ${INDIGO_LIB_DIR}/indigo.lib ${INDIGO_LIB_DIR}/indigo-inchi.lib)
-else()
-    target_link_libraries(retained_ring_registry_test PRIVATE Qt6::Core ${INDIGO_LIB_DIR}/indigo.dll ${INDIGO_LIB_DIR}/indigo-inchi.dll)
-endif()
+target_link_libraries(retained_ring_registry_test PRIVATE Qt6::Core ${INDIGO_LIB} ${INDIGO_INCHI_LIB})
 add_test(NAME retained_ring_registry_test COMMAND retained_ring_registry_test)
 
 qt_add_executable(retained_ring_matcher_test tests/retained_ring_matcher_test.cpp ${IUPAC_NAMING_SOURCES} src/app/BondStereoPerception.h src/app/BondStereoPerception.cpp)
@@ -378,11 +380,7 @@ target_include_directories(retained_ring_matcher_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo
     ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo-inchi
 )
-if (MSVC)
-    target_link_libraries(retained_ring_matcher_test PRIVATE Qt6::Core ${INDIGO_LIB_DIR}/indigo.lib ${INDIGO_LIB_DIR}/indigo-inchi.lib)
-else()
-    target_link_libraries(retained_ring_matcher_test PRIVATE Qt6::Core ${INDIGO_LIB_DIR}/indigo.dll ${INDIGO_LIB_DIR}/indigo-inchi.dll)
-endif()
+target_link_libraries(retained_ring_matcher_test PRIVATE Qt6::Core ${INDIGO_LIB} ${INDIGO_INCHI_LIB})
 add_test(NAME retained_ring_matcher_test COMMAND retained_ring_matcher_test)
 
 add_library(iupac_naming STATIC ${IUPAC_NAMING_SOURCES})
@@ -393,11 +391,7 @@ target_include_directories(iupac_naming PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo
     ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo-inchi
 )
-if (MSVC)
-    target_link_libraries(iupac_naming PUBLIC Qt6::Core molecule_model ${INDIGO_LIB_DIR}/indigo.lib ${INDIGO_LIB_DIR}/indigo-inchi.lib)
-else()
-    target_link_libraries(iupac_naming PUBLIC Qt6::Core molecule_model ${INDIGO_LIB_DIR}/indigo.dll ${INDIGO_LIB_DIR}/indigo-inchi.dll)
-endif()
+target_link_libraries(iupac_naming PUBLIC Qt6::Core molecule_model ${INDIGO_LIB} ${INDIGO_INCHI_LIB})
 target_compile_options(iupac_naming PRIVATE -O2)
 
 add_library(molecule_model STATIC
@@ -447,11 +441,7 @@ target_include_directories(molecule_model PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo
     ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo-renderer
 )
-if (MSVC)
-    target_link_libraries(molecule_model PUBLIC Qt6::Core Qt6::Gui Qt6::Svg Qt6::Concurrent ${INDIGO_LIB_DIR}/indigo.lib ${INDIGO_LIB_DIR}/indigo-renderer.lib)
-else()
-    target_link_libraries(molecule_model PUBLIC Qt6::Core Qt6::Gui Qt6::Svg Qt6::Concurrent ${INDIGO_LIB_DIR}/indigo.dll ${INDIGO_LIB_DIR}/indigo-renderer.dll)
-endif()
+target_link_libraries(molecule_model PUBLIC Qt6::Core Qt6::Gui Qt6::Svg Qt6::Concurrent ${INDIGO_LIB} ${INDIGO_RENDERER_LIB})
 
 # Fewer, larger TUs to compile (no optimization-level change, so this is a pure build-time
 # win with no effect on the test executables that link this library unoptimized).
