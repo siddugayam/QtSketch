@@ -4413,8 +4413,7 @@ static void test_selectSubstructureMatches() {
 
 static void test_singleEntityDeleteRedoAfterUndo() {
     std::printf("--- Test: delete -> undo -> redo removes the entity again (single-entity deletes) ---\n");
-    // undo recreates the entity under a fresh id, so redo must target that id, not the
-    // original one captured when the command was built.
+    // redo must target the id undo recreated
     {
         DocumentState doc;
         AtomId a = doc.addAtom(QStringLiteral("C"), 0, 0);
@@ -4570,8 +4569,7 @@ static void test_redoOfTemplateInsertKeepsIdsOnTheSameAtoms() {
             if (doc.molecule().atomSymbol(id) == QLatin1String(sym)) return id;
         return AtomId(-1);
     };
-    // Variants differ in how many index slots earlier edits freed before the insert, because
-    // indigo fills freed slots in an order of its own.
+    // Variants free a different number of slots first.
     for (int gaps = 0; gaps <= 3; ++gaps) {
         for (int reuseOrder = 0; reuseOrder < 2; ++reuseOrder) {
             DocumentState doc;

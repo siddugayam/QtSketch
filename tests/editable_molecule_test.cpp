@@ -1359,9 +1359,7 @@ static void test_bondIdsInIndigoOrder() {
 
 static void test_idsSurviveRemovalAfterIndexReuse() {
     std::printf("--- Test: ids stay bound to their own atom/bond when a removal follows an index reuse ---\n");
-    // Indigo keeps survivors' indices on removal and hands a freed index to the next
-    // add, so id order and index order diverge. A later removal must not re-pair ids
-    // with indices by sorted position.
+    // Indigo reuses freed indices, so id order and index order diverge.
     EditableMolecule mol;
     AtomId a1 = mol.addAtom(QStringLiteral("C"), 0, 0);
     AtomId a2 = mol.addAtom(QStringLiteral("N"), 1, 0);
@@ -1417,8 +1415,7 @@ static void test_restoreRebuildsReverseIndexMaps() {
 
 static void test_snapshotTakenWithIndexGapsRestoresCorrectly() {
     std::printf("--- Test: a snapshot taken after removals still maps every id to its own atom/bond ---\n");
-    // indigoClone renumbers atoms, bonds and superatoms 0..n-1, closing any gap a removal
-    // left. The id tables stored with the clone must follow that renumbering.
+    // indigoClone closes index gaps; the stored id tables must follow.
     EditableMolecule mol;
     AtomId c = mol.addAtom(QStringLiteral("C"), 0, 0);
     AtomId n = mol.addAtom(QStringLiteral("N"), 1, 0);
@@ -1461,9 +1458,7 @@ static void test_snapshotTakenWithIndexGapsRestoresCorrectly() {
 
 static void test_cipLabelsWithIndexGap() {
     std::printf("--- Test: CIP labels land on the right atom/bond when the molecule has an index gap ---\n");
-    // Both accessors compute CIP on a renumbered copy (an indigoClone, a KET round trip),
-    // whose atoms are numbered 0..n-1 with no gaps. Removing the leading [Na] leaves the
-    // live molecule's first index free, so live indices and copy indices differ by one.
+    // Removing the leading [Na] shifts live indices by one against the renumbered copy.
     {
         EditableMolecule m(QStringLiteral("[Na].F[C@H](Cl)Br"));
         QList<AtomId> ids = m.atomIds();
@@ -1489,8 +1484,7 @@ static void test_cipLabelsWithIndexGap() {
               "after the removal the double bond, and only it, is still E");
     }
     {
-        // Two fragments whose atoms interleave in index order. Indigo's KET output writes
-        // each fragment as its own molecule with atom numbers local to that fragment.
+        // Two fragments with interleaved atom indices.
         EditableMolecule m;
         AtomId c1 = m.addAtom(QStringLiteral("C"), 0.0, 0.0);
         AtomId x1 = m.addAtom(QStringLiteral("Cl"), 10.0, 10.0);

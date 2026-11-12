@@ -7,9 +7,8 @@
 #include <QString>
 #include <algorithm>
 
-// Indigo's JSON saver gives each disconnected component its own "mol0"/"mol1"/... node
-// with LOCAL atom indices. The node-local numbers are translated back to `mol`'s own
-// atom indices below, so the result is valid for multi-component molecules too.
+// KET writes one molN node per component, with atom numbers local to it.
+// They are mapped back to mol's own indices below.
 std::map<std::pair<int,int>, QChar> computeIndigoBondCIP(int mol) {
     std::map<std::pair<int,int>, QChar> result;
     // Assumes this runs in a dedicated/throwaway Indigo session (matching
@@ -21,13 +20,6 @@ std::map<std::pair<int,int>, QChar> computeIndigoBondCIP(int mol) {
     if (!ketStr) return result;
     QJsonDocument ketDoc = QJsonDocument::fromJson(QByteArray(ketStr));
     QJsonObject ketRoot = ketDoc.object();
-    // The KET writer emits one "molN" node per connected component, and the atom numbers
-    // inside each node are LOCAL to that component (0..k-1, in the component's own atom
-    // order). The map returned here is keyed by the atom indices of `mol` itself, so each
-    // local number has to be translated back through the component's atom list. Taking the
-    // local numbers as they are was only right for a single-fragment molecule; with two or
-    // more fragments (a salt, a reaction, two structures on one canvas) every label after
-    // the first fragment landed on an unrelated atom pair or was lost.
     QHash<int, QList<int>> componentAtoms;   // component index -> its atoms' indices in `mol`, ascending
     {
         int iter = indigoIterateAtoms(mol);
@@ -48,8 +40,7 @@ std::map<std::pair<int,int>, QChar> computeIndigoBondCIP(int mol) {
         QJsonObject molObj = ketRoot.value(ref).toObject();
         if (molObj.value("type").toString() != "molecule") continue;
         const QList<int> atomsOfThisNode = componentAtoms.value(moleculeOrdinal++);
-        // Guard against a writer that splits differently: only trust the translation when
-        // the node holds exactly this component's atoms.
+        // skip a node that doesn't hold exactly this component's atoms
         if (molObj.value("atoms").toArray().size() != atomsOfThisNode.size()) continue;
         const QJsonArray bonds = molObj.value("bonds").toArray();
         for (const QJsonValue &bondVal : bonds) {

@@ -153,11 +153,8 @@ void DocumentState::executeCommand(EditCommand cmd) {
     if (m_historyPointer + 1 < static_cast<int>(m_history.size())) {
         m_history.resize(m_historyPointer + 1);
     }
-    // Ids are handed out from monotonic counters, so a plain re-run of execute() on redo
-    // would give every entity it creates a NEW id, and each later history step (which
-    // captured the first run's ids) would then silently miss. Rewind the counters to where
-    // they stood before the first run for the duration of the re-run: undo has by then
-    // removed everything created at or after that point, so the same ids come out again.
+    // Rewind the id counters for the re-run so redo hands out the same ids
+    // the later history steps refer to.
     {
         const EditableMolecule::IdCounters before = m_molecule.idCounters();
         std::function<void()> run = std::move(cmd.execute);
@@ -303,9 +300,7 @@ void DocumentState::setDrawingStyle(const DrawingStyle& style) {
 }
 
 void DocumentState::applyDrawingStyleWithRescale(const DrawingStyle& style) {
-    // The rescale factor is new/old bond length and its inverse is what undo applies: a
-    // zero or negative length would collapse every atom onto the centroid and leave a
-    // zero divisor behind for the next call. Reject it outright.
+    // undo divides by this
     if (!(style.bondLength > 0.0) || !(m_drawingStyle.bondLength > 0.0)) return;
 
     // Check if bond length is changing
@@ -737,10 +732,7 @@ void DocumentState::deleteAtom(AtomId id) {
     EditableMolecule& mol = m_molecule;
     if (!mol.atomIds().contains(id)) return;
 
-    // Undo restores a snapshot rather than re-adding the atom: the atom and its bonds come
-    // back under their ORIGINAL ids (so the history steps recorded before this one still
-    // address them) and with everything they carried -- charge, isotope, radical, valence,
-    // mapping, bond stereo -- not just symbol, position and bond order.
+    // Undo restores a snapshot, so the atom and its bonds keep their ids and properties.
     auto before = std::make_shared<MoleculeSnapshot>(mol.snapshot());
     EditCommand cmd;
     cmd.execute = [&mol, id]() { mol.removeAtom(id); };
@@ -807,9 +799,7 @@ void DocumentState::deleteSelectionEntities() {
     const QList<RxnPlusId> plusesToRemove(m_selection.rxnPluses.begin(), m_selection.rxnPluses.end());
     const QList<MultitailArrowId> mtasToRemove(m_selection.multitailArrows.begin(), m_selection.multitailArrows.end());
 
-    // Undo restores a snapshot (see deleteAtom): every atom, bond, sgroup, arrow and plus
-    // comes back under its original id with all of its properties, so neither the history
-    // steps before this one nor a later redo of this one lose track of them.
+    // Undo restores a snapshot, as in deleteAtom.
     auto before = std::make_shared<MoleculeSnapshot>(mol.snapshot());
 
     EditCommand cmd;

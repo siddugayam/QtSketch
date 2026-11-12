@@ -404,10 +404,7 @@ public:
     // API applied to a double bond's own atoms -- this accessor is atom-only, matching Indigo's
     // own "does not represent an atom" rejection of a bond handle.
     int atomCipDescriptor(AtomId id) const;
-    // Same descriptor for every atom from ONE CIP computation. Callers that need more than
-    // one atom's value (the render-primitive builder asks for all of them on every refresh)
-    // must use this: the per-atom accessor above re-runs the whole-molecule CIP calculation
-    // on each call.
+    // All atoms from one CIP run. Use this rather than the per-atom accessor in a loop.
     QHash<AtomId, int> allAtomCipDescriptors() const;
     QMap<BondId, QString> allBondCipLabels() const;
 
@@ -417,11 +414,8 @@ public:
     MoleculeSnapshot snapshot() const;
     bool restore(const MoleculeSnapshot&);
 
-    // The "next id to hand out" value of every id family. DocumentState rewinds these
-    // before re-running a command on redo, so the command hands out the same ids it did
-    // the first time and the history steps recorded after it still address its entities.
-    // Not for general use: lowering a counter is only safe when nothing alive holds an id
-    // at or above it, which is exactly the state undo leaves behind.
+    // Next-id counters. DocumentState rewinds them on redo; only safe when no
+    // live entity holds an id at or above the value.
     struct IdCounters {
         AtomId atom; BondId bond; SGroupId sgroup; TextId text; RxnArrowId rxnArrow;
         RxnPlusId rxnPlus; MultitailArrowId multitailArrow; ImageId image;

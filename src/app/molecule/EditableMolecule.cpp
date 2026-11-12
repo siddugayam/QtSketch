@@ -863,10 +863,8 @@ QList<BondId> EditableMolecule::bondIds() const {
 
 void EditableMolecule::rebuildIndexTables() {
     activateSession();
-    // Pair survivors with Indigo's live indices by their PREVIOUS index order, not by id
-    // order: Indigo hands a freed index to the next add, so a newer id can sit on a lower
-    // index than an older one, and pairing sorted ids with sorted indices would then swap
-    // which atom/bond each id addresses.
+    // Pair by previous index order, not id order: Indigo reuses freed indices,
+    // so a newer id can sit on a lower index.
     QList<AtomId> aIds = m_atomIdx.keys();
     std::sort(aIds.begin(), aIds.end(), [this](AtomId l, AtomId r) { return m_atomIdx.value(l) < m_atomIdx.value(r); });
     QList<int> aIdx;
@@ -1083,14 +1081,8 @@ MoleculeSnapshot EditableMolecule::snapshot() const {
     s.m_clone = indigoClone(m_mol);
     s.m_session = m_session;
     s.m_ext = m_ext;
-    // indigoClone renumbers atoms, bonds and sgroups, closing every gap a removal left
-    // behind while keeping their order (confirmed by direct probe); the live molecule
-    // keeps its gaps. The tables stored with the clone must therefore hold each entity's
-    // index IN THE CLONE -- copying the live tables verbatim made every id past the first
-    // gap resolve to the wrong entity (or to none) after restore(). Walk the live molecule
-    // and the clone side by side and pair the k-th item of one with the k-th of the other;
-    // reading the clone's own indices keeps this right for superatoms too, whose index is
-    // shared with every other sgroup type.
+    // indigoClone renumbers without gaps, so store each entity's index in the clone.
+    // Walk the live molecule and the clone in step to pair them.
     auto liveToClone = [](int liveIter, int cloneIter) {
         QHash<int, int> map;
         int a = 0, b = 0;
@@ -1133,8 +1125,7 @@ bool EditableMolecule::restore(const MoleculeSnapshot& snap) {
     m_ext = snap.m_ext;
     m_atomIdx = snap.m_atomIdx;
     m_bondIdx = snap.m_bondIdx;
-    // The index->id maps are derived state and are not stored in the snapshot; rebuild
-    // them, or ringMembership() keeps resolving through the pre-restore layout.
+    // index->id maps are not in the snapshot; rebuild them
     m_idxToAtom.clear();
     for (auto it = m_atomIdx.constBegin(); it != m_atomIdx.constEnd(); ++it) m_idxToAtom.insert(it.value(), it.key());
     m_idxToBond.clear();
@@ -1337,11 +1328,7 @@ EditableMolecule::InsertResult EditableMolecule::insertStructure(const QString& 
     // float bits) for exactly one clone atom's recorded transformed position -- a reliable,
     // order-independent way to recover the true source index.
     //
-    // The ids themselves are then handed out in SOURCE order, not in the destination order the
-    // atoms were found in. When this call is re-run (redo), the destination order can differ from
-    // the first run, and every later history step addresses these atoms by the ids of the first
-    // run. Handing out ids by source order makes "source atom k gets the k-th new id" hold on
-    // every run, so the same ids name the same atoms each time.
+    // Ids are handed out in source order so a redo gives the same atoms the same ids.
     constexpr int kUnmatched = std::numeric_limits<int>::max();
     struct NewAtom { int destIdx; int sourceIdx; };
     QList<NewAtom> newAtoms;
@@ -1390,8 +1377,7 @@ EditableMolecule::InsertResult EditableMolecule::insertStructure(const QString& 
     }
     result.createdAtoms = newAtomIds;
 
-    // New bonds: same idea, using m_nextBondId, ordered by the source atoms at their ends so a
-    // re-run hands the same bond id to the same bond.
+    // New bonds: same, ordered by their source end atoms.
     {
         struct NewBond { int destIdx; int lo; int hi; };
         QList<NewBond> newBonds;
@@ -1426,10 +1412,10 @@ EditableMolecule::InsertResult EditableMolecule::insertStructure(const QString& 
 
     // New sgroups: any superatom index not present before the merge. Assign
     // each a fresh stable SGroupId, defaulting expanded=true (chem-core's own
-    // default for sg.data.expanded), ordered by the lowest source atom among its members.
-    // Uses indigoIterateSuperatoms, NOT an indigoCountSuperatoms-bounded
-    // indigoGetSuperatom(mol, i) loop -- see the sgroupIdxBefore block above for why that
-    // pattern is broken.
+    // default for sg.data.expanded). Uses indigoIterateSuperatoms, NOT an
+    // indigoCountSuperatoms-bounded indigoGetSuperatom(mol, i) loop -- see the
+    // sgroupIdxBefore block above for why that pattern is broken.
+    // Ids follow the lowest source atom of each sgroup.
     {
         struct NewSGroup { int destIdx; int firstSource; };
         QList<NewSGroup> newSGroups;
@@ -1752,10 +1738,7 @@ QHash<AtomId, int> EditableMolecule::allAtomCipDescriptors() const {
     int clone = indigoClone(m_mol);
     if (clone < 0) return result;
     if (indigoAddCIPStereoDescriptors(clone) < 0) { indigoFree(clone); return result; }
-    // indigoClone renumbers atoms 0..n-1 in their existing order, so an atom's index in the
-    // clone is NOT its live index once a removal has left a gap (see snapshot()). Walk both
-    // molecules side by side instead of looking the live index up in the clone, which put
-    // each descriptor on the next atom along.
+    // The clone has no index gaps, so walk both molecules in step.
     int liveIter = indigoIterateAtoms(m_mol);
     int cloneIter = indigoIterateAtoms(clone);
     int live = 0, copy = 0;
@@ -1801,11 +1784,7 @@ QMap<BondId, QString> EditableMolecule::allBondCipLabels() const {
 
     if (mol < 0) return result;
 
-    // bondCip is keyed by atom numbers in the molecule re-read from KET, not by live Indigo
-    // indices. KET stores each connected fragment as its own block, so the re-read molecule
-    // lists fragment 0's atoms first, then fragment 1's, and so on, each in its existing
-    // order with no gaps. Rebuild that numbering here: it differs from the live index once
-    // a removal has left a gap, and from plain index order when fragments interleave.
+    // bondCip uses the KET re-read numbering (fragment by fragment, no gaps).
     QHash<AtomId, int> position;
     {
         QMap<int, QList<AtomId>> byFragment;   // fragment index -> its atoms, ascending live index

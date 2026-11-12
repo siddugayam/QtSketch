@@ -295,8 +295,7 @@ Item {
                 ctx.ellipse(p.x, p.y, pillW / 2, pillH / 2, 0, 0, Math.PI * 2)
                 ctx.fill()
 
-                // a.color is always supplied by the primitives builder, so the CPK switch has to be
-                // honoured here as well as inside Theme.getElementColor().
+                // a.color is always set, so check the CPK switch here too.
                 const colorStr = Theme.cpkColorsEnabled ? (a.color || Theme.getElementColor(a.element)) : Theme.textPrimary
                 const textColor = isSelected ? Theme.accent : colorStr
 

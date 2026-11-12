@@ -494,8 +494,7 @@ ApplicationWindow {
         }
         if (anyDirty) {
             close_event.accepted = false
-            // This is the quit prompt, not a tab-close prompt: clear any id left over from
-            // an earlier tab close, or Discard would close that tab instead of quitting.
+            // Quit, not tab close: drop any stale tab-close id.
             window._pendingCloseDocId = -1
             messageDialogsGroup.unsavedChangesDialog.open()
         } else {

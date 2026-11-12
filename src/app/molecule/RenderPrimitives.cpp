@@ -126,8 +126,7 @@ RenderPrimitives RenderPrimitiveBuilder::build(const EditableMolecule& mol, bool
         }
     }
 
-    // One CIP computation for the whole molecule; asking per atom re-ran it for every
-    // atom on every refresh (minutes for a large, stereo-rich structure).
+    // one CIP run for the whole molecule
     const QHash<AtomId, int> atomCip = mol.allAtomCipDescriptors();
 
     for (AtomId id : mol.atomIds()) {
