@@ -475,6 +475,9 @@ ApplicationWindow {
         }
         if (anyDirty) {
             close_event.accepted = false
+            // This is the quit prompt, not a tab-close prompt: clear any id left over from
+            // an earlier tab close, or Discard would close that tab instead of quitting.
+            window._pendingCloseDocId = -1
             messageDialogsGroup.unsavedChangesDialog.open()
         } else {
             // Clean exit. Only remove the autosave files for documents that
@@ -845,7 +848,10 @@ ApplicationWindow {
                 save: (data) => fileIO.write(window.pendingSaveUrl, data),
                 autosave: (data) => {
                     const appData = StandardPaths.writableLocation(StandardPaths.AppDataLocation)
-                    const rid = DocumentManager.recoveryIdFor(window.activeSketch.modelData)
+                    // activeSketch is the document object itself and has no modelData (that
+                    // lives on the canvas delegate), so the old lookup resolved every
+                    // document to recovery id "0" and left a stray autosave_0.qtsketch behind.
+                    const rid = DocumentManager.recoveryIdFor(DocumentManager.activeDocId)
                     fileIO.write(appData + "/recovery/autosave_" + rid + ".qtsketch", data)
                 },
                 // Ordinary single-structure export now goes through the shared

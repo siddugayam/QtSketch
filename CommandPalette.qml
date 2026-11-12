@@ -67,7 +67,7 @@ Popup {
         { name: "View: Toggle CPK Atom Colors", action: function() { 
             window.uiSettings.cpkColorsEnabled = !window.uiSettings.cpkColorsEnabled; 
             Theme.cpkColorsEnabled = window.uiSettings.cpkColorsEnabled; 
-            if (window.activeCanvas) window.activeCanvas.requestPaint() 
+            if (window.activeCanvas) window.activeCanvas.refresh() 
         } }
     ]
 

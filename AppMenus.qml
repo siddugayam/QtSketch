@@ -308,7 +308,7 @@ AppMenuBar {
             onTriggered: {
                 root.win.uiSettings.cpkColorsEnabled = !root.win.uiSettings.cpkColorsEnabled
                 Theme.cpkColorsEnabled = root.win.uiSettings.cpkColorsEnabled
-                if (root.win.activeCanvas) root.win.activeCanvas.requestPaint()
+                if (root.win.activeCanvas) root.win.activeCanvas.refresh()
             }
         }
     }
