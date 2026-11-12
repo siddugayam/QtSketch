@@ -508,6 +508,7 @@ public:
     // correct external id.
     QList<AtomId> atomIdsInIndigoOrder() const;
     QList<BondId> bondIdsInIndigoOrder() const;
+    QList<SGroupId> sgroupIdsInIndigoOrder() const;
 
     // Removes ONLY the sgroup grouping (indigoRemove on the superatom handle) -- member
     // atoms are left completely untouched. Confirmed by direct probe against the real
@@ -573,16 +574,6 @@ private:
     // entry in preservedIndexToStereo (see loadFrom), that value is kept instead of a fresh
     // indigoBondStereo() read; pass {} for a genuinely new load.
     void captureEzIntent(const QMap<int, int>& preservedIndexToStereo);
-
-    // Same "Indigo's current 0..count-1 order, reverse-mapped to external SGroupId via
-    // m_sgroupIdx" contract as atomIdsInIndigoOrder()/bondIdsInIndigoOrder() above, but for
-    // sgroups. Private (unlike its atom/bond siblings, which are public for an existing
-    // documented external use case) because nothing outside setBondStereo needs it yet. Needed
-    // to remap m_sgroupIdx after setBondStereo replaces the WHOLE Indigo molecule handle --
-    // rebuildIndexTables()'s own sgroup handling only PRUNES vanished sgroups (its own comment,
-    // EditableMolecule.cpp:626-631, is explicitly about in-place removal on the SAME handle, not
-    // about a full handle replacement) and does not reindex survivors, which setBondStereo needs.
-    QList<SGroupId> sgroupIdsInIndigoOrder() const;
 
     // The two numeric-encoding conversions Direction exists to keep apart. Both private: nothing
     // outside setBondStereo/bondStereoDirectionEnum needs raw access to either numbering.

@@ -214,7 +214,8 @@ QJsonObject ProjectFile::toJson(const EditableMolecule& molecule,
     
     // S-group state
     QJsonArray sgroups;
-    for (SGroupId sgId : molecule.sgroupIds()) {
+    // Indigo order: load matches entries to groups by position, since ids are reassigned.
+    for (SGroupId sgId : molecule.sgroupIdsInIndigoOrder()) {
         QJsonObject sg;
         sg[kId] = sgId;
         sg[kExpanded] = molecule.sgroupExpanded(sgId);
@@ -437,10 +438,7 @@ bool ProjectFile::fromJson(const QJsonObject& json,
     // Load drawing style
     if (json.contains(kDrawingStyle)) {
         QJsonObject style = json[kDrawingStyle].toObject();
-        // bondLength and modelToMmScale are divisors downstream (style rescale, page
-        // bounds, export scale). A zero, negative or non-numeric value from a damaged
-        // file keeps the value already in drawingStyle rather than poisoning those
-        // with inf/NaN.
+        // used as divisors later; ignore non-positive or non-numeric values
         if (style.contains(kBondLength)) {
             const double v = style[kBondLength].toDouble();
             if (std::isfinite(v) && v > 0.0) drawingStyle.bondLength = v;
@@ -463,7 +461,7 @@ bool ProjectFile::fromJson(const QJsonObject& json,
         if (std::isfinite(fileScale) && fileScale > 0.0) {
             drawingStyle.modelToMmScale = fileScale;
         } else {
-            // Fallback: compute from bondLength (kept positive above)
+            // Fallback: compute from bondLength
             drawingStyle.modelToMmScale = 5.08 / drawingStyle.bondLength;
         }
     }
@@ -507,9 +505,10 @@ bool ProjectFile::fromJson(const QJsonObject& json,
     // Load S-group state
     if (json.contains(kSgroups)) {
         QJsonArray sgroups = json[kSgroups].toArray();
-        for (const QJsonValue& val : sgroups) {
-            QJsonObject sg = val.toObject();
-            SGroupId sgId = sg[kId].toInt();
+        const QList<SGroupId> loadedIds = molecule.sgroupIdsInIndigoOrder();
+        for (int i = 0; i < sgroups.size() && i < loadedIds.size(); ++i) {
+            QJsonObject sg = sgroups[i].toObject();
+            SGroupId sgId = loadedIds[i];
             if (sg.contains(kExpanded)) {
                 molecule.setSGroupExpanded(sgId, sg[kExpanded].toBool());
             }
@@ -608,6 +607,7 @@ bool ProjectFile::fromJson(const QJsonObject& json,
         for (const QJsonValue& val : rgs) {
             QJsonObject rg = val.toObject();
             int rgroupNumber = rg[kNumber].toInt();
+            molecule.addRGroupEntry(rgroupNumber);
             if (rg.contains("logic")) {
                 QJsonObject logic = rg["logic"].toObject();
                 QString range = logic[kRange].toString();

@@ -131,8 +131,7 @@ static void test_loadRejectsUnsupportedVersion() {
 
 static void test_loadIgnoresNonPositiveScaleValues() {
     std::printf("--- Test: load keeps usable style values when the file holds zero/negative ones ---\n");
-    // bondLength and modelToMmScale are divisors downstream (style rescale, page bounds,
-    // export scale); a zero from a damaged or hand-edited file must not reach them.
+    // a zero bondLength from a damaged file must be ignored
     const char* files[] = {
         "{\"formatVersion\": 1, \"chemistry\": {\"molfile\": \"\"}, \"drawingStyle\": {\"bondLength\": 0}}",
         "{\"formatVersion\": 1, \"chemistry\": {\"molfile\": \"\"}, \"drawingStyle\": {\"bondLength\": -2}, \"modelToMmScale\": 0}",
@@ -157,8 +156,85 @@ static void test_loadIgnoresNonPositiveScaleValues() {
     }
 }
 
+static void test_rgroupsRoundTrip() {
+    std::printf("--- Test: R-group entries survive save/load ---\n");
+    QTemporaryDir dir;
+    QString path = dir.filePath("rgroups.qtsketch");
+
+    EditableMolecule mol("CC");
+    DrawingStyle style;
+    PageSettings page;
+    CHECK(mol.addRGroupEntry(1), "add R1");
+    CHECK(mol.setRGroupLogic(1, "1-3", true, 0), "set R1 logic");
+    CHECK(mol.addRGroupFragment(1, 0), "add R1 fragment");
+    CHECK(ProjectFile::saveProject(path, mol, style, page), "save succeeds");
+
+    EditableMolecule loaded;
+    DrawingStyle loadedStyle;
+    PageSettings loadedPage;
+    QString err = ProjectFile::loadProject(path, loaded, loadedStyle, loadedPage);
+    CHECK(err.isEmpty(), "load succeeds");
+    CHECK(loaded.rgroupNumbers() == QList<int>{1}, "R1 is back after load");
+    QString range;
+    bool resth = false;
+    int ifthen = -1;
+    CHECK(loaded.rgroupLogic(1, range, resth, ifthen) && range == "1-3" && resth && ifthen == 0,
+          "R1 logic round-trips");
+    CHECK(loaded.rgroupFragmentIds(1) == QList<int>{0}, "R1 fragment round-trips");
+}
+
+static const char* kTwoSuperatoms =
+    "\n  test\n\n"
+    "  4  3  0  0  0  0  0  0  0  0999 V2000\n"
+    "    0.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n"
+    "    1.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n"
+    "    2.0000    0.0000    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0\n"
+    "    1.0000    1.0000    0.0000 N   0  0  0  0  0  0  0  0  0  0  0  0\n"
+    "  1  2  1  0\n"
+    "  2  3  1  0\n"
+    "  2  4  1  0\n"
+    "M  STY  2   1 SUP   2 SUP\n"
+    "M  SAL   1  1   3\n"
+    "M  SMT   1 OH\n"
+    "M  SAL   2  1   4\n"
+    "M  SMT   2 NH2\n"
+    "M  END\n";
+
+static void test_sgroupStateRoundTrip() {
+    std::printf("--- Test: collapsed state and label of a group survive save/load ---\n");
+    QTemporaryDir dir;
+    QString path = dir.filePath("sgroups.qtsketch");
+
+    // Reload once so the live ids (3, 4) differ from the ids a fresh load hands out (1, 2).
+    EditableMolecule mol(kTwoSuperatoms);
+    CHECK(mol.loadFrom(kTwoSuperatoms), "reload succeeds");
+    QList<SGroupId> ids = mol.sgroupIdsInIndigoOrder();
+    CHECK(ids.size() == 2, "two groups before save");
+    if (ids.size() != 2) return;
+    mol.setSGroupExpanded(ids[1], false);
+    mol.setSGroupLabel(ids[1], "Am");
+
+    DrawingStyle style;
+    PageSettings page;
+    CHECK(ProjectFile::saveProject(path, mol, style, page), "save succeeds");
+
+    EditableMolecule loaded;
+    DrawingStyle loadedStyle;
+    PageSettings loadedPage;
+    QString err = ProjectFile::loadProject(path, loaded, loadedStyle, loadedPage);
+    CHECK(err.isEmpty(), "load succeeds");
+    QList<SGroupId> loadedIds = loaded.sgroupIdsInIndigoOrder();
+    CHECK(loadedIds.size() == 2, "two groups after load");
+    if (loadedIds.size() != 2) return;
+    CHECK(loaded.sgroupExpanded(loadedIds[0]), "first group stays expanded");
+    CHECK(!loaded.sgroupExpanded(loadedIds[1]), "second group stays collapsed");
+    CHECK(loaded.sgroupLabel(loadedIds[1]) == "Am", "second group keeps its label");
+}
+
 int main() {
     std::printf("Running ProjectFile tests...\n");
+    test_rgroupsRoundTrip();
+    test_sgroupStateRoundTrip();
     test_saveLoadRoundTrip();
     test_atomicSavePreservesOriginalOnFailure();
     test_loadRejectsMissingFormatVersion();
