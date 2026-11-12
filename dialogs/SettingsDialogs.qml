@@ -153,10 +153,8 @@ Item {
                                 ComboBox {
                                     Layout.fillWidth: true
                                     model: SettingsService.getAvailableFonts()
-                                    currentText: SettingsService.draftFontFamily
-                                    onCurrentTextChanged: {
-                                        SettingsService.draftFontFamily = currentText
-                                    }
+                                    currentIndex: Math.max(0, find(SettingsService.draftFontFamily))
+                                    onActivated: SettingsService.draftFontFamily = currentText
                                 }
                             }
 

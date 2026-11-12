@@ -1524,6 +1524,7 @@ ApplicationWindow {
                     // itself carried both the Layout.* properties and was the
                     // anchor target for a RowLayout-level sibling).
                     Item {
+                        id: workspaceViewport
                         Layout.fillWidth: true
                         Layout.fillHeight: true
 
@@ -1547,8 +1548,8 @@ ApplicationWindow {
 
                         Item {
                             id: workspaceContent
-                            width: Math.max(scrollView.availableWidth, (docRect.width * window.zoomLevel) + 100)
-                            height: Math.max(scrollView.availableHeight, (docRect.height * window.zoomLevel) + 100)
+                            width: Math.max(workspaceViewport.width - scrollView.ScrollBar.vertical.width, (docRect.width * window.zoomLevel) + 100)
+                            height: Math.max(workspaceViewport.height - scrollView.ScrollBar.horizontal.height, (docRect.height * window.zoomLevel) + 100)
 
                             Rectangle {
                                 anchors.fill: parent

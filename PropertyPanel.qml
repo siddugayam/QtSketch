@@ -256,9 +256,9 @@ Rectangle {
                     // only when something is selected (never silently names the whole
                     // document -- a multi-structure canvas would otherwise be ambiguous
                     // about which structure the name even describes).
-                    enabled: !root.iupacLoading && root.canvas && root.canvas.sketch &&
+                    enabled: !root.iupacLoading && !!(root.canvas && root.canvas.sketch &&
                              root.canvas.sketch.selection && root.canvas.sketch.selection.atom_ids &&
-                             root.canvas.sketch.selection.atom_ids.length > 0
+                             root.canvas.sketch.selection.atom_ids.length > 0)
                     font { pixelSize: Theme.fontSizeCaption; family: Theme.fontFamily }
                     ToolTip.visible: hovered && !enabled && !root.iupacLoading
                     ToolTip.text: "Select the structure to name first"
@@ -325,22 +325,29 @@ Rectangle {
 
             Rectangle { Layout.fillWidth: true; height: 1; color: Theme.outline; opacity: 0.5 }
 
-            RowLayout {
+            // MouseArea kept outside the RowLayout: anchors don't apply to layout children.
+            Item {
                 Layout.fillWidth: true
-                spacing: 4
+                implicitHeight: drugHeaderRow.implicitHeight
 
-                Text {
-                    textFormat: Text.PlainText
-                    text: "Drug Properties"
-                    color: Theme.textSecondary
-                    font { pixelSize: Theme.fontSizeCaption; bold: true; letterSpacing: 1; family: Theme.fontFamily }
-                    Layout.fillWidth: true
-                }
-                Text {
-                    textFormat: Text.PlainText
-                    text: root.drugPropertiesExpanded ? "\u25be" : "\u25b8"
-                    color: Theme.textSecondary
-                    font { pixelSize: Theme.fontSizeCaption; family: Theme.fontFamily }
+                RowLayout {
+                    id: drugHeaderRow
+                    anchors.fill: parent
+                    spacing: 4
+
+                    Text {
+                        textFormat: Text.PlainText
+                        text: "Drug Properties"
+                        color: Theme.textSecondary
+                        font { pixelSize: Theme.fontSizeCaption; bold: true; letterSpacing: 1; family: Theme.fontFamily }
+                        Layout.fillWidth: true
+                    }
+                    Text {
+                        textFormat: Text.PlainText
+                        text: root.drugPropertiesExpanded ? "\u25be" : "\u25b8"
+                        color: Theme.textSecondary
+                        font { pixelSize: Theme.fontSizeCaption; family: Theme.fontFamily }
+                    }
                 }
 
                 MouseArea {
@@ -579,13 +586,13 @@ Rectangle {
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
                             if (root.canvas && root.canvas.sketch) {
+                                // set before selectItem(), which updates the canvas synchronously
+                                root.canvas._needsCentering = true
                                 if (modelData.type === "atom") {
                                     root.canvas.sketch.selectItem(modelData.id, null)
                                 } else {
                                     root.canvas.sketch.selectItem(null, modelData.id)
                                 }
-                                root.canvas._needsCentering = true
-                                root.canvas.requestPaint()
                             }
                         }
                     }

@@ -112,6 +112,9 @@ QtObject {
     readonly property real dialogWidthSmall: 320   // single field + buttons
     readonly property real dialogWidthMedium: 420  // multi-field form
     readonly property real dialogWidthLarge: 520   // results, lists, tables
+    readonly property real dialogHeightLarge: 560
+    readonly property real dialogPadding: marginLarge
+    readonly property real dialogSpacing: spacingLarge
 
     // ── Interaction states ──────────────────────────────────────────────────
     // Standard triad for icon-button opacity across enabled/hover/rest states.

@@ -1905,7 +1905,7 @@ Item {
             Button {
                 text: "Charge +"
                 font.pixelSize: Theme.fontSizeLabel
-                visible: sketch && sketch.selection && sketch.selection.atom_ids && sketch.selection.atom_ids.length > 0
+                visible: !!(sketch && sketch.selection && sketch.selection.atom_ids && sketch.selection.atom_ids.length > 0)
                 onClicked: {
                     for (let i = 0; i < sketch.selection.atom_ids.length; i++) {
                         let id = sketch.selection.atom_ids[i]
@@ -1919,7 +1919,7 @@ Item {
             Button {
                 text: "Charge -"
                 font.pixelSize: Theme.fontSizeLabel
-                visible: sketch && sketch.selection && sketch.selection.atom_ids && sketch.selection.atom_ids.length > 0
+                visible: !!(sketch && sketch.selection && sketch.selection.atom_ids && sketch.selection.atom_ids.length > 0)
                 onClicked: {
                     for (let i = 0; i < sketch.selection.atom_ids.length; i++) {
                         let id = sketch.selection.atom_ids[i]
@@ -1933,7 +1933,7 @@ Item {
             Button {
                 text: "Wedge"
                 font.pixelSize: Theme.fontSizeLabel
-                visible: sketch && sketch.selection && sketch.selection.bond_ids && sketch.selection.bond_ids.length === 1 && (!sketch.selection.atom_ids || sketch.selection.atom_ids.length === 0)
+                visible: !!(sketch && sketch.selection && sketch.selection.bond_ids && sketch.selection.bond_ids.length === 1 && (!sketch.selection.atom_ids || sketch.selection.atom_ids.length === 0))
                 onClicked: {
                     let bId = sketch.selection.bond_ids[0]
                     sketch.changeBondType(bId, 1, 1)
@@ -1944,7 +1944,7 @@ Item {
             Button {
                 text: "Dash"
                 font.pixelSize: Theme.fontSizeLabel
-                visible: sketch && sketch.selection && sketch.selection.bond_ids && sketch.selection.bond_ids.length === 1 && (!sketch.selection.atom_ids || sketch.selection.atom_ids.length === 0)
+                visible: !!(sketch && sketch.selection && sketch.selection.bond_ids && sketch.selection.bond_ids.length === 1 && (!sketch.selection.atom_ids || sketch.selection.atom_ids.length === 0))
                 onClicked: {
                     let bId = sketch.selection.bond_ids[0]
                     sketch.changeBondType(bId, 1, 6)
