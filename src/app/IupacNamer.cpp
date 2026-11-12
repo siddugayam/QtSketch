@@ -13503,6 +13503,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                 int bondHandle = indigoBond(targetO);
                 if (bondHandle >= 0) {
                     indigoSetBondOrder(bondHandle, 2);
+                    indigoFree(bondHandle);
                 }
                 indigoSetCharge(targetO, 0);
                 indigoFree(targetO);

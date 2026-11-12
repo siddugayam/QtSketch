@@ -481,7 +481,7 @@ void V8Process::requestMolfileForNaming(const QString& reqId) {
     emit structureReady(reqId, mf);
 }
 void V8Process::requestMolfileForNamingSelection(const QString& reqId) {
-    emit structureReady(reqId, m_docState->copySelection());
+    emit structureReady(reqId, m_docState->copySelection(/*forNaming=*/true));
 }
 QString V8Process::getStructure(const QString& fmt) {
     if (fmt == "ket") return m_docState->molecule().toKetJson();

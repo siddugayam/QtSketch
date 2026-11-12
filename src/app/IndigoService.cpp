@@ -7,6 +7,8 @@
 #include <QClipboard>
 #include <QCoreApplication>
 #include <QFile>
+#include <QSaveFile>
+#include <QFileInfo>
 #include <QDir>
 #include <mutex>
 #include <functional>
@@ -178,17 +180,21 @@ static QPointF indigoCentroid(int mol, bool isRxn) {
         int a;
         while ((a = indigoNext(it)) > 0) {
             float* xyz = indigoXYZ(a);
-            if (!xyz) continue;
-            sumX += xyz[0];
-            sumY += xyz[1];
-            count++;
+            if (xyz) {
+                sumX += xyz[0];
+                sumY += xyz[1];
+                count++;
+            }
+            indigoFree(a);
         }
+        indigoFree(it);
     };
     if (isRxn) {
         int mit = indigoIterateMolecules(mol);
         if (mit >= 0) {
             int m;
-            while ((m = indigoNext(mit)) > 0) accumulate(m);
+            while ((m = indigoNext(mit)) > 0) { accumulate(m); indigoFree(m); }
+            indigoFree(mit);
         }
     } else {
         accumulate(mol);
@@ -206,15 +212,17 @@ static void indigoShiftAll(int mol, bool isRxn, double dx, double dy) {
         int a;
         while ((a = indigoNext(it)) > 0) {
             float* xyz = indigoXYZ(a);
-            if (!xyz) continue;
-            indigoSetXYZ(a, xyz[0] + static_cast<float>(dx), xyz[1] + static_cast<float>(dy), xyz[2]);
+            if (xyz) indigoSetXYZ(a, xyz[0] + static_cast<float>(dx), xyz[1] + static_cast<float>(dy), xyz[2]);
+            indigoFree(a);
         }
+        indigoFree(it);
     };
     if (isRxn) {
         int mit = indigoIterateMolecules(mol);
         if (mit >= 0) {
             int m;
-            while ((m = indigoNext(mit)) > 0) shift(m);
+            while ((m = indigoNext(mit)) > 0) { shift(m); indigoFree(m); }
+            indigoFree(mit);
         }
     } else {
         shift(mol);
@@ -729,7 +737,13 @@ void IndigoService::renderReactionGridToFile(const QString &molfile, const QUrl 
     }
     QPointer<IndigoService> self = this;
     QString path = fileUrl.toLocalFile();
-    (void)QtConcurrent::run([self, molfile, path, format]() {
+    QString outFormat = QFileInfo(path).suffix().toLower();
+    if (outFormat.isEmpty()) outFormat = format;
+    if (outFormat != "pdf" && outFormat != "png" && outFormat != "svg") {
+        emit renderFinished(false, QString("Unsupported reaction scheme file type \".%1\" - use .pdf, .png or .svg.").arg(outFormat));
+        return;
+    }
+    (void)QtConcurrent::run([self, molfile, path, outFormat]() {
         bool ok = false;
         QString error;
         unsigned long long sid = indigoAllocSessionId();
@@ -746,7 +760,7 @@ void IndigoService::renderReactionGridToFile(const QString &molfile, const QUrl 
                 int products = indigoIterateProducts(rx);
                 while ((comp = indigoNext(products)) > 0) { indigoArrayAdd(arr, comp); count++; }
                 if (count > 0) {
-                    indigoSetOption("render-output-format", format.toUtf8().constData());
+                    indigoSetOption("render-output-format", outFormat.toUtf8().constData());
                     int res = indigoRenderGridToFile(arr, nullptr, count, path.toUtf8().constData());
                     if (res >= 0) ok = true;
                     else error = QString::fromUtf8(indigoGetLastError());
@@ -925,7 +939,8 @@ void IndigoService::exportBatchToFile(const QStringList &molfiles, const QUrl &f
         unsigned long long sid = indigoAllocSessionId();
         indigoSetSessionId(sid);
         try {
-            int saver = indigoCreateFileSaver(path.toUtf8().constData(), format.toUtf8().constData());
+            int buffer = indigoWriteBuffer();
+            int saver = buffer >= 0 ? indigoCreateSaver(buffer, format.toUtf8().constData()) : -1;
             if (saver >= 0) {
                 int written = 0;
                 int recordNum = 0;
@@ -949,12 +964,22 @@ void IndigoService::exportBatchToFile(const QStringList &molfiles, const QUrl &f
                     }
                 }
                 indigoClose(saver);
-                if (written == 0) QFile::remove(path);
-                if (written > 0) ok = true;
-                else error = "No valid structures could be written.";
+                indigoFree(saver);
+                char *raw = nullptr;
+                int size = 0;
+                if (written == 0) {
+                    error = "No valid structures could be written.";
+                } else if (indigoToBuffer(buffer, &raw, &size) < 0) {
+                    error = QString::fromUtf8(indigoGetLastError());
+                } else {
+                    QSaveFile out(path);
+                    if (out.open(QIODevice::WriteOnly) && out.write(raw, size) == size && out.commit()) ok = true;
+                    else error = QString("Failed to write %1: %2").arg(path, out.errorString());
+                }
             } else {
                 error = QString("Failed to create %1 saver: %2").arg(format, QString::fromUtf8(indigoGetLastError()));
             }
+            if (buffer >= 0) indigoFree(buffer);
         } catch (const std::exception &e) {
             error = QString::fromUtf8(e.what());
         } catch (...) {

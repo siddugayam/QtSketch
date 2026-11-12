@@ -1786,6 +1786,49 @@ static void test_submoleculeMolfileInconsistentSelection() {
     }
 }
 
+static void test_submoleculeMolfileForNaming() {
+    std::printf("--- Test: submoleculeMolfile forNaming keeps unspecified E/Z unspecified ---\n");
+    // CC=CC records the double bond as unspecified; the trans-geometry write-back keeps that intent.
+    EditableMolecule m(QStringLiteral("CC=CC"));
+    const QString transMolfile = QStringLiteral(
+        "\n  test\n\n"
+        "  4  3  0  0  0  0  0  0  0  0999 V2000\n"
+        "    0.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n"
+        "    0.8660    0.5000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n"
+        "    1.7320    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n"
+        "    2.5980    0.5000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\n"
+        "  1  2  1  0  0  0  0\n"
+        "  2  3  2  0  0  0  0\n"
+        "  3  4  1  0  0  0  0\n"
+        "M  END\n");
+    CHECK(m.loadFrom(transMolfile, /*preserveEzIntent=*/true), "setup: trans write-back loads");
+    QList<AtomId> atoms = m.atomIds();
+    QList<BondId> bonds = m.bondIds();
+
+    auto doubleBondStereo = [](const QString& mf) {
+        int mol = indigoLoadMoleculeFromString(mf.toUtf8().constData());
+        if (mol < 0) return -1;
+        int stereo = -1;
+        int it = indigoIterateBonds(mol);
+        int b;
+        while ((b = indigoNext(it)) > 0) {
+            if (indigoBondOrder(b) == 2) stereo = indigoBondStereo(b);
+            indigoFree(b);
+        }
+        indigoFree(it);
+        indigoFree(mol);
+        return stereo;
+    };
+
+    StringResult plain = m.submoleculeMolfile(atoms, bonds);
+    CHECK(plain.success && doubleBondStereo(plain.value) > 0,
+          "plain submolecule molfile lets coordinates imply E/Z (the old naming path)");
+    StringResult naming = m.submoleculeMolfile(atoms, bonds, /*forNaming=*/true);
+    CHECK(naming.success, "forNaming extraction succeeds");
+    CHECK(doubleBondStereo(naming.value) == 0, "forNaming submolecule keeps the double bond unspecified");
+    CHECK(doubleBondStereo(m.molfileForNaming()) == 0, "matches the whole-document molfileForNaming");
+}
+
 static void test_setBondStereo() {
     std::printf("--- Test: setBondStereo (sub-project 8) ---\n");
 
@@ -2298,6 +2341,7 @@ int main() {
     test_loadFrom();
     test_submoleculeMolfile();
     test_submoleculeMolfileInconsistentSelection();
+    test_submoleculeMolfileForNaming();
     test_setBondStereo();
     test_ezStereoIntent();
     test_loadFromClearsEzIntent();

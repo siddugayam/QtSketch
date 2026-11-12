@@ -683,11 +683,11 @@ void DocumentState::selectChain(AtomId atomId, BondId bondId) {
     }
 }
 
-QString DocumentState::copySelection() const {
+QString DocumentState::copySelection(bool forNaming) const {
     if (m_selection.atoms.isEmpty()) return QString();
     QList<AtomId> atomIds(m_selection.atoms.begin(), m_selection.atoms.end());
     QList<BondId> bondIds(m_selection.bonds.begin(), m_selection.bonds.end());
-    StringResult r = m_molecule.submoleculeMolfile(atomIds, bondIds);
+    StringResult r = m_molecule.submoleculeMolfile(atomIds, bondIds, forNaming);
     return r.success ? r.value : QString();
 }
 

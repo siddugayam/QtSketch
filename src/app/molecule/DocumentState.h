@@ -143,7 +143,7 @@ public:
     // real `if (_selection.atom_ids.length === 0) return null` guard) or if extraction fails.
     // Deliberately does NOT include any selected rxnArrows/rxnPluses/multitailArrows -- the real
     // _struct.clone(atomSet, bondSet) never touches those entity types either.
-    QString copySelection() const;
+    QString copySelection(bool forNaming = false) const;
 
     // 10-state.js's deleteSelection (862-961) / this migration's own sgroup-aware-deletion
     // gap, deferred since sub-project 3a and explicitly assigned here. Deliberately has NO
