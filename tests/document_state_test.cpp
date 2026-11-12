@@ -4411,7 +4411,83 @@ static void test_selectSubstructureMatches() {
     CHECK(doc.selection().isEmpty(), "selectSubstructureMatches: empty matches array clears the selection");
 }
 
+static void test_singleEntityDeleteRedoAfterUndo() {
+    std::printf("--- Test: delete -> undo -> redo removes the entity again (single-entity deletes) ---\n");
+    // undo recreates the entity under a fresh id, so redo must target that id, not the
+    // original one captured when the command was built.
+    {
+        DocumentState doc;
+        AtomId a = doc.addAtom(QStringLiteral("C"), 0, 0);
+        AtomId b = doc.addAtom(QStringLiteral("N"), 1, 0);
+        doc.addBond(a, b, 1);
+        doc.deleteAtom(b);
+        doc.undo();
+        CHECK(doc.molecule().atomCount() == 2 && doc.molecule().bondCount() == 1, "deleteAtom: undo restores atom and bond");
+        doc.redo();
+        CHECK(doc.molecule().atomCount() == 1 && doc.molecule().bondCount() == 0, "deleteAtom: redo removes them again");
+        doc.undo();
+        CHECK(doc.molecule().atomCount() == 2 && doc.molecule().bondCount() == 1, "deleteAtom: second undo restores them again");
+    }
+    {
+        DocumentState doc;
+        AtomId a = doc.addAtom(QStringLiteral("C"), 0, 0);
+        AtomId b = doc.addAtom(QStringLiteral("C"), 1, 0);
+        BondId bond = doc.addBond(a, b, 2);
+        doc.deleteBond(bond);
+        doc.undo();
+        CHECK(doc.molecule().bondCount() == 1, "deleteBond: undo restores the bond");
+        doc.redo();
+        CHECK(doc.molecule().bondCount() == 0, "deleteBond: redo removes it again");
+    }
+    {
+        DocumentState doc;
+        RxnArrowId id = doc.addRxnArrow(0, 0);
+        doc.deleteRxnArrow(id);
+        doc.undo();
+        CHECK(doc.molecule().rxnArrowIds().size() == 1, "deleteRxnArrow: undo restores the arrow");
+        doc.redo();
+        CHECK(doc.molecule().rxnArrowIds().isEmpty(), "deleteRxnArrow: redo removes it again");
+    }
+    {
+        DocumentState doc;
+        RxnPlusId id = doc.addRxnPlus(0, 0);
+        doc.deleteRxnPlus(id);
+        doc.undo();
+        CHECK(doc.molecule().rxnPlusIds().size() == 1, "deleteRxnPlus: undo restores the plus");
+        doc.redo();
+        CHECK(doc.molecule().rxnPlusIds().isEmpty(), "deleteRxnPlus: redo removes it again");
+    }
+    {
+        DocumentState doc;
+        MultitailArrowId id = doc.addMultitailArrow(0, 0);
+        doc.deleteMultitailArrow(id);
+        doc.undo();
+        CHECK(doc.molecule().multitailArrowIds().size() == 1, "deleteMultitailArrow: undo restores the arrow");
+        doc.redo();
+        CHECK(doc.molecule().multitailArrowIds().isEmpty(), "deleteMultitailArrow: redo removes it again");
+    }
+    {
+        DocumentState doc;
+        TextId id = doc.addText(QStringLiteral("note"), 0, 0, false, false);
+        doc.deleteText(id);
+        doc.undo();
+        CHECK(doc.molecule().textAnnotationIds().size() == 1, "deleteText: undo restores the text");
+        doc.redo();
+        CHECK(doc.molecule().textAnnotationIds().isEmpty(), "deleteText: redo removes it again");
+    }
+    {
+        DocumentState doc;
+        ImageId id = doc.addImage(QByteArray("fakepng"), 0, 0, 1, 1);
+        doc.deleteImage(id);
+        doc.undo();
+        CHECK(doc.molecule().imageIds().size() == 1, "deleteImage: undo restores the image");
+        doc.redo();
+        CHECK(doc.molecule().imageIds().isEmpty(), "deleteImage: redo removes it again");
+    }
+}
+
 int main() {
+    test_singleEntityDeleteRedoAfterUndo();
     test_selectionStateBasics();
     test_editCommandBasics();
     test_documentStateUndoRedo();

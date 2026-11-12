@@ -721,12 +721,15 @@ void DocumentState::deleteAtom(AtomId id) {
         else if (eb == id) savedBonds.append({ea, mol.bondOrder(bid), false});
     }
 
+    // invert() recreates the entity under a fresh id, so the id execute() removes is held
+    // in a shared box that invert() refreshes -- otherwise redo after undo targets an id
+    // that no longer exists and silently does nothing (same reason as deleteSelectionEntities).
+    auto idBox = std::make_shared<AtomId>(id);
     EditCommand cmd;
-    cmd.execute = [&mol, id]() { mol.removeAtom(id); };
-    cmd.invert = [&mol, label, x, y, savedBonds]() {
-        // newId is a fresh local created fresh on every invocation of this
-        // closure -- NOT a captured variable, so no dangling-reference risk.
+    cmd.execute = [&mol, idBox]() { mol.removeAtom(*idBox); };
+    cmd.invert = [&mol, idBox, label, x, y, savedBonds]() {
         AtomId newId = mol.addAtom(label, x, y);
+        *idBox = newId;
         for (const SavedBond& sb : savedBonds) {
             if (sb.idIsSource) mol.addBond(newId, sb.other, sb.order);
             else mol.addBond(sb.other, newId, sb.order);
@@ -742,8 +745,9 @@ void DocumentState::deleteBond(BondId id) {
     int order = mol.bondOrder(id);
 
     EditCommand cmd;
-    cmd.execute = [&mol, id]() { mol.removeBond(id); };
-    cmd.invert = [&mol, a, b, order]() { mol.addBond(a, b, order); };
+    auto idBox = std::make_shared<BondId>(id); // see deleteAtom
+    cmd.execute = [&mol, idBox]() { mol.removeBond(*idBox); };
+    cmd.invert = [&mol, idBox, a, b, order]() { *idBox = mol.addBond(a, b, order); };
     executeCommand(std::move(cmd));
 }
 
@@ -1371,8 +1375,9 @@ void DocumentState::deleteImage(ImageId id) {
     if (!mol.imageData(id, x, y, w, h, png)) return;
 
     EditCommand cmd;
-    cmd.execute = [&mol, id]() { mol.removeImage(id); };
-    cmd.invert = [&mol, x, y, w, h, png]() { mol.addImage(x, y, w, h, png); };
+    auto idBox = std::make_shared<ImageId>(id); // see deleteAtom
+    cmd.execute = [&mol, idBox]() { mol.removeImage(*idBox); };
+    cmd.invert = [&mol, idBox, x, y, w, h, png]() { *idBox = mol.addImage(x, y, w, h, png); };
     executeCommand(std::move(cmd));
 }
 
@@ -1442,9 +1447,11 @@ void DocumentState::deleteRxnArrow(RxnArrowId id) {
     bool hasCurvature = mol.rxnArrowCurvature(id, cx, cy);
 
     EditCommand cmd;
-    cmd.execute = [&mol, id]() { mol.removeRxnArrow(id); };
-    cmd.invert = [&mol, x1, y1, x2, y2, mode, above, below, hasCurvature, cx, cy]() {
+    auto idBox = std::make_shared<RxnArrowId>(id); // see deleteAtom
+    cmd.execute = [&mol, idBox]() { mol.removeRxnArrow(*idBox); };
+    cmd.invert = [&mol, idBox, x1, y1, x2, y2, mode, above, below, hasCurvature, cx, cy]() {
         int newId = mol.addRxnArrow(x1, y1, x2, y2);
+        *idBox = newId;
         mol.setRxnArrowMode(newId, mode);
         mol.setRxnArrowConditions(newId, above, below);
         if (hasCurvature) mol.setRxnArrowCurvature(newId, cx, cy);
@@ -1468,8 +1475,9 @@ void DocumentState::deleteRxnPlus(RxnPlusId id) {
     if (!mol.rxnPlusPos(id, x, y)) return;
 
     EditCommand cmd;
-    cmd.execute = [&mol, id]() { mol.removeRxnPlus(id); };
-    cmd.invert = [&mol, x, y]() { mol.addRxnPlus(x, y); };
+    auto idBox = std::make_shared<RxnPlusId>(id); // see deleteAtom
+    cmd.execute = [&mol, idBox]() { mol.removeRxnPlus(*idBox); };
+    cmd.invert = [&mol, idBox, x, y]() { *idBox = mol.addRxnPlus(x, y); };
     executeCommand(std::move(cmd));
 }
 
@@ -1494,8 +1502,9 @@ void DocumentState::deleteMultitailArrow(MultitailArrowId id) {
     if (pts.isEmpty()) return;
 
     EditCommand cmd;
-    cmd.execute = [&mol, id]() { mol.removeMultitailArrow(id); };
-    cmd.invert = [&mol, pts]() { mol.addMultitailArrow(pts); };
+    auto idBox = std::make_shared<MultitailArrowId>(id); // see deleteAtom
+    cmd.execute = [&mol, idBox]() { mol.removeMultitailArrow(*idBox); };
+    cmd.invert = [&mol, idBox, pts]() { *idBox = mol.addMultitailArrow(pts); };
     executeCommand(std::move(cmd));
 }
 
@@ -1653,9 +1662,11 @@ void DocumentState::deleteText(TextId id) {
     if (!mol.textAnnotationContent(id, x, y, content, bold, italic)) return;
 
     EditCommand cmd;
-    cmd.execute = [&mol, id]() { mol.removeTextAnnotation(id); };
-    cmd.invert = [&mol, x, y, content, bold, italic]() {
+    auto idBox = std::make_shared<TextId>(id); // see deleteAtom
+    cmd.execute = [&mol, idBox]() { mol.removeTextAnnotation(*idBox); };
+    cmd.invert = [&mol, idBox, x, y, content, bold, italic]() {
         int newId = mol.addTextAnnotation(x, y, content);
+        *idBox = newId;
         mol.setTextAnnotation(newId, content, bold, italic);
     };
     executeCommand(std::move(cmd));
