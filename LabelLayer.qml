@@ -295,7 +295,9 @@ Item {
                 ctx.ellipse(p.x, p.y, pillW / 2, pillH / 2, 0, 0, Math.PI * 2)
                 ctx.fill()
 
-                const colorStr = a.color || Theme.getElementColor(a.element)
+                // a.color is always supplied by the primitives builder, so the CPK switch has to be
+                // honoured here as well as inside Theme.getElementColor().
+                const colorStr = Theme.cpkColorsEnabled ? (a.color || Theme.getElementColor(a.element)) : Theme.textPrimary
                 const textColor = isSelected ? Theme.accent : colorStr
 
                 // ── Draw label left-to-right ─────────────────────────────────
@@ -580,6 +582,11 @@ Item {
                     }
                 }
             }
+        }
+
+        Connections {
+            target: Theme
+            function onCpkColorsEnabledChanged() { labelCanvas.requestPaint() }
         }
 
         Connections {

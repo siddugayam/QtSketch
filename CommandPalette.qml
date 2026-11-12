@@ -66,8 +66,7 @@ Popup {
         { name: "View: Reset (100%)", action: function() { window.zoomLevel = 1.0 } },
         { name: "View: Toggle CPK Atom Colors", action: function() { 
             window.uiSettings.cpkColorsEnabled = !window.uiSettings.cpkColorsEnabled; 
-            Theme.cpkColorsEnabled = window.uiSettings.cpkColorsEnabled; 
-            if (window.activeCanvas) window.activeCanvas.refresh() 
+            Theme.cpkColorsEnabled = window.uiSettings.cpkColorsEnabled
         } }
     ]
 
