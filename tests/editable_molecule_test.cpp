@@ -1357,6 +1357,64 @@ static void test_bondIdsInIndigoOrder() {
           "bondIdsInIndigoOrder's bond-order sequence matches a fresh reparse's own order");
 }
 
+static void test_idsSurviveRemovalAfterIndexReuse() {
+    std::printf("--- Test: ids stay bound to their own atom/bond when a removal follows an index reuse ---\n");
+    // Indigo keeps survivors' indices on removal and hands a freed index to the next
+    // add, so id order and index order diverge. A later removal must not re-pair ids
+    // with indices by sorted position.
+    EditableMolecule mol;
+    AtomId a1 = mol.addAtom(QStringLiteral("C"), 0, 0);
+    AtomId a2 = mol.addAtom(QStringLiteral("N"), 1, 0);
+    AtomId a3 = mol.addAtom(QStringLiteral("O"), 2, 0);
+    AtomId a4 = mol.addAtom(QStringLiteral("F"), 3, 0);
+    mol.removeAtom(a2);
+    AtomId a5 = mol.addAtom(QStringLiteral("Cl"), 4, 0);   // lands in N's freed index
+    mol.removeAtom(a4);
+    CHECK(mol.atomSymbol(a1) == QStringLiteral("C"), "atom id 1 is still C");
+    CHECK(mol.atomSymbol(a3) == QStringLiteral("O"), "atom id 3 is still O");
+    CHECK(mol.atomSymbol(a5) == QStringLiteral("Cl"), "atom id 5 is still Cl");
+    mol.setAtomCharge(a3, -1);
+    EditableMolecule reparsed(mol.toMolfile().value);
+    QString charged;
+    for (AtomId id : reparsed.atomIds()) if (reparsed.atomCharge(id) == -1) charged += reparsed.atomSymbol(id);
+    CHECK(charged == QStringLiteral("O"), "a charge set through the O id lands on the O atom");
+
+    EditableMolecule m2;
+    AtomId c1 = m2.addAtom(QStringLiteral("C"), 0, 0);
+    AtomId c2 = m2.addAtom(QStringLiteral("C"), 1, 0);
+    AtomId c3 = m2.addAtom(QStringLiteral("C"), 2, 0);
+    AtomId c4 = m2.addAtom(QStringLiteral("C"), 3, 0);
+    BondId b1 = m2.addBond(c1, c2, 1);
+    BondId b2 = m2.addBond(c2, c3, 2);
+    BondId b3 = m2.addBond(c3, c4, 3);
+    m2.removeBond(b1);
+    BondId b4 = m2.addBond(c1, c4, 1);                     // lands in b1's freed index
+    m2.removeBond(b3);
+    CHECK(m2.bondOrder(b2) == 2, "bond id 2 is still the double bond");
+    CHECK(m2.bondOrder(b4) == 1, "bond id 4 is still the single bond");
+    AtomId ea = -1, eb = -1;
+    CHECK(m2.bondEndpoints(b4, ea, eb) && ((ea == c1 && eb == c4) || (ea == c4 && eb == c1)),
+          "bond id 4 still joins the atoms it was created on");
+}
+
+static void test_restoreRebuildsReverseIndexMaps() {
+    std::printf("--- Test: restore() leaves index->id lookups matching the restored molecule ---\n");
+    EditableMolecule mol;
+    QList<AtomId> ring;
+    for (int i = 0; i < 6; ++i) ring.append(mol.addAtom(QStringLiteral("C"), i, 0));
+    for (int i = 0; i < 6; ++i) mol.addBond(ring[i], ring[(i + 1) % 6], 1);
+    MoleculeSnapshot snap = mol.snapshot();
+    mol.removeAtom(ring[0]);                       // opens the ring, drops index 0 and two bonds
+    CHECK(mol.ringMembership().isEmpty(), "no ring while the atom is removed");
+    CHECK(mol.restore(snap), "restore succeeds");
+    QList<EditableMolecule::RingMembership> rings = mol.ringMembership();
+    CHECK(rings.size() == 1, "the ring is back after restore");
+    CHECK(rings.size() == 1 && rings[0].atoms.size() == 6 && rings[0].bonds.size() == 6,
+          "ringMembership reports all 6 atoms and 6 bonds of the restored ring");
+    CHECK(rings.size() == 1 && rings[0].atoms.contains(ring[0]),
+          "the restored atom is reported under its original id");
+}
+
 static void test_atomStereoDescriptorStorage() {
     std::printf("--- Test: setAtomStereoDescriptor / getters ---\n");
     EditableMolecule mol;
@@ -2138,6 +2196,8 @@ int main() {
     test_createSuperatomFromAtoms();
     test_atomIdsInIndigoOrder();
     test_bondIdsInIndigoOrder();
+    test_idsSurviveRemovalAfterIndexReuse();
+    test_restoreRebuildsReverseIndexMaps();
     test_atomStereoDescriptorStorage();
     test_bondStereoCipLabelStorage();
     test_checkWarningTextSetters();

@@ -862,8 +862,12 @@ QList<BondId> EditableMolecule::bondIds() const {
 
 void EditableMolecule::rebuildIndexTables() {
     activateSession();
+    // Pair survivors with Indigo's live indices by their PREVIOUS index order, not by id
+    // order: Indigo hands a freed index to the next add, so a newer id can sit on a lower
+    // index than an older one, and pairing sorted ids with sorted indices would then swap
+    // which atom/bond each id addresses.
     QList<AtomId> aIds = m_atomIdx.keys();
-    std::sort(aIds.begin(), aIds.end());
+    std::sort(aIds.begin(), aIds.end(), [this](AtomId l, AtomId r) { return m_atomIdx.value(l) < m_atomIdx.value(r); });
     QList<int> aIdx;
     int iter = indigoIterateAtoms(m_mol);
     if (iter >= 0) {
@@ -878,7 +882,7 @@ void EditableMolecule::rebuildIndexTables() {
     for (auto it = m_atomIdx.constBegin(); it != m_atomIdx.constEnd(); ++it) m_idxToAtom.insert(it.value(), it.key());
 
     QList<BondId> bIds = m_bondIdx.keys();
-    std::sort(bIds.begin(), bIds.end());
+    std::sort(bIds.begin(), bIds.end(), [this](BondId l, BondId r) { return m_bondIdx.value(l) < m_bondIdx.value(r); });
     QList<int> bIdx;
     iter = indigoIterateBonds(m_mol);
     if (iter >= 0) {
@@ -1098,6 +1102,12 @@ bool EditableMolecule::restore(const MoleculeSnapshot& snap) {
     m_ext = snap.m_ext;
     m_atomIdx = snap.m_atomIdx;
     m_bondIdx = snap.m_bondIdx;
+    // The index->id maps are derived state and are not stored in the snapshot; rebuild
+    // them, or ringMembership() keeps resolving through the pre-restore layout.
+    m_idxToAtom.clear();
+    for (auto it = m_atomIdx.constBegin(); it != m_atomIdx.constEnd(); ++it) m_idxToAtom.insert(it.value(), it.key());
+    m_idxToBond.clear();
+    for (auto it = m_bondIdx.constBegin(); it != m_bondIdx.constEnd(); ++it) m_idxToBond.insert(it.value(), it.key());
     if (snap.m_nextAtomId > m_nextAtomId) m_nextAtomId = snap.m_nextAtomId;
     if (snap.m_nextBondId > m_nextBondId) m_nextBondId = snap.m_nextBondId;
     m_sgroupIdx = snap.m_sgroupIdx;
