@@ -14293,7 +14293,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
         int metalCount3 = 0;
         int metalIndex3 = -1;
         int halideCount3 = 0;
-        int halideIndices3[2] = {-1, -1};
+        int halideIndices3[3] = {-1, -1, -1};
 
         if (info0.type == METAL3) { metalCount3++; metalIndex3 = 0; }
         if (info1.type == METAL3) { metalCount3++; metalIndex3 = 1; }
@@ -14333,7 +14333,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
         // Check: exactly one metal component and two non-metal components
         int metalCount = 0;
         int metalIndex = -1;
-        int nonMetalIndices[2] = {-1, -1};
+        int nonMetalIndices[3] = {-1, -1, -1};
         int nonMetalCount = 0;
 
         if (info0.type == METAL3) { metalCount++; metalIndex = 0; }
