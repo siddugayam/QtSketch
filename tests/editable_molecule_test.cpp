@@ -1415,6 +1415,50 @@ static void test_restoreRebuildsReverseIndexMaps() {
           "the restored atom is reported under its original id");
 }
 
+static void test_snapshotTakenWithIndexGapsRestoresCorrectly() {
+    std::printf("--- Test: a snapshot taken after removals still maps every id to its own atom/bond ---\n");
+    // indigoClone renumbers atoms, bonds and superatoms 0..n-1, closing any gap a removal
+    // left. The id tables stored with the clone must follow that renumbering.
+    EditableMolecule mol;
+    AtomId c = mol.addAtom(QStringLiteral("C"), 0, 0);
+    AtomId n = mol.addAtom(QStringLiteral("N"), 1, 0);
+    AtomId o = mol.addAtom(QStringLiteral("O"), 2, 0);
+    AtomId f = mol.addAtom(QStringLiteral("F"), 3, 0);
+    AtomId s = mol.addAtom(QStringLiteral("S"), 4, 0);
+    mol.addBond(c, n, 1);
+    BondId bOF = mol.addBond(o, f, 2);
+    BondId bFS = mol.addBond(f, s, 3);
+    mol.removeAtom(n);                               // leaves an atom gap and a bond gap
+    MoleculeSnapshot snap = mol.snapshot();
+    mol.removeAtom(s);
+    CHECK(mol.restore(snap), "restore succeeds");
+    CHECK(mol.atomCount() == 4 && mol.bondCount() == 2, "4 atoms and 2 bonds are back");
+    CHECK(mol.atomSymbol(c) == QStringLiteral("C") && mol.atomSymbol(o) == QStringLiteral("O") &&
+          mol.atomSymbol(f) == QStringLiteral("F") && mol.atomSymbol(s) == QStringLiteral("S"),
+          "every atom id resolves to its own element");
+    AtomId ea = -1, eb = -1;
+    CHECK(mol.bondOrder(bOF) == 2 && mol.bondEndpoints(bOF, ea, eb) && ((ea == o && eb == f) || (ea == f && eb == o)),
+          "the O=F bond id resolves to its own bond");
+    CHECK(mol.bondOrder(bFS) == 3 && mol.bondEndpoints(bFS, ea, eb) && ((ea == f && eb == s) || (ea == s && eb == f)),
+          "the F#S bond id resolves to its own bond");
+
+    // Same for superatoms: remove the first of two, snapshot, restore.
+    EditableMolecule m2;
+    AtomId a1 = m2.addAtom(QStringLiteral("C"), 0, 0);
+    AtomId a2 = m2.addAtom(QStringLiteral("C"), 1, 0);
+    AtomId a3 = m2.addAtom(QStringLiteral("C"), 2, 0);
+    m2.addBond(a1, a2, 1);
+    m2.addBond(a2, a3, 1);
+    SGroupId sg1 = m2.createSuperatomFromAtoms({a1});
+    SGroupId sg2 = m2.createSuperatomFromAtoms({a3});
+    m2.removeSuperatomOnly(sg1);
+    MoleculeSnapshot snap2 = m2.snapshot();
+    CHECK(m2.restore(snap2), "restore with a superatom gap succeeds");
+    QList<AtomId> members = m2.sgroupMemberAtomIds(sg2);
+    CHECK(m2.sgroupIds().size() == 1 && members.size() == 1 && members.contains(a3),
+          "the surviving superatom id still resolves to its own group");
+}
+
 static void test_atomStereoDescriptorStorage() {
     std::printf("--- Test: setAtomStereoDescriptor / getters ---\n");
     EditableMolecule mol;
@@ -2198,6 +2242,7 @@ int main() {
     test_bondIdsInIndigoOrder();
     test_idsSurviveRemovalAfterIndexReuse();
     test_restoreRebuildsReverseIndexMaps();
+    test_snapshotTakenWithIndexGapsRestoresCorrectly();
     test_atomStereoDescriptorStorage();
     test_bondStereoCipLabelStorage();
     test_checkWarningTextSetters();

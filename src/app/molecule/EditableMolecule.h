@@ -412,6 +412,18 @@ public:
     MoleculeSnapshot snapshot() const;
     bool restore(const MoleculeSnapshot&);
 
+    // The "next id to hand out" value of every id family. DocumentState rewinds these
+    // before re-running a command on redo, so the command hands out the same ids it did
+    // the first time and the history steps recorded after it still address its entities.
+    // Not for general use: lowering a counter is only safe when nothing alive holds an id
+    // at or above it, which is exactly the state undo leaves behind.
+    struct IdCounters {
+        AtomId atom; BondId bond; SGroupId sgroup; TextId text; RxnArrowId rxnArrow;
+        RxnPlusId rxnPlus; MultitailArrowId multitailArrow; ImageId image;
+    };
+    IdCounters idCounters() const;
+    void setIdCounters(const IdCounters& counters);
+
     // Re-expresses fuseOverlappingAtoms (10-state.js:179-228) in terms Indigo
     // actually supports: Indigo has no "reassign a bond's endpoints" API, so a
     // coincident-atom merge is done as capture-incident-bonds, try to create

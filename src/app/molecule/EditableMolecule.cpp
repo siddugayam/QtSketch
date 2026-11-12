@@ -1082,13 +1082,43 @@ MoleculeSnapshot EditableMolecule::snapshot() const {
     s.m_clone = indigoClone(m_mol);
     s.m_session = m_session;
     s.m_ext = m_ext;
-    s.m_atomIdx = m_atomIdx;
-    s.m_bondIdx = m_bondIdx;
+    // indigoClone renumbers atoms, bonds and sgroups, closing every gap a removal left
+    // behind while keeping their order (confirmed by direct probe); the live molecule
+    // keeps its gaps. The tables stored with the clone must therefore hold each entity's
+    // index IN THE CLONE -- copying the live tables verbatim made every id past the first
+    // gap resolve to the wrong entity (or to none) after restore(). Walk the live molecule
+    // and the clone side by side and pair the k-th item of one with the k-th of the other;
+    // reading the clone's own indices keeps this right for superatoms too, whose index is
+    // shared with every other sgroup type.
+    auto liveToClone = [](int liveIter, int cloneIter) {
+        QHash<int, int> map;
+        int a = 0, b = 0;
+        while (liveIter >= 0 && cloneIter >= 0 &&
+               (a = indigoNext(liveIter)) > 0 && (b = indigoNext(cloneIter)) > 0) {
+            map.insert(indigoIndex(a), indigoIndex(b));
+            indigoFree(a); indigoFree(b);
+            a = b = 0;
+        }
+        if (a > 0) indigoFree(a);
+        if (liveIter >= 0) indigoFree(liveIter);
+        if (cloneIter >= 0) indigoFree(cloneIter);
+        return map;
+    };
+    auto remap = [](const QHash<int, int>& idToIdx, const QHash<int, int>& map) {
+        QHash<int, int> out;
+        for (auto it = idToIdx.constBegin(); it != idToIdx.constEnd(); ++it)
+            if (map.contains(it.value())) out.insert(it.key(), map.value(it.value()));
+        return out;
+    };
+    s.m_atomIdx = remap(m_atomIdx, liveToClone(indigoIterateAtoms(m_mol), indigoIterateAtoms(s.m_clone)));
+    s.m_bondIdx = remap(m_bondIdx, liveToClone(indigoIterateBonds(m_mol), indigoIterateBonds(s.m_clone)));
     s.m_nextAtomId = m_nextAtomId;
     s.m_nextBondId = m_nextBondId;
-    s.m_sgroupIdx = m_sgroupIdx;
+    s.m_sgroupIdx = remap(m_sgroupIdx, liveToClone(indigoIterateSuperatoms(m_mol), indigoIterateSuperatoms(s.m_clone)));
     s.m_sgroupExpanded = m_sgroupExpanded;
     s.m_nextSGroupId = m_nextSGroupId;
+    s.m_sgroupLabels = m_sgroupLabels;
+    s.m_ezWasSpecified = m_ezWasSpecified;
     return s;
 }
 
@@ -1113,7 +1143,20 @@ bool EditableMolecule::restore(const MoleculeSnapshot& snap) {
     m_sgroupIdx = snap.m_sgroupIdx;
     m_sgroupExpanded = snap.m_sgroupExpanded;
     if (snap.m_nextSGroupId > m_nextSGroupId) m_nextSGroupId = snap.m_nextSGroupId;
+    m_sgroupLabels = snap.m_sgroupLabels;
+    m_ezWasSpecified = snap.m_ezWasSpecified;
     return true;
+}
+
+EditableMolecule::IdCounters EditableMolecule::idCounters() const {
+    return { m_nextAtomId, m_nextBondId, m_nextSGroupId, m_ext.nextTextId, m_ext.nextRxnArrowId,
+             m_ext.nextRxnPlusId, m_ext.nextMultitailArrowId, m_ext.nextImageId };
+}
+
+void EditableMolecule::setIdCounters(const IdCounters& c) {
+    m_nextAtomId = c.atom; m_nextBondId = c.bond; m_nextSGroupId = c.sgroup;
+    m_ext.nextTextId = c.text; m_ext.nextRxnArrowId = c.rxnArrow; m_ext.nextRxnPlusId = c.rxnPlus;
+    m_ext.nextMultitailArrowId = c.multitailArrow; m_ext.nextImageId = c.image;
 }
 
 QList<BondId> EditableMolecule::graftAtomOnto(AtomId doomed, AtomId kept) {

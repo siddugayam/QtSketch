@@ -9,6 +9,8 @@
 
 #include "ExtensionData.h"
 #include <QHash>
+#include <QMap>
+#include <QString>
 
 class EditableMolecule;
 
@@ -26,6 +28,8 @@ public:
             m_sgroupIdx = std::move(other.m_sgroupIdx);
             m_sgroupExpanded = std::move(other.m_sgroupExpanded);
             m_nextSGroupId = other.m_nextSGroupId;
+            m_sgroupLabels = std::move(other.m_sgroupLabels);
+            m_ezWasSpecified = std::move(other.m_ezWasSpecified);
             other.m_clone = -1;
         }
         return *this;
@@ -51,6 +55,8 @@ private:
     QHash<int, int> m_sgroupIdx;
     QHash<int, bool> m_sgroupExpanded;
     int m_nextSGroupId = 1;
+    QHash<int, QString> m_sgroupLabels;
+    QMap<int, int> m_ezWasSpecified;
 };
 
 #endif // MOLECULESNAPSHOT_H
