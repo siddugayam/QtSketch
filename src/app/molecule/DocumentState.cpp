@@ -271,6 +271,10 @@ void DocumentState::markClean() {
     m_dirty = false;
 }
 
+void DocumentState::markDirty() {
+    m_dirty = true;
+}
+
 void DocumentState::clearHistory() {
     m_history.clear();
     m_historyPointer = -1;

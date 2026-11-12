@@ -462,12 +462,7 @@ void V8Process::requestStructure(const QString& fmt, const QString& reqId) {
     // listens for structureReady to actually write the file to disk. Emitting
     // structureReady synchronously here is what makes save-to-file work; this exactly
     // matches how getStructure() itself already works.
-    if (fmt == "mol") {
-        StringResult r = m_docState->molecule().toMolfile();
-        emit structureReady(reqId, r.success ? r.value : QString());
-    } else {
-        emit structureReady(reqId, QString()); // only molfile export is in scope for this pilot
-    }
+    emit structureReady(reqId, getStructure(fmt));
 }
 void V8Process::requestSelectionStructure(const QString& reqId) {
     m_docClipboardMol = m_docState->copySelection();
@@ -489,9 +484,16 @@ void V8Process::requestMolfileForNamingSelection(const QString& reqId) {
     emit structureReady(reqId, m_docState->copySelection());
 }
 QString V8Process::getStructure(const QString& fmt) {
-    if (fmt != "mol") return QString(); // only molfile export is in scope for this pilot
+    if (fmt == "ket") return m_docState->molecule().toKetJson();
+    if (fmt != "mol" && fmt != "sdf") return QString();
     StringResult r = m_docState->molecule().toMolfile();
-    return r.success ? r.value : QString();
+    if (!r.success) return QString();
+    if (fmt == "sdf") {
+        QString out = r.value;
+        if (!out.endsWith('\n')) out += '\n';
+        return out + QStringLiteral("$$$$\n");
+    }
+    return r.value;
 }
 QString V8Process::serializeMol() {
     return getStructure("mol");
@@ -1095,6 +1097,12 @@ bool V8Process::loadProject(const QUrl& fileUrl) {
     m_docState->markClean();
     applyLocalState();
     return true;
+}
+
+void V8Process::setDirty(bool dirty) {
+    if (dirty) m_docState->markDirty();
+    else m_docState->markClean();
+    applyLocalState("selectionOnly");
 }
 
 bool V8Process::saveProject(const QUrl& fileUrl) {

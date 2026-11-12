@@ -39,6 +39,7 @@ public:
     // loadBenzene() explicitly does `init(); addBenzeneRing(); _dirty = false`
     // -- a new document pre-populated with the starter benzene is NOT dirty.
     void markClean();
+    void markDirty();
     void clearHistory();
     bool canUndo() const;
     bool canRedo() const;

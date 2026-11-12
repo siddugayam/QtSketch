@@ -43,6 +43,7 @@ Item {
                     win.fileIO.remove(appData + "/recovery/autosave_" + rid + ".ket")
                 } else {
                     if (win.discardRecoveryFiles) win.discardRecoveryFiles()
+                    win.removeOpenAutosaveFiles()
                     win._forceQuit = true
                     Qt.quit()
                 }

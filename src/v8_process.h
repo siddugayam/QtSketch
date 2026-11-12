@@ -160,6 +160,7 @@ public:
     Q_INVOKABLE void requestProjectSerialization(const QString& reqId);
     Q_INVOKABLE bool loadProject(const QUrl& fileUrl);
     Q_INVOKABLE bool saveProject(const QUrl& fileUrl);
+    Q_INVOKABLE void setDirty(bool dirty);
     
     // Get current drawing style as JSON
     Q_INVOKABLE QJsonObject getDrawingStyle() const;

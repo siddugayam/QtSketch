@@ -87,7 +87,6 @@ Item {
                 win.pendingSaveUrl = selectedFile
                 win.setDocFile(DocumentManager.activeDocId, selectedFile)
                 if (win.activeSketch) win.activeSketch.requestStructure(fmt, "save")
-                if (win.activeCanvas) win.activeCanvas.setClean()
             }
         }
     }

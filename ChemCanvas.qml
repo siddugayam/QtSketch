@@ -343,6 +343,7 @@ Item {
     }
 
     function setClean() {
+        sketch.setDirty(false)
         isDirty = false
     }
 
