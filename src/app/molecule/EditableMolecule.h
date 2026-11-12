@@ -404,6 +404,11 @@ public:
     // API applied to a double bond's own atoms -- this accessor is atom-only, matching Indigo's
     // own "does not represent an atom" rejection of a bond handle.
     int atomCipDescriptor(AtomId id) const;
+    // Same descriptor for every atom from ONE CIP computation. Callers that need more than
+    // one atom's value (the render-primitive builder asks for all of them on every refresh)
+    // must use this: the per-atom accessor above re-runs the whole-molecule CIP calculation
+    // on each call.
+    QHash<AtomId, int> allAtomCipDescriptors() const;
     QMap<BondId, QString> allBondCipLabels() const;
 
     int addDataSGroup(const QList<AtomId>& atoms, const QString& description, const QString& data);

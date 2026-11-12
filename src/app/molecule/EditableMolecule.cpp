@@ -1684,17 +1684,36 @@ int EditableMolecule::bondStereoDirectionV2000(BondId id) const {
 
 int EditableMolecule::atomCipDescriptor(AtomId id) const {
     if (m_mol < 0 || !m_atomIdx.contains(id)) return 0;
+    return allAtomCipDescriptors().value(id, 0);
+}
+
+QHash<AtomId, int> EditableMolecule::allAtomCipDescriptors() const {
+    QHash<AtomId, int> result;
+    if (m_mol < 0) return result;
     activateSession();
-    int idx = m_atomIdx.value(id);
     int clone = indigoClone(m_mol);
-    if (clone < 0) return 0;
-    if (indigoAddCIPStereoDescriptors(clone) < 0) { indigoFree(clone); return 0; }
-    int a = indigoGetAtom(clone, idx);
-    if (a < 0) { indigoFree(clone); return 0; }
-    int cip = indigoStereocenterCIPDescriptor(a);
-    indigoFree(a);
+    if (clone < 0) return result;
+    if (indigoAddCIPStereoDescriptors(clone) < 0) { indigoFree(clone); return result; }
+    // indigoClone renumbers atoms 0..n-1 in their existing order, so an atom's index in the
+    // clone is NOT its live index once a removal has left a gap (see snapshot()). Walk both
+    // molecules side by side instead of looking the live index up in the clone, which put
+    // each descriptor on the next atom along.
+    int liveIter = indigoIterateAtoms(m_mol);
+    int cloneIter = indigoIterateAtoms(clone);
+    int live = 0, copy = 0;
+    while (liveIter >= 0 && cloneIter >= 0 &&
+           (live = indigoNext(liveIter)) > 0 && (copy = indigoNext(cloneIter)) > 0) {
+        const AtomId id = m_idxToAtom.value(indigoIndex(live), -1);
+        const int cip = indigoStereocenterCIPDescriptor(copy);
+        if (id != -1) result.insert(id, cip > 0 ? cip : 0);
+        indigoFree(live); indigoFree(copy);
+        live = copy = 0;
+    }
+    if (live > 0) indigoFree(live);
+    if (liveIter >= 0) indigoFree(liveIter);
+    if (cloneIter >= 0) indigoFree(cloneIter);
     indigoFree(clone);
-    return cip > 0 ? cip : 0;
+    return result;
 }
 
 QMap<BondId, QString> EditableMolecule::allBondCipLabels() const {
@@ -1724,11 +1743,33 @@ QMap<BondId, QString> EditableMolecule::allBondCipLabels() const {
 
     if (mol < 0) return result;
 
+    // bondCip is keyed by atom numbers in the molecule re-read from KET, not by live Indigo
+    // indices. KET stores each connected fragment as its own block, so the re-read molecule
+    // lists fragment 0's atoms first, then fragment 1's, and so on, each in its existing
+    // order with no gaps. Rebuild that numbering here: it differs from the live index once
+    // a removal has left a gap, and from plain index order when fragments interleave.
+    QHash<AtomId, int> position;
+    {
+        QMap<int, QList<AtomId>> byFragment;   // fragment index -> its atoms, ascending live index
+        int iter = indigoIterateAtoms(m_mol);
+        if (iter >= 0) {
+            int a;
+            while ((a = indigoNext(iter)) > 0) {
+                const AtomId aid = m_idxToAtom.value(indigoIndex(a), -1);
+                if (aid != -1) byFragment[indigoComponentIndex(a)].append(aid);
+                indigoFree(a);
+            }
+            indigoFree(iter);
+        }
+        for (const QList<AtomId>& fragment : byFragment)
+            for (AtomId aid : fragment) position.insert(aid, position.size());
+    }
+
     for (BondId bid : bondIds()) {
         AtomId a1 = -1, a2 = -1;
         if (!bondEndpoints(bid, a1, a2)) continue;
-        if (!m_atomIdx.contains(a1) || !m_atomIdx.contains(a2)) continue;
-        int i1 = m_atomIdx.value(a1), i2 = m_atomIdx.value(a2);
+        if (!position.contains(a1) || !position.contains(a2)) continue;
+        int i1 = position.value(a1), i2 = position.value(a2);
         auto it = bondCip.find({std::min(i1, i2), std::max(i1, i2)});
         if (it != bondCip.end()) result[bid] = QString(it->second);
     }
