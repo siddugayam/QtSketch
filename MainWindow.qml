@@ -2238,11 +2238,6 @@ ApplicationWindow {
     }
 
     Shortcut {
-        sequence: "Ctrl+R"
-        onActivated: rgroupPanel.open()
-    }
-
-    Shortcut {
         sequence: "Ctrl+N"
         onActivated: DocumentManager.addDocument()
     }
