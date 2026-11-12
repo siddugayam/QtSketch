@@ -3,6 +3,7 @@
 // and load validation (regression coverage for the data-integrity bugs
 // found by the five-phase QtSketch review and fixed in this pass).
 #include <cstdio>
+#include <cmath>
 #include <QDir>
 #include <QFile>
 #include <QTemporaryDir>
@@ -128,6 +129,34 @@ static void test_loadRejectsUnsupportedVersion() {
     CHECK(!err.isEmpty(), "load reports an error for an unsupported future version");
 }
 
+static void test_loadIgnoresNonPositiveScaleValues() {
+    std::printf("--- Test: load keeps usable style values when the file holds zero/negative ones ---\n");
+    // bondLength and modelToMmScale are divisors downstream (style rescale, page bounds,
+    // export scale); a zero from a damaged or hand-edited file must not reach them.
+    const char* files[] = {
+        "{\"formatVersion\": 1, \"chemistry\": {\"molfile\": \"\"}, \"drawingStyle\": {\"bondLength\": 0}}",
+        "{\"formatVersion\": 1, \"chemistry\": {\"molfile\": \"\"}, \"drawingStyle\": {\"bondLength\": -2}, \"modelToMmScale\": 0}",
+        "{\"formatVersion\": 1, \"chemistry\": {\"molfile\": \"\"}, \"drawingStyle\": {\"bondLength\": 1.5}, \"modelToMmScale\": -1}",
+    };
+    for (const char* content : files) {
+        QTemporaryDir dir;
+        QString path = dir.filePath("badscale.qtsketch");
+        QFile f(path);
+        f.open(QIODevice::WriteOnly);
+        f.write(content);
+        f.close();
+
+        EditableMolecule mol;
+        DrawingStyle style;
+        PageSettings page;
+        QString err = ProjectFile::loadProject(path, mol, style, page);
+        CHECK(err.isEmpty(), "the file still loads");
+        CHECK(style.bondLength > 0.0, "bondLength stays positive");
+        CHECK(std::isfinite(style.modelToMmScale) && style.modelToMmScale > 0.0,
+              "modelToMmScale stays finite and positive");
+    }
+}
+
 int main() {
     std::printf("Running ProjectFile tests...\n");
     test_saveLoadRoundTrip();
@@ -136,6 +165,7 @@ int main() {
     test_loadRejectsMissingChemistry();
     test_loadRejectsCorruptMolfile();
     test_loadRejectsUnsupportedVersion();
+    test_loadIgnoresNonPositiveScaleValues();
     std::printf("Summary: %d passed, %d failed.\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

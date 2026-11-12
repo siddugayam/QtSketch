@@ -4486,7 +4486,25 @@ static void test_singleEntityDeleteRedoAfterUndo() {
     }
 }
 
+static void test_applyDrawingStyleWithRescaleRejectsNonPositiveBondLength() {
+    std::printf("--- Test: applyDrawingStyleWithRescale ignores a zero/negative bond length ---\n");
+    DocumentState doc;
+    AtomId a = doc.addAtom(QStringLiteral("C"), 0, 0);
+    AtomId b = doc.addAtom(QStringLiteral("C"), 1.5, 0);
+    for (double bad : {0.0, -1.5}) {
+        DrawingStyle s = doc.drawingStyle();
+        s.bondLength = bad;
+        doc.applyDrawingStyleWithRescale(s);
+        double ax = 0, ay = 0, bx = 0, by = 0;
+        doc.molecule().atomPos(a, ax, ay);
+        doc.molecule().atomPos(b, bx, by);
+        CHECK(std::abs((bx - ax) - 1.5) < 1e-6 && std::abs(by - ay) < 1e-6, "atom positions are left alone");
+        CHECK(doc.drawingStyle().bondLength == 1.5, "the document keeps its previous bond length");
+    }
+}
+
 int main() {
+    test_applyDrawingStyleWithRescaleRejectsNonPositiveBondLength();
     test_singleEntityDeleteRedoAfterUndo();
     test_selectionStateBasics();
     test_editCommandBasics();

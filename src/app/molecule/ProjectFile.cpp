@@ -1,6 +1,7 @@
 // src/app/molecule/ProjectFile.cpp
 #include "ProjectFile.h"
 #include "EditableMolecule.h"
+#include <cmath>
 #include <QFile>
 #include <QSaveFile>
 #include <QJsonDocument>
@@ -436,8 +437,13 @@ bool ProjectFile::fromJson(const QJsonObject& json,
     // Load drawing style
     if (json.contains(kDrawingStyle)) {
         QJsonObject style = json[kDrawingStyle].toObject();
+        // bondLength and modelToMmScale are divisors downstream (style rescale, page
+        // bounds, export scale). A zero, negative or non-numeric value from a damaged
+        // file keeps the value already in drawingStyle rather than poisoning those
+        // with inf/NaN.
         if (style.contains(kBondLength)) {
-            drawingStyle.bondLength = style[kBondLength].toDouble();
+            const double v = style[kBondLength].toDouble();
+            if (std::isfinite(v) && v > 0.0) drawingStyle.bondLength = v;
         }
         if (style.contains(kLineWidth)) {
             drawingStyle.lineWidth = style[kLineWidth].toDouble();
@@ -453,10 +459,11 @@ bool ProjectFile::fromJson(const QJsonObject& json,
         }
         
         // Compute modelToMmScale
-        if (json.contains(kModelToMmScale)) {
-            drawingStyle.modelToMmScale = json[kModelToMmScale].toDouble();
+        const double fileScale = json.contains(kModelToMmScale) ? json[kModelToMmScale].toDouble() : 0.0;
+        if (std::isfinite(fileScale) && fileScale > 0.0) {
+            drawingStyle.modelToMmScale = fileScale;
         } else {
-            // Fallback: compute from bondLength
+            // Fallback: compute from bondLength (kept positive above)
             drawingStyle.modelToMmScale = 5.08 / drawingStyle.bondLength;
         }
     }

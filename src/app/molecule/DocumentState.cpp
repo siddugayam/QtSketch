@@ -279,6 +279,11 @@ void DocumentState::setDrawingStyle(const DrawingStyle& style) {
 }
 
 void DocumentState::applyDrawingStyleWithRescale(const DrawingStyle& style) {
+    // The rescale factor is new/old bond length and its inverse is what undo applies: a
+    // zero or negative length would collapse every atom onto the centroid and leave a
+    // zero divisor behind for the next call. Reject it outright.
+    if (!(style.bondLength > 0.0) || !(m_drawingStyle.bondLength > 0.0)) return;
+
     // Check if bond length is changing
     if (m_drawingStyle.bondLength != style.bondLength) {
         // Compute scale factor: new/old bond length ratio
