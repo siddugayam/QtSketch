@@ -26828,6 +26828,13 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
             return {false, "", "bridged fused ring systems (P-25.4) are not yet supported."};
         }
         if (hasP25_5) {
+            FusedRingSystemInput detectedInput = detectFusedRingDirections(mol);
+            if (!detectedInput.ringSizes.empty()) {
+                return {false, "", "ortho- and peri-fused ring systems with interior atoms require interior-atom numbering (Stage C2), not yet supported."};
+            }
+            if (!detectedInput.error.empty()) {
+                return {false, "", detectedInput.error.c_str()};
+            }
             return {false, "", "three-component ortho- and peri-fused systems (P-25.5) are not yet supported."};
         }
         if (hasPeri) {
@@ -26861,6 +26868,13 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                         return {true, retainedResult->baseName, "", NamingStatus::SystematicIupacName};
                     }
                 }
+            }
+            FusedRingSystemInput detectedInput = detectFusedRingDirections(mol);
+            if (!detectedInput.ringSizes.empty()) {
+                return {false, "", "ortho- and peri-fused ring systems with interior atoms require interior-atom numbering (Stage C2), not yet supported."};
+            }
+            if (!detectedInput.error.empty()) {
+                return {false, "", detectedInput.error.c_str()};
             }
             return {false, "", "ortho- and peri-fused ring systems (P-25.3.1.1.2) are not yet supported."};
         }

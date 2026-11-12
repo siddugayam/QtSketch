@@ -47,6 +47,11 @@ struct ScoreTuple {
 
 std::vector<FusedRingOrientationResult> computeAllPreferredOrientations(const FusedRingSystemInput &input) {
     FusedRingOrientationResult res;
+    if (!input.error.empty()) {
+        res.success = false;
+        res.error = input.error;
+        return {res};
+    }
     if (input.ringSizes.empty()) {
         res.success = true;
         return {res};

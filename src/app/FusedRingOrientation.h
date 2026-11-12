@@ -58,6 +58,7 @@ struct FusedRingEdge {
 struct FusedRingSystemInput {
     std::vector<int> ringSizes; // indexed by ring ID (0 to N-1)
     std::vector<FusedRingEdge> fusions;
+    std::vector<FusedRingEdge> closingFusions;
     std::vector<std::set<int>> ringAtoms;
     // Each ring's own directed cycle (ordered atom sequence), indexed by ring
     // ID, matching the EXACT same (u,v) starting pair and walk direction
@@ -75,6 +76,7 @@ struct FusedRingSystemInput {
     // of the system, an atom-order-dependent bug confirmed during the
     // hydro-prefix fused-ring plan's Task 4.
     std::vector<std::vector<int>> ringDirectedCycles;
+    std::string error;
 };
 
 // Returns every orientation that ties for the best P-25.3.2.3 score (within

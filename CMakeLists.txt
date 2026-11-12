@@ -318,7 +318,7 @@ if (MSVC)
 endif()
 add_test(NAME fused_ring_orientation_test COMMAND fused_ring_orientation_test)
 
-qt_add_executable(fused_ring_direction_detector_test tests/fused_ring_direction_detector_test.cpp src/app/FusedRingDirectionDetector.h src/app/FusedRingDirectionDetector.cpp src/app/FusedRingOrientation.h src/app/FusedRingOrientation.cpp)
+qt_add_executable(fused_ring_direction_detector_test tests/fused_ring_direction_detector_test.cpp src/app/FusedRingDirectionDetector.h src/app/FusedRingDirectionDetector.cpp src/app/FusedRingOrientation.h src/app/FusedRingOrientation.cpp src/app/FusedSystemTopology.h src/app/FusedSystemTopology.cpp)
 target_include_directories(fused_ring_direction_detector_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app

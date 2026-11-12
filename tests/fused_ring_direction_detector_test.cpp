@@ -216,6 +216,155 @@ int main() {
             passed++;
         }
     }
+
+    // 10. Cyclic placement accepted: Acenaphthylene (3 rings: 6, 6, 5)
+    cout << "Test: Cyclic placement accepted (Acenaphthylene)" << endl;
+    int mol_acen = indigoLoadMoleculeFromString("c1ccc2cccc3c2c1C=C3");
+    if (mol_acen < 0) {
+        cout << "  FAIL: indigoLoadMoleculeFromString failed for acenaphthylene" << endl;
+        failed++;
+    } else {
+        indigoAromatize(mol_acen);
+        FusedRingSystemInput input_acen = detectFusedRingDirections(mol_acen);
+        indigoFree(mol_acen);
+        if (input_acen.ringSizes.size() != 3) {
+            cout << "  FAIL: Expected 3 rings for acenaphthylene, got " << input_acen.ringSizes.size() << endl;
+            failed++;
+        } else if (input_acen.fusions.size() != 2) {
+            cout << "  FAIL: Expected 2 spanning fusions for acenaphthylene, got " << input_acen.fusions.size() << endl;
+            failed++;
+        } else {
+            auto orient = computePreferredOrientation(input_acen);
+            if (!orient.success) {
+                cout << "  FAIL: computePreferredOrientation failed for acenaphthylene: " << orient.error << endl;
+                failed++;
+            } else {
+                cout << "  PASS: Acenaphthylene cyclic placement accepted" << endl;
+                passed++;
+            }
+        }
+    }
+
+    // 11. Cyclic placement accepted: 9bH-Phenalene (3 rings: 6, 6, 6)
+    cout << "Test: Cyclic placement accepted (9bH-Phenalene)" << endl;
+    int mol_phen = indigoLoadMoleculeFromString("C1=CC2=CC=CC3=CC=CC(=C1)C23");
+    if (mol_phen < 0) {
+        cout << "  FAIL: indigoLoadMoleculeFromString failed for 9bH-phenalene" << endl;
+        failed++;
+    } else {
+        indigoAromatize(mol_phen);
+        FusedRingSystemInput input_phen = detectFusedRingDirections(mol_phen);
+        indigoFree(mol_phen);
+        if (input_phen.ringSizes.size() != 3) {
+            cout << "  FAIL: Expected 3 rings for 9bH-phenalene, got " << input_phen.ringSizes.size() << endl;
+            failed++;
+        } else if (input_phen.fusions.size() != 2) {
+            cout << "  FAIL: Expected 2 spanning fusions for 9bH-phenalene, got " << input_phen.fusions.size() << endl;
+            failed++;
+        } else {
+            auto orient = computePreferredOrientation(input_phen);
+            if (!orient.success) {
+                cout << "  FAIL: computePreferredOrientation failed for 9bH-phenalene: " << orient.error << endl;
+                failed++;
+            } else {
+                cout << "  PASS: 9bH-Phenalene cyclic placement accepted" << endl;
+                passed++;
+            }
+        }
+    }
+
+    // 12. Cyclic placement accepted: Pyrene (4 rings: 6, 6, 6, 6)
+    cout << "Test: Cyclic placement accepted (Pyrene)" << endl;
+    int mol_pyr = indigoLoadMoleculeFromString("c1cc2ccc3cccc4ccc(c1)c2c34");
+    if (mol_pyr < 0) {
+        cout << "  FAIL: indigoLoadMoleculeFromString failed for pyrene" << endl;
+        failed++;
+    } else {
+        indigoAromatize(mol_pyr);
+        FusedRingSystemInput input_pyr = detectFusedRingDirections(mol_pyr);
+        indigoFree(mol_pyr);
+        if (input_pyr.ringSizes.size() != 4) {
+            cout << "  FAIL: Expected 4 rings for pyrene, got " << input_pyr.ringSizes.size() << endl;
+            failed++;
+        } else if (input_pyr.fusions.size() != 3) {
+            cout << "  FAIL: Expected 3 spanning fusions for pyrene, got " << input_pyr.fusions.size() << endl;
+            failed++;
+        } else {
+            auto orient = computePreferredOrientation(input_pyr);
+            if (!orient.success) {
+                cout << "  FAIL: computePreferredOrientation failed for pyrene: " << orient.error << endl;
+                failed++;
+            } else {
+                cout << "  PASS: Pyrene cyclic placement accepted" << endl;
+                passed++;
+            }
+        }
+    }
+
+    // 13. Geometrically inconsistent cyclic rejection: 6-6-3 peri-cycle (naphtho[1,8-bc]cyclopropene)
+    cout << "Test: Geometrically-inconsistent cyclic rejection (6-6-3 peri-cycle)" << endl;
+    int mol_inconsistent = indigoLoadMoleculeFromString("c1ccc2cccc3c2c13");
+    if (mol_inconsistent < 0) {
+        cout << "  FAIL: indigoLoadMoleculeFromString failed for inconsistent fixture" << endl;
+        failed++;
+    } else {
+        indigoAromatize(mol_inconsistent);
+        FusedRingSystemInput input_inconsistent = detectFusedRingDirections(mol_inconsistent);
+        indigoFree(mol_inconsistent);
+        if (input_inconsistent.ringSizes.empty() && !input_inconsistent.error.empty()) {
+            cout << "  PASS: Geometrically-inconsistent cyclic fixture cleanly rejected: " << input_inconsistent.error << endl;
+            passed++;
+        } else {
+            cout << "  FAIL: Expected rejection for geometrically-inconsistent fixture, got ringSizes.size()="
+                 << input_inconsistent.ringSizes.size() << endl;
+            failed++;
+        }
+    }
+
+    // 14. Pyrene atom-order invariance regression test: both SMILES orderings must produce identical results
+    cout << "Test: Pyrene atom-order invariance regression" << endl;
+    int mol_pyr1 = indigoLoadMoleculeFromString("c1cc2ccc3cccc4ccc(c1)c2c34");
+    int mol_pyr2 = indigoLoadMoleculeFromString("C1=CC2=C3C1=CC=C4C3=C(C=C2)C=C4");
+    if (mol_pyr1 < 0 || mol_pyr2 < 0) {
+        cout << "  FAIL: indigoLoadMoleculeFromString failed for pyrene orderings" << endl;
+        failed++;
+        if (mol_pyr1 >= 0) indigoFree(mol_pyr1);
+        if (mol_pyr2 >= 0) indigoFree(mol_pyr2);
+    } else {
+        indigoAromatize(mol_pyr1);
+        indigoAromatize(mol_pyr2);
+        FusedRingSystemInput input1 = detectFusedRingDirections(mol_pyr1);
+        FusedRingSystemInput input2 = detectFusedRingDirections(mol_pyr2);
+        indigoFree(mol_pyr1);
+        indigoFree(mol_pyr2);
+
+        bool ok = true;
+        if (input1.ringSizes.size() != 4 || input2.ringSizes.size() != 4) {
+            cout << "  FAIL: Expected 4 rings for both orderings, got "
+                 << input1.ringSizes.size() << " and " << input2.ringSizes.size() << endl;
+            ok = false;
+        }
+        if (input1.error != input2.error) {
+            cout << "  FAIL: Error string mismatch: '" << input1.error << "' vs '" << input2.error << "'" << endl;
+            ok = false;
+        }
+        if (input1.fusions.size() != 3 || input2.fusions.size() != 3) {
+            cout << "  FAIL: Expected 3 spanning fusions for both orderings, got "
+                 << input1.fusions.size() << " and " << input2.fusions.size() << endl;
+            ok = false;
+        }
+        if (input1.closingFusions.empty() || input2.closingFusions.empty()) {
+            cout << "  FAIL: Expected closingFusions populated for both orderings, got "
+                 << input1.closingFusions.size() << " and " << input2.closingFusions.size() << endl;
+            ok = false;
+        }
+        if (ok) {
+            cout << "  PASS: Both pyrene SMILES orderings produce identical success/ring count/error, closingFusions preserved" << endl;
+            passed++;
+        } else {
+            failed++;
+        }
+    }
     
     cout << "\nTOTAL PASSED: " << passed << endl;
     cout << "TOTAL FAILED: " << failed << endl;

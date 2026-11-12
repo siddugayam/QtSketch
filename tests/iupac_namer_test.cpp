@@ -5251,11 +5251,11 @@ int main() {
         int m = indigoLoadMoleculeFromString("C1=CC2=C3C1=CC=CC3=CC=C2");
         IupacResult r = IupacNamer::generateName(m);
         indigoFree(m);
-        if (!r.success && r.error.contains("ortho- and peri-fused ring systems (P-25.3.1.1.2)")) {
-            std::cout << "[PASS] Acenaphthylene rejected as P-25.3.1.1.2\n";
+        if (!r.success && r.error.contains("ortho- and peri-fused ring systems with interior atoms require interior-atom numbering (Stage C2), not yet supported.")) {
+            std::cout << "[PASS] Acenaphthylene rejected as requiring Stage C2 interior-atom numbering\n";
             passed++;
         } else {
-            std::cout << "[FAIL] Acenaphthylene should reject as P-25.3.1.1.2, got success=" << r.success << " name='" << r.name.toStdString() << "' err='" << r.error.toStdString() << "'\n";
+            std::cout << "[FAIL] Acenaphthylene should reject as Stage C2, got success=" << r.success << " name='" << r.name.toStdString() << "' err='" << r.error.toStdString() << "'\n";
             failed++;
         }
     }
@@ -5264,11 +5264,11 @@ int main() {
         int m = indigoLoadMoleculeFromString("C1=CC2=C3C1=CC=C4C3=C(C=C2)C=C4");
         IupacResult r = IupacNamer::generateName(m);
         indigoFree(m);
-        if (!r.success && r.error.contains("three-component ortho- and peri-fused systems (P-25.5)")) {
-            std::cout << "[PASS] Pyrene rejected as P-25.5\n";
+        if (!r.success && r.error.contains("ortho- and peri-fused ring systems with interior atoms require interior-atom numbering (Stage C2), not yet supported.")) {
+            std::cout << "[PASS] Pyrene rejected as requiring Stage C2 interior-atom numbering\n";
             passed++;
         } else {
-            std::cout << "[FAIL] Pyrene should reject as P-25.5, got success=" << r.success << " name='" << r.name.toStdString() << "' err='" << r.error.toStdString() << "'\n";
+            std::cout << "[FAIL] Pyrene should reject as Stage C2, got success=" << r.success << " name='" << r.name.toStdString() << "' err='" << r.error.toStdString() << "'\n";
             failed++;
         }
     }
