@@ -2,6 +2,7 @@
 #include "SettingsService.h"
 #include "DocumentManager.h"
 #include <QFile>
+#include <QSaveFile>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -340,6 +341,9 @@ void SettingsService::loadPresetsFromStorage() {
     QJsonDocument doc = QJsonDocument::fromJson(data);
     if (!doc.isArray()) {
         qWarning() << "SettingsService: Invalid presets format, using defaults";
+        // keep a copy; the next save overwrites this file
+        QFile::remove(path + ".corrupt");
+        QFile::copy(path, path + ".corrupt");
         // Use defaults
         StylePreset defaultPreset;
         defaultPreset.name = "Default";
@@ -417,11 +421,8 @@ void SettingsService::savePresetsToStorage() {
     }
     
     QJsonDocument doc(array);
-    QFile file(path);
-    if (file.open(QIODevice::WriteOnly)) {
-        file.write(doc.toJson());
-        file.close();
-    } else {
+    QSaveFile file(path);
+    if (!(file.open(QIODevice::WriteOnly) && file.write(doc.toJson()) >= 0 && file.commit())) {
         qWarning() << "SettingsService: Failed to save presets to" << path;
     }
 }
