@@ -43,7 +43,7 @@ QtSketch uses the following third-party components.
 - **Copyright:** © EPAM Systems, Inc.
 - **Note:** Imago v1 was released under GPLv3 before the 2.1 relicense. QtSketch uses a build
   made from the current Apache-2.0 source, per the upstream `LICENSE` and `LICENSE-history`
-  files.
+  files. Imago builds on OpenCV, which is also Apache-2.0.
 
 ## Ketcher (EPAM Systems)
 

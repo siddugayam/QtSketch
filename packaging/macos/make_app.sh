@@ -23,13 +23,13 @@ mkdir -p "$APP/Contents/indigo/data/molecules/basic"
 cp "$ROOT/assets/monomer_library.ket" "$APP/Contents/indigo/data/molecules/basic/"
 cp -R "$ROOT/templates" "$APP/Contents/templates"
 mkdir -p "$APP/Contents/Resources/licenses"
-cp "$ROOT/THIRD-PARTY-NOTICES.md" "$APP/Contents/Resources/licenses/"
+cp "$ROOT/NOTICE" "$ROOT/THIRD-PARTY-NOTICES.md" "$APP/Contents/Resources/licenses/"
 cp "$ROOT/indigo/LICENSE" "$APP/Contents/Resources/licenses/Apache-2.0.txt"
 cp "$ROOT/indigo/LICENCE-InChI" "$APP/Contents/Resources/licenses/InChI-Licence-1.0.txt"
 # Homebrew ships no licence texts. Qt is LGPL-3.0 (which builds on GPL-3.0); GLib and libintl are LGPL-2.1.
-for l in lgpl-3.0 gpl-3.0 lgpl-2.1; do
-    curl -fsSL "https://www.gnu.org/licenses/old-licenses/$l.txt" -o "$APP/Contents/Resources/licenses/$l.txt" 2>/dev/null \
-        || curl -fsSL "https://www.gnu.org/licenses/$l.txt" -o "$APP/Contents/Resources/licenses/$l.txt"
+for l in LGPL-3.0-only GPL-3.0-only LGPL-2.1-only; do
+    curl -fsSL --max-time 60 "https://raw.githubusercontent.com/spdx/license-list-data/main/text/$l.txt" \
+        -o "$APP/Contents/Resources/licenses/$l.txt"
 done
 
 "$MACDEPLOYQT" "$APP" -qmldir="$ROOT" -no-strip >/dev/null 2>&1 || true

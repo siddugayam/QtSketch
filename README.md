@@ -150,5 +150,6 @@ retired and is no longer in the repository.
 
 ## Licence
 
-The repository does not yet state a licence for QtSketch itself. Third-party components and
-their licences are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+QtSketch is licensed under the [Apache License, Version 2.0](LICENSE). See [NOTICE](NOTICE).
+Third-party components and their licences are listed in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
