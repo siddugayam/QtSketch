@@ -1,6 +1,7 @@
 #include "IndigoService.h"
 #include "IupacNamer.h"
 #include "BondStereoPerception.h"
+#include "BioInputGuards.h"
 #include <cmath>
 #include <QDebug>
 #include <QGuiApplication>
@@ -159,7 +160,7 @@ static QString indigoBioExpand(int mol) {
     if (mol < 0) return result;
     indigoExpandMonomers(mol);
     indigoExpandedMonomersToAtoms(mol);
-    indigoLayout(mol);
+    if (indigoLayout(mol) < 0) qWarning() << "Indigo: bio layout failed:" << indigoGetLastError();
     const char* mf = indigoMolfile(mol);
     if (mf) result = QString::fromUtf8(mf);
     indigoFree(mol);
@@ -604,7 +605,9 @@ void IndigoService::hash(const QString &molfile) {
                              : indigoLoadMoleculeFromString(molfile.toUtf8().constData());
             if (obj >= 0) {
                 int64_t h = indigoHash(obj);
-                result = QString::number(h);
+                // Negative means Indigo failed; do not show it as a hash.
+                if (h >= 0) result = QString::number(h);
+                else qWarning() << "Indigo: hash failed:" << indigoGetLastError();
                 indigoFree(obj);
             } else {
                 qWarning() << "Indigo: hash load failed:" << indigoGetLastError();
@@ -639,7 +642,9 @@ void IndigoService::similarity(const QString &molfile, const QString &refSmiles)
                 if (indigoAromatize(mol) < 0) qWarning() << "Indigo: similarity aromatize(mol) failed:" << indigoGetLastError();
                 if (indigoAromatize(ref) < 0) qWarning() << "Indigo: similarity aromatize(ref) failed:" << indigoGetLastError();
                 float sim = indigoSimilarity(mol, ref, "tanimoto");
-                result = QString::number(sim, 'f', 4);
+                // Negative means Indigo failed; do not show it as a score.
+                if (sim >= 0) result = QString::number(sim, 'f', 4);
+                else qWarning() << "Indigo: similarity failed:" << indigoGetLastError();
             } else {
                 qWarning() << "Indigo: similarity load failed:" << indigoGetLastError();
             }
@@ -800,7 +805,7 @@ void IndigoService::exportBatchGridToFile(const QStringList &molfiles, const QUr
                 for (const QString &mf : molfiles) {
                     int mol = indigoLoadMoleculeFromString(mf.toUtf8().constData());
                     if (mol >= 0) {
-                        indigoLayout(mol);
+                        if (indigoLayout(mol) < 0) qWarning() << "Indigo: grid layout failed:" << indigoGetLastError();
                         indigoArrayAdd(arr, mol);
                         loadedMols.append(mol);
                     }
@@ -901,7 +906,7 @@ void IndigoService::parseIndigoBatchFile(const QUrl &fileUrl, const QString &for
                     // must run before serializing, or every atom collapses onto (0,0) and the
                     // batch picker's thumbnail renders as a blank point (same bug class as the
                     // indigoExtractCommonScaffold collapse fixed earlier for scaffold detection).
-                    indigoLayout(item);
+                    if (indigoLayout(item) < 0) qWarning() << "Indigo: batch record layout failed:" << indigoGetLastError();
                     bool isRxn = indigoCountReactants(item) >= 0;
                     const char* text = isRxn ? indigoRxnfile(item) : indigoMolfile(item);
                     if (text) {
@@ -1638,6 +1643,10 @@ void IndigoService::loadBioFasta(const QString &text, const QString &seqType) {
 
 void IndigoService::loadBioHelm(const QString &text) {
     if (text.isEmpty()) return;
+    if (!BioInputGuards::helmIsSafe(text)) {
+        emit biopolymerLoadError("HELM loader: mixtures and alternatives such as (A,G) or (A+C) are not supported.");
+        return;
+    }
     QPointer<IndigoService> self = this;
     (void)QtConcurrent::run([self, text]() {
         QString result; QString err;
@@ -1663,6 +1672,11 @@ void IndigoService::loadBioHelm(const QString &text) {
 
 void IndigoService::loadBioIdt(const QString &text) {
     if (text.isEmpty()) return;
+    QString badChars;
+    if (!BioInputGuards::idtIsSafe(text, badChars)) {
+        emit biopolymerLoadError(QString("IDT loader: Invalid symbols in the sequence: %1 (ambiguity codes are not supported)").arg(badChars));
+        return;
+    }
     QPointer<IndigoService> self = this;
     (void)QtConcurrent::run([self, text]() {
         QString result; QString err;
@@ -1978,7 +1992,7 @@ void IndigoService::decomposeToRGroupsPerMolecule(const QStringList &molfiles, c
                                 if (item < 0) break;
                                 int withR = indigoDecomposedMoleculeWithRGroups(item);
                                 if (withR > 0) {
-                                    indigoLayout(withR);
+                                    if (indigoLayout(withR) < 0) qWarning() << "Indigo: R-group layout failed:" << indigoGetLastError();
                                     const char* mf = indigoMolfile(withR);
                                     if (mf) {
                                         QJsonObject obj;
@@ -2046,10 +2060,15 @@ void IndigoService::rankBySimilarity(const QString &refMolfile, const QStringLis
                     if (mol >= 0) {
                         if (indigoAromatize(mol) < 0) qWarning() << "Indigo: rankBySimilarity aromatize(mol) failed:" << indigoGetLastError();
                         float sim = indigoSimilarity(ref, mol, "tanimoto");
-                        QJsonObject o;
-                        o["index"] = i;
-                        o["score"] = sim;
-                        results.append(o);
+                        // Negative means Indigo failed; leave the record out of the ranking.
+                        if (sim >= 0) {
+                            QJsonObject o;
+                            o["index"] = i;
+                            o["score"] = sim;
+                            results.append(o);
+                        } else {
+                            qWarning() << "Indigo: rankBySimilarity failed for record" << i << ":" << indigoGetLastError();
+                        }
                         indigoFree(mol);
                     }
                 }
@@ -2137,7 +2156,8 @@ void IndigoService::alignBatchToScaffold(const QStringList &molfiles) {
                             if (matcher >= 0) indigoFree(matcher);
 
                             if (!atomIds.isEmpty()) {
-                                indigoAlignAtoms(mol, atomIds.size(), atomIds.data(), desired.data());
+                                if (indigoAlignAtoms(mol, atomIds.size(), atomIds.data(), desired.data()) < 0)
+                                    qWarning() << "Indigo: alignBatchToScaffold align failed for record" << i << ":" << indigoGetLastError();
                             }
                             const char* mf = indigoMolfile(mol);
                             results.append(mf ? QString::fromUtf8(mf) : molfiles[i]);

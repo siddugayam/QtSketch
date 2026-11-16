@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=QtSketch
+Comment=Draw and name chemical structures
+Exec=QtSketch %F
+Icon=qtsketch
+Categories=Science;Chemistry;Education;
+Terminal=false

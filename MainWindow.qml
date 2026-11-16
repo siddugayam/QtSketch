@@ -66,13 +66,13 @@ ApplicationWindow {
                 verticalAlignment: Text.AlignVCenter
             }
             CaptionButton {
-                glyph: ""                       // ChromeMinimize
+                glyph: Theme.icon(0xE921, 0xF05B0)                       // ChromeMinimize
                 Accessible.name: "Minimize"
                 onClicked: window.showMinimized()
             }
             CaptionButton {
                 // ChromeRestore when maximized, ChromeMaximize otherwise
-                glyph: window.visibility === Window.Maximized ? "" : ""
+                glyph: window.visibility === Window.Maximized ? Theme.icon(0xE923, 0xF05B2) : Theme.icon(0xE922, 0xF05AF)
                 Accessible.name: window.visibility === Window.Maximized ? "Restore down" : "Maximize"
                 onClicked: {
                     if (window.visibility === Window.Maximized)
@@ -82,7 +82,7 @@ ApplicationWindow {
                 }
             }
             CaptionButton {
-                glyph: ""                       // ChromeClose
+                glyph: Theme.icon(0xE8BB, 0xF0156)                       // ChromeClose
                 danger: true
                 Accessible.name: "Close"
                 onClicked: window.close()
@@ -236,10 +236,60 @@ ApplicationWindow {
         activeSketch.requestSerialize(op)
     }
 
+    // What to do once a save started from the unsaved-changes prompt lands:
+    // "close" closes _afterSaveDocId, "quit" retries the window close.
+    property string _afterSave: ""
+    property int _afterSaveDocId: -1
+    function continueAfterSave() {
+        const action = _afterSave
+        const docId = _afterSaveDocId
+        cancelAfterSave()
+        if (action === "close") {
+            if (!dirtyDocs[docId]) DocumentManager.closeDocument(docId)
+        } else if (action === "quit") {
+            Qt.callLater(function() { window.close() })
+        }
+    }
+    function cancelAfterSave() {
+        _afterSave = ""
+        _afterSaveDocId = -1
+    }
+
+    // Async Indigo replies carry no document id. Tag each request with the
+    // active document and its edit revision; apply the reply only to that
+    // document and only if it has not changed since.
+    property var _asyncTags: ({})
+    function tagAsync(kind) {
+        const t = _asyncTags
+        t[kind] = activeSketch ? { docId: DocumentManager.activeDocId, rev: activeSketch.editRevision() } : null
+        _asyncTags = t
+    }
+    // Canvas the reply belongs to, or null if that document closed or changed.
+    function asyncTarget(kind, label) {
+        const t = _asyncTags[kind]
+        if (!t) return activeCanvas
+        const sketch = DocumentManager.documentFor(t.docId)
+        let canvas = null
+        if (sketch && sketch.editRevision() === t.rev) {
+            for (let i = 0; i < canvasRepeater.count; i++) {
+                const c = canvasRepeater.itemAt(i)
+                if (c && c.modelData === t.docId) { canvas = c; break }
+            }
+        }
+        if (!canvas && sketch && label) {
+            messageDialogsGroup.workerErrorDialog.errorText =
+                label + ": result discarded because the document changed while it was running. Run it again."
+            messageDialogsGroup.workerErrorDialog.severe = false
+            messageDialogsGroup.workerErrorDialog.open()
+        }
+        return canvas
+    }
+
     // Mark clean only after the write succeeds.
     function finishPlainSave(data) {
         const ok = !!data && fileIO.write(window.pendingSaveUrl, data)
         if (!ok) {
+            cancelAfterSave()
             messageDialogsGroup.workerErrorDialog.errorText =
                 "Save failed: could not write " + window.pendingSaveUrl + ". The document is still unsaved; any existing file at that path was left as it was."
             messageDialogsGroup.workerErrorDialog.severe = true
@@ -251,10 +301,11 @@ ApplicationWindow {
         const rid = DocumentManager.recoveryIdFor(DocumentManager.activeDocId)
         fileIO.remove(appData + "/recovery/autosave_" + rid + ".qtsketch")
         fileIO.remove(appData + "/recovery/autosave_" + rid + ".ket")
+        continueAfterSave()
     }
 
     function saveActive(forceDialog) {
-        if (!activeSketch) return
+        if (!activeSketch) { cancelAfterSave(); return }
         const path = docFilePaths[DocumentManager.activeDocId]
         if (!forceDialog && path) {
             const fileStr = path.toString().toLowerCase()
@@ -276,7 +327,9 @@ ApplicationWindow {
                     const rid = DocumentManager.recoveryIdFor(DocumentManager.activeDocId)
                     fileIO.remove(appData + "/recovery/autosave_" + rid + ".qtsketch")
                     fileIO.remove(appData + "/recovery/autosave_" + rid + ".ket")
+                    continueAfterSave()
                 } else {
+                    cancelAfterSave()
                     messageDialogsGroup.workerErrorDialog.errorText =
                         "Save failed: could not write the project file to " + path + ". The document was not modified on disk; your previous save (if any) is intact."
                     messageDialogsGroup.workerErrorDialog.severe = true
@@ -346,11 +399,16 @@ ApplicationWindow {
         // single blank tab the app opened with) instead of leaving an extra
         // empty tab behind.
         for (let i = 0; i < sortedFiles.length; i++) {
-            if (i > 0) {
-                DocumentManager.addDocument()
-            }
+            const addedId = i > 0 ? DocumentManager.addDocument() : -1
             let path = appData + "/recovery/" + sortedFiles[i]
-            window.loadFromFile(Qt.url("file:///" + path.replace(/\\/g, "/")))
+            const fwd = path.replace(/\\/g, "/")
+            const ok = window.loadFromFile(Qt.url((fwd.startsWith("/") ? "file://" : "file:///") + fwd))
+            // Keep an unreadable or unloadable recovery file for the next launch.
+            if (!ok) {
+                console.warn("Recovery: could not restore", path, "- file kept")
+                if (addedId >= 0) DocumentManager.closeDocument(addedId)
+                continue
+            }
             // Recovered work is unsaved: drop the recovery path and keep the doc dirty.
             delete docFilePaths[DocumentManager.activeDocId]
             delete docTitles[DocumentManager.activeDocId]
@@ -496,6 +554,8 @@ ApplicationWindow {
             close_event.accepted = false
             // Quit, not tab close: drop any stale tab-close id.
             window._pendingCloseDocId = -1
+            // Show the dirty tab the prompt's Save will act on.
+            DocumentManager.activeDocId = item.modelData
             messageDialogsGroup.unsavedChangesDialog.open()
         } else {
             // Clean exit. Only remove the autosave files for documents that
@@ -582,8 +642,9 @@ ApplicationWindow {
                 window.isProcessing = false
                 // IndigoService::layout preserves the structure's original centroid,
                 // so no forced re-centering here -- don't disturb where the user had it.
-                if (newMol && activeCanvas) {
-                    activeCanvas.loadMolfile(newMol)
+                if (newMol) {
+                    const target = window.asyncTarget("layout", "Layout")
+                    if (target) target.loadMolfile(newMol)
                 } else if (error) {
                     messageDialogsGroup.workerErrorDialog.errorText = "Layout: " + error
                     messageDialogsGroup.workerErrorDialog.severe = false
@@ -592,8 +653,9 @@ ApplicationWindow {
             }
             function onCommonScaffoldFinished(result, error) {
                 window.isProcessing = false
-                if (result && activeCanvas) {
-                    activeCanvas.loadMolfile(result)
+                if (result) {
+                    const target = window.asyncTarget("scaffold", "Find Common Scaffold")
+                    if (target) target.loadMolfile(result)
                 } else {
                     messageDialogsGroup.workerErrorDialog.errorText = "Find Common Scaffold: " + (error || "unknown error")
                     messageDialogsGroup.workerErrorDialog.severe = false
@@ -602,8 +664,9 @@ ApplicationWindow {
             }
             function onRgroupDecompositionFinished(result, error) {
                 window.isProcessing = false
-                if (result && activeCanvas) {
-                    activeCanvas.loadMolfile(result)
+                if (result) {
+                    const target = window.asyncTarget("rgroup", "Decompose to R-Groups")
+                    if (target) target.loadMolfile(result)
                 } else {
                     messageDialogsGroup.workerErrorDialog.errorText = "Decompose to R-Groups: " + (error || "unknown error")
                     messageDialogsGroup.workerErrorDialog.severe = false
@@ -647,8 +710,9 @@ ApplicationWindow {
             }
             function onBatchAlignFinished(resultJson, error) {
                 window.isProcessing = false
-                if (resultJson && activeSketch) {
-                    activeSketch.sendCommand("realignSdfBatch", [resultJson])
+                if (resultJson) {
+                    const target = window.asyncTarget("batchAlign", "Align Batch to Common Scaffold")
+                    if (target && target.sketch) target.sketch.sendCommand("realignSdfBatch", [resultJson])
                 } else {
                     messageDialogsGroup.workerErrorDialog.errorText = "Align Batch to Common Scaffold: " + (error || "unknown error")
                     messageDialogsGroup.workerErrorDialog.severe = false
@@ -677,31 +741,38 @@ ApplicationWindow {
             }
             function onClean2dFinished(newMol) {
                 window.isProcessing = false
-                if (newMol && activeCanvas) activeCanvas.loadMolfile(newMol)
+                const target = newMol ? window.asyncTarget("clean2d", "Clean 2D") : null
+                if (target) target.loadMolfile(newMol)
             }
             function onAromatizeFinished(newMol) {
                 window.isProcessing = false
-                if (newMol && activeCanvas) activeCanvas.loadMolfile(newMol)
+                const target = newMol ? window.asyncTarget("aromatize", "Aromatize") : null
+                if (target) target.loadMolfile(newMol)
             }
             function onDearomatizeFinished(newMol) {
                 window.isProcessing = false
-                if (newMol && activeCanvas) activeCanvas.loadMolfile(newMol)
+                const target = newMol ? window.asyncTarget("dearomatize", "Dearomatize") : null
+                if (target) target.loadMolfile(newMol)
             }
             function onUnfoldHydrogensFinished(newMol) {
                 window.isProcessing = false
-                if (newMol && activeCanvas) activeCanvas.loadMolfile(newMol)
+                const target = newMol ? window.asyncTarget("unfoldH", "Add explicit hydrogens") : null
+                if (target) target.loadMolfile(newMol)
             }
             function onFoldHydrogensFinished(newMol) {
                 window.isProcessing = false
-                if (newMol && activeCanvas) activeCanvas.loadMolfile(newMol)
+                const target = newMol ? window.asyncTarget("foldH", "Remove explicit hydrogens") : null
+                if (target) target.loadMolfile(newMol)
             }
             function onNormalizeFinished(newMol) {
                 window.isProcessing = false
-                if (newMol && activeCanvas) activeCanvas.loadMolfile(newMol)
+                const target = newMol ? window.asyncTarget("normalize", "Normalize") : null
+                if (target) target.loadMolfile(newMol)
             }
             function onStandardizeFinished(newMol) {
                 window.isProcessing = false
-                if (newMol && activeCanvas) activeCanvas.loadMolfile(newMol)
+                const target = newMol ? window.asyncTarget("standardize", "Standardize") : null
+                if (target) target.loadMolfile(newMol)
             }
             function onSmilesFinished(smiles) {
                 if (smiles) indigoSvc.copyToClipboard(smiles)
@@ -740,8 +811,9 @@ ApplicationWindow {
             }
             function onReactionMappingFinished(result, error) {
                 window.isProcessing = false
-                if (result && activeCanvas) {
-                    activeCanvas.loadMolfile(result)
+                if (result) {
+                    const target = window.asyncTarget("mapping", "Atom Mapping")
+                    if (target) target.loadMolfile(result)
                 } else {
                     messageDialogsGroup.workerErrorDialog.errorText = "Atom Mapping: " + (error || "unknown error")
                     messageDialogsGroup.workerErrorDialog.severe = false
@@ -750,8 +822,9 @@ ApplicationWindow {
             }
             function onIonizeFinished(result, error) {
                 window.isProcessing = false
-                if (result && activeCanvas) {
-                    activeCanvas.loadMolfile(result)
+                if (result) {
+                    const target = window.asyncTarget("ionize", "Ionize at pH")
+                    if (target) target.loadMolfile(result)
                 } else {
                     messageDialogsGroup.workerErrorDialog.errorText = "Ionize at pH: " + (error || "unknown error")
                     messageDialogsGroup.workerErrorDialog.severe = false
@@ -813,6 +886,9 @@ ApplicationWindow {
                 }
             }
             function onIupacNameReady(name, error) {
+                // Drop a name computed for another tab or an older structure.
+                const target = window.asyncTarget("iupac", "")
+                if (!target || target !== activeCanvas) { name = ""; error = "" }
                 propPanel.iupacLoading = false
                 propPanel.iupacName = name
                 propPanel.iupacError = error
@@ -822,7 +898,8 @@ ApplicationWindow {
             // Biopolymer load
             function onBiopolymerLoaded(molfile) {
                 window.isProcessing = false
-                if (activeCanvas) activeCanvas.loadMolfile(molfile)
+                const target = window.asyncTarget("biopolymer", "Load biopolymer")
+                if (target) target.loadMolfile(molfile)
                 biopolymerDialog.onLoadSuccess()
             }
             function onBiopolymerLoadError(error) {
@@ -885,10 +962,10 @@ ApplicationWindow {
                 render_pdf: (data) => window.exportCurrentDocument(data, "pdf"),
                 render_png: (data) => window.exportCurrentDocument(data, "png"),
                 render_grid: (data) => indigoSvc.renderReactionGridToFile(data, window.pendingRenderUrl, "pdf"),
-                automap: (data) => indigoSvc.autoMapReaction(data),
-                ionize: (data) => indigoSvc.ionizeAtPh(data, window.pendingIonizePh),
-                clear_mapping: (data) => indigoSvc.clearReactionMapping(data),
-                correct_reacting_centers: (data) => indigoSvc.correctReactingCenters(data),
+                automap: (data) => { window.tagAsync("mapping"); indigoSvc.autoMapReaction(data); },
+                ionize: (data) => { window.tagAsync("ionize"); indigoSvc.ionizeAtPh(data, window.pendingIonizePh); },
+                clear_mapping: (data) => { window.tagAsync("mapping"); indigoSvc.clearReactionMapping(data); },
+                correct_reacting_centers: (data) => { window.tagAsync("mapping"); indigoSvc.correctReactingCenters(data); },
                 smiles: (data) => indigoSvc.smiles(data),
                 canonical_smiles: (data) => indigoSvc.canonicalSmiles(data),
                 inchi: (data) => indigoSvc.inchi(data),
@@ -897,16 +974,16 @@ ApplicationWindow {
                 similarity: (data) => indigoSvc.similarity(data, window.pendingSimilarityRef),
                 mass_composition: (data) => indigoSvc.massComposition(data),
                 pka_values: (data) => indigoSvc.pkaValues(data),
-                layout: (data) => { window.isProcessing = true; indigoSvc.layout(data); },
-                clean2d: (data) => { window.isProcessing = true; indigoSvc.clean2d(data); },
-                aromatize: (data) => { window.isProcessing = true; indigoSvc.aromatize(data); },
-                dearomatize: (data) => { window.isProcessing = true; indigoSvc.dearomatize(data); },
-                unfoldH: (data) => { window.isProcessing = true; indigoSvc.unfoldHydrogens(data); },
-                foldH: (data) => { window.isProcessing = true; indigoSvc.foldHydrogens(data); },
-                normalize: (data) => { window.isProcessing = true; indigoSvc.normalize(data); },
-                standardize: (data) => { window.isProcessing = true; indigoSvc.standardize(data); },
+                layout: (data) => { window.isProcessing = true; window.tagAsync("layout"); indigoSvc.layout(data); },
+                clean2d: (data) => { window.isProcessing = true; window.tagAsync("clean2d"); indigoSvc.clean2d(data); },
+                aromatize: (data) => { window.isProcessing = true; window.tagAsync("aromatize"); indigoSvc.aromatize(data); },
+                dearomatize: (data) => { window.isProcessing = true; window.tagAsync("dearomatize"); indigoSvc.dearomatize(data); },
+                unfoldH: (data) => { window.isProcessing = true; window.tagAsync("unfoldH"); indigoSvc.unfoldHydrogens(data); },
+                foldH: (data) => { window.isProcessing = true; window.tagAsync("foldH"); indigoSvc.foldHydrogens(data); },
+                normalize: (data) => { window.isProcessing = true; window.tagAsync("normalize"); indigoSvc.normalize(data); },
+                standardize: (data) => { window.isProcessing = true; window.tagAsync("standardize"); indigoSvc.standardize(data); },
                 check: (data) => indigoSvc.checkStructure(data),
-                iupac_name: (data) => indigoSvc.generateIupacName(data),
+                iupac_name: (data) => { window.tagAsync("iupac"); indigoSvc.generateIupacName(data); },
                 calc_props: (data) => {
                     indigoSvc.calcProperties(data);
                     indigoSvc.calcStereoDescriptors(data);
@@ -965,8 +1042,10 @@ ApplicationWindow {
                             window._pendingBatchGridMolfiles = parsed.molfiles;
                             fileDialogsGroup.batchFileSaveDialog.open();
                         } else if (window._pendingBatchAction === "align") {
+                            window.tagAsync("batchAlign");
                             indigoSvc.alignBatchToScaffold(parsed.molfiles);
                         } else if (window._pendingBatchAction === "decompose") {
+                            window.tagAsync("rgroup");
                             indigoSvc.decomposeToRGroups(parsed.molfiles);
                         } else if (window._pendingBatchAction === "decompose_permolecule") {
                             indigoSvc.decomposeToRGroupsPerMolecule(parsed.molfiles, parsed.labels);
@@ -981,6 +1060,7 @@ ApplicationWindow {
                                 indigoSvc.rankBySimilarity(window.pendingSimilarityRefMolfile, parsed.molfiles);
                             }
                         } else {
+                            window.tagAsync("scaffold");
                             indigoSvc.findCommonScaffold(parsed.molfiles);
                         }
                     } else {
@@ -1100,7 +1180,7 @@ ApplicationWindow {
                             Text {
                                 // Segoe Fluent Icons Dismiss (U+E8BB) -- same glyph the
                                 // window's own Close caption button uses.
-                                text: String.fromCharCode(0xE8BB)
+                                text: Theme.icon(0xE8BB, 0xF0156)
                                 anchors.right: parent ? parent.right : undefined
                                 anchors.verticalCenter: parent ? parent.verticalCenter : undefined
                                 anchors.rightMargin: 8
@@ -1626,8 +1706,7 @@ ApplicationWindow {
                                             target: canvasInstance.sketch
                                             function onStructureReady(reqId, data) {
                                                 if (reqId === "autosave") {
-                                                    // This is for legacy compatibility - new autosave uses requestProjectSerialization
-                                                    // which is handled by the structureResponseRoutes above
+                                                    // Writes the recovery copy for this tab, active or not.
                                                     const appData = StandardPaths.writableLocation(StandardPaths.AppDataLocation)
                                                     const rid = DocumentManager.recoveryIdFor(canvasInstance.modelData)
                                                     fileIO.write(appData + "/recovery/autosave_" + rid + ".qtsketch", data)
@@ -1908,7 +1987,7 @@ ApplicationWindow {
                             // Segoe Fluent Icons: Warning (U+E7BA). Built from a
                             // char code rather than pasted inline — private-use
                             // codepoints do not survive every editing path.
-                            text: String.fromCharCode(0xE7BA)
+                            text: Theme.icon(0xE7BA, 0xF0026)
                             color: Theme.badgeText
                             font { family: Theme.fontIcons; pixelSize: 12 }
                         }
@@ -1950,7 +2029,8 @@ ApplicationWindow {
                     // ViewAll (large cells) when compact is active, GridView
                     // (dense cells) when comfortable is — the icon shows the
                     // layout the click switches TO, matching the tooltip.
-                    text: Theme.compactDensity ? "" : ""
+                    // Blank on Windows as before; MDI view-module / view-comfy elsewhere.
+                    text: Theme.isWindows ? "" : Theme.icon(0, Theme.compactDensity ? 0xF0573 : 0xF0E6A)
                     font { family: Theme.fontIcons; pixelSize: Theme.iconSize }
                     implicitWidth: Theme.controlHeight
                     implicitHeight: Theme.controlHeight
@@ -1980,7 +2060,7 @@ ApplicationWindow {
                     // nothing under the Fluent style even though it reserved its
                     // space, so the glyph font is used here as it is for the
                     // density toggle beside it.
-                    text: String.fromCharCode(0xE71F)
+                    text: Theme.icon(0xE71F, 0xF06EC)
                     font { family: Theme.fontIcons; pixelSize: Theme.iconSize }
                     implicitWidth: Theme.controlHeight
                     implicitHeight: Theme.controlHeight
@@ -2003,7 +2083,7 @@ ApplicationWindow {
 
                 ToolButton {
                     // Segoe Fluent Icons ZoomIn (U+E8A3)
-                    text: String.fromCharCode(0xE8A3)
+                    text: Theme.icon(0xE8A3, 0xF06ED)
                     font { family: Theme.fontIcons; pixelSize: Theme.iconSize }
                     implicitWidth: Theme.controlHeight
                     implicitHeight: Theme.controlHeight
@@ -2164,17 +2244,20 @@ ApplicationWindow {
             return
         }
         const data = fileIO.read(fileUrl)
-        if (data === "") return
+        if (data === "") return false
         const fileStr = fileUrl.toString().toLowerCase()
         if (fileStr.endsWith(".fasta") || fileStr.endsWith(".fa")) {
             biopolymerDialog.open()
             window.isProcessing = true
+            window.tagAsync("biopolymer")
             indigoSvc.loadBioFasta(data, "DNA")
         } else if (fileStr.endsWith(".helm")) {
             window.isProcessing = true
+            window.tagAsync("biopolymer")
             indigoSvc.loadBioHelm(data)
         } else if (fileStr.endsWith(".idt")) {
             window.isProcessing = true
+            window.tagAsync("biopolymer")
             indigoSvc.loadBioIdt(data)
         } else {
             let fmt = "mol"
@@ -2201,12 +2284,15 @@ ApplicationWindow {
                     messageDialogsGroup.workerErrorDialog.severe = false
                     messageDialogsGroup.workerErrorDialog.open()
                 }
+                return loaded
             } else if (activeCanvas) {
                 activeCanvas.loadStructure(fmt, data)
                 window.centerViewOnPage()
                 setDocFile(DocumentManager.activeDocId, fileUrl)
+                return true
             }
         }
+        return false
     }
 
     DropArea {
@@ -2296,6 +2382,7 @@ ApplicationWindow {
 
         onLoadRequested: function(format, seqType, text) {
             window.isProcessing = true
+            window.tagAsync("biopolymer")
             if      (format === "Sequence") indigoSvc.loadBioSequence(text, seqType)
             else if (format === "FASTA")    indigoSvc.loadBioFasta(text, seqType)
             else if (format === "HELM")     indigoSvc.loadBioHelm(text)

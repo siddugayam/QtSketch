@@ -150,6 +150,17 @@ Item {
 
     
 
+    // Claim letter keys while an atom is hovered, before window shortcuts take them.
+    Keys.onShortcutOverride: (event) => {
+        if (sketch.overlayState.hoverAtomId == null) return
+        const k = event.key
+        if (event.modifiers === Qt.NoModifier)
+            event.accepted = [Qt.Key_C, Qt.Key_N, Qt.Key_O, Qt.Key_S, Qt.Key_F,
+                              Qt.Key_I, Qt.Key_P, Qt.Key_B].indexOf(k) >= 0
+        else if (event.modifiers === Qt.ShiftModifier)
+            event.accepted = (k === Qt.Key_C || k === Qt.Key_B)
+    }
+
     Keys.onPressed: (event) => {
         if (event.modifiers & Qt.ControlModifier) {
             if (event.key === Qt.Key_Z) {

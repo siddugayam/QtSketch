@@ -48,6 +48,7 @@ Item {
         onAccepted: {
             const fileStr = selectedFile.toString().toLowerCase()
             if (fileStr.endsWith(".png")) {
+                win.cancelAfterSave()  // an image export does not save the document
                 win.pendingRenderUrl = selectedFile
                 // Full document snapshot (not a bare molfile) so text/images/
                 // reaction arrows/etc. reach the exported file too.
@@ -55,6 +56,7 @@ Item {
                 return
             }
             if (fileStr.endsWith(".svg")) {
+                win.cancelAfterSave()
                 win.pendingRenderUrl = selectedFile
                 if (win.activeSketch) win.activeSketch.requestProjectSerialization("render_svg")
                 return
@@ -76,7 +78,9 @@ Item {
                         win.pendingSaveUrl = selectedFile
                         win.setDocFile(DocumentManager.activeDocId, selectedFile)
                         if (win.activeCanvas) win.activeCanvas.setClean()
+                        win.continueAfterSave()
                     } else {
+                        win.cancelAfterSave()
                         win.messageDialogsGroup.workerErrorDialog.errorText =
                             "Save failed: could not write the project file to " + selectedFile + ". The document was not modified on disk; your previous save (if any) is intact."
                         win.messageDialogsGroup.workerErrorDialog.severe = true
@@ -89,6 +93,7 @@ Item {
                 if (win.activeSketch) win.activeSketch.requestStructure(fmt, "save")
             }
         }
+        onRejected: win.cancelAfterSave()
     }
 
     FileDialog {

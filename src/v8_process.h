@@ -161,6 +161,8 @@ public:
     Q_INVOKABLE bool loadProject(const QUrl& fileUrl);
     Q_INVOKABLE bool saveProject(const QUrl& fileUrl);
     Q_INVOKABLE void setDirty(bool dirty);
+    // Changes whenever the document content changes (see DocumentState::editRevision).
+    Q_INVOKABLE double editRevision() const;
     
     // Get current drawing style as JSON
     Q_INVOKABLE QJsonObject getDrawingStyle() const;

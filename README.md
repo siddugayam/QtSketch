@@ -23,8 +23,8 @@ from scratch.
 |---|---|---|---|---|
 | Windows x64 | Qt 6.6+ MinGW kit | MinGW build in `indigo/` | yes | Main development platform |
 | Windows x64 | Qt 6.6+ MSVC kit | EPAM `indigo-libs-windows-x86_64` | no | CMake branch present |
-| macOS arm64 | Homebrew Qt 6.12, Xcode CLT | EPAM `epam.indigo` 1.45.0 wheel | no | Builds, 21/21 tests pass |
-| Linux | — | — | — | Not supported yet |
+| macOS arm64 | Homebrew Qt 6.12, Xcode CLT | EPAM `epam.indigo` 1.45.0 wheel | no | Builds, 22/22 tests pass |
+| Linux x86_64, arm64 | Qt 6.8 (aqtinstall), Ubuntu 24.04 in Docker | EPAM `epam.indigo` 1.45.0 wheel | no | AppImage scripts in `packaging/linux/`, not yet built end to end |
 
 ## Requirements
 
@@ -116,7 +116,7 @@ This produces `dist/QtSketch.app` and `dist/QtSketch-0.1-arm64.dmg`. See
 
 ## Tests
 
-21 Qt Test executables are registered with CTest and built with the app:
+22 Qt Test executables are registered with CTest and built with the app:
 
 ```
 ctest --test-dir build --output-on-failure
@@ -128,6 +128,7 @@ ctest --test-dir build --output-on-failure
 | Document model | `editable_molecule_test`, `document_state_test`, `placement_engines_test`, `bond_angle_suggester_test`, `clipboard_preview_test` |
 | Files and settings | `project_file_test`, `settings_service_test`, `sdf_batch_test` |
 | Rendering and export | `render_scene_test`, `export_manager_test`, `render_primitives_test`, `render_primitives_to_variant_test`, `biopolymer_sequence_view_test` |
+| Input checks | `bio_input_guards_test` |
 
 ## Project layout
 
@@ -142,6 +143,7 @@ tests/              Qt Test suites and IUPAC golden data
 templates/          Structure template library
 assets/, icons/, fonts/        Monomer library, toolbar icons, icon font
 packaging/macos/    macOS build and packaging scripts
+packaging/linux/    Linux AppImage build scripts (Docker)
 docs/iupac/         Notes on the IUPAC namer
 ```
 

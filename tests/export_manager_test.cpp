@@ -172,6 +172,29 @@ int main() {
             QFile::remove(defaultPath);
         }
 
+        std::printf("--- Test 5c: invalid drawingStyle values fall back like project load ---\n");
+        {
+            QString badPath = tempDir.filePath("test_bad_style.png");
+            QString defaultPath = tempDir.filePath("test_default_style2.png");
+            QVariantMap drawingStyle;
+            drawingStyle["bondLength"] = 0.0;
+            drawingStyle["modelToMmScale"] = -2.0;
+            QVariantMap opts;
+            opts["drawingStyle"] = drawingStyle;
+            QSignalSpy spyBad(&manager, &ExportManager::exportFinished);
+            manager.exportToFile(benzeneMolfile, QUrl::fromLocalFile(badPath), "png", opts);
+            CHECK(waitForExport(manager, spyBad, 10000), "export with invalid style finished");
+            CHECK(spyBad.count() == 1 && spyBad.takeFirst()[0].toBool(), "export with invalid style succeeded");
+            QSignalSpy spyDefault(&manager, &ExportManager::exportFinished);
+            manager.exportToFile(benzeneMolfile, QUrl::fromLocalFile(defaultPath), "png");
+            waitForExport(manager, spyDefault, 10000);
+            QImage badImg(badPath), defaultImg(defaultPath);
+            CHECK(!badImg.isNull() && badImg.size() == defaultImg.size(),
+                  "invalid bondLength/modelToMmScale are ignored (same size as defaults)");
+            QFile::remove(badPath);
+            QFile::remove(defaultPath);
+        }
+
         // Test 6: unsupported format
         std::printf("--- Test 6: exportToFile with unsupported format ---\n");
         QString bogusPath = tempDir.filePath("test_export.bogus");

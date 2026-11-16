@@ -1,5 +1,6 @@
 #include "DocumentManager.h"
 #include <QCoreApplication>
+#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QTimer>
@@ -19,6 +20,9 @@ QString findTemplatesDir() {
         if (QFile::exists(candidate)) return dir.filePath(QStringLiteral("templates"));
         if (!dir.cdUp()) break;
     }
+    // Not fatal, but the template library will be empty; say so.
+    qWarning() << "QtSketch: templates/fg.sdf not found within 5 folders above" << appDir
+               << "- the template library will be empty.";
     return QString();
 }
 }

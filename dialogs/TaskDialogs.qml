@@ -193,6 +193,7 @@ Item {
                         win.messageDialogsGroup.workerErrorDialog.open()
                     }
                 } else {
+                    win.tagAsync("layout")
                     win.indigoSvc.layout(smi)
                 }
             }
@@ -290,6 +291,7 @@ Item {
             const txt = inchiLoadInput.text.trim()
             if (txt) {
                 win.isProcessing = true
+                win.tagAsync("layout")
                 win.indigoSvc.layout(txt)
             }
         }

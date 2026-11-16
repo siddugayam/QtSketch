@@ -39,6 +39,13 @@ elseif (APPLE)
     set(INDIGO_INCHI_LIB ${INDIGO_LIB_DIR}/libindigo-inchi.dylib)
     set(INDIGO_RENDERER_LIB ${INDIGO_LIB_DIR}/libindigo-renderer.dylib)
     set(CMAKE_BUILD_RPATH ${INDIGO_LIB_DIR})
+elseif (UNIX)
+    # Linux: packaging/linux/fetch_indigo.sh fills indigo/ with the EPAM Linux libraries.
+    set(INDIGO_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/indigo/lib)
+    set(INDIGO_LIB ${INDIGO_LIB_DIR}/libindigo.so)
+    set(INDIGO_INCHI_LIB ${INDIGO_LIB_DIR}/libindigo-inchi.so)
+    set(INDIGO_RENDERER_LIB ${INDIGO_LIB_DIR}/libindigo-renderer.so)
+    set(CMAKE_BUILD_RPATH ${INDIGO_LIB_DIR})
 else()
     set(INDIGO_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/indigo/lib)
     set(IMAGO_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/imago/lib)
@@ -99,10 +106,15 @@ endif()
 # temporarily comment this back out, if console output is needed.
 set_target_properties(sketch PROPERTIES WIN32_EXECUTABLE TRUE)
 
-if (APPLE)
-    # Imago is not built for macOS, so image recognition reports an error there.
+if (NOT WIN32)
+    # Imago is only built for Windows, so image recognition reports an error elsewhere.
     set_source_files_properties(src/app/ImagoService.cpp PROPERTIES HEADER_FILE_ONLY ON)
     target_sources(sketch PRIVATE src/app/ImagoServiceStub.cpp)
+endif()
+if (UNIX AND NOT APPLE)
+    set_target_properties(sketch PROPERTIES OUTPUT_NAME QtSketch)
+endif()
+if (APPLE)
     set_target_properties(sketch PROPERTIES
         MACOSX_BUNDLE TRUE
         OUTPUT_NAME QtSketch
@@ -510,6 +522,11 @@ target_include_directories(bond_angle_suggester_test PRIVATE
 )
 target_link_libraries(bond_angle_suggester_test PRIVATE Qt6::Core)
 add_test(NAME bond_angle_suggester_test COMMAND bond_angle_suggester_test)
+
+qt_add_executable(bio_input_guards_test tests/bio_input_guards_test.cpp src/app/BioInputGuards.h)
+target_include_directories(bio_input_guards_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/app)
+target_link_libraries(bio_input_guards_test PRIVATE Qt6::Core)
+add_test(NAME bio_input_guards_test COMMAND bio_input_guards_test)
 
 qt_add_executable(document_state_test tests/document_state_test.cpp)
 target_link_libraries(document_state_test PRIVATE molecule_model)

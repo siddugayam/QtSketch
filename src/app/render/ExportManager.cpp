@@ -15,6 +15,7 @@
 #include <QPointer>
 #include <QCoreApplication>
 #include <QJsonObject>
+#include <cmath>
 
 // Forward declaration
 static void emitOnGuiThread(QPointer<ExportManager> self, std::function<void(ExportManager*)> fn);
@@ -80,14 +81,21 @@ DrawingStyle drawingStyleFromOptions(const QVariantMap& options) {
     // that case, and also a QJsonObject passed explicitly from C++ test
     // code, unlike QVariant::toJsonObject() which only accepts the latter.
     QJsonObject obj = QJsonObject::fromVariantMap(options["drawingStyle"].toMap());
-    if (obj.contains("bondLength")) style.bondLength = obj["bondLength"].toDouble();
+    // Same rule as ProjectFile::fromJson: ignore non-positive or non-finite values.
+    if (obj.contains("bondLength")) {
+        const double v = obj["bondLength"].toDouble();
+        if (std::isfinite(v) && v > 0.0) style.bondLength = v;
+    }
     if (obj.contains("lineWidth")) style.lineWidth = obj["lineWidth"].toDouble();
     if (obj.contains("fontFamily")) style.fontFamily = obj["fontFamily"].toString();
     if (obj.contains("fontSize")) style.fontSize = obj["fontSize"].toInt();
     if (obj.contains("monochrome")) style.monochrome = obj["monochrome"].toBool();
     // modelToMmScale is fixed per-document (not derived from bondLength here)
     // -- same invariant DocumentState itself preserves.
-    if (obj.contains("modelToMmScale")) style.modelToMmScale = obj["modelToMmScale"].toDouble();
+    if (obj.contains("modelToMmScale")) {
+        const double v = obj["modelToMmScale"].toDouble();
+        if (std::isfinite(v) && v > 0.0) style.modelToMmScale = v;
+    }
     return style;
 }
 

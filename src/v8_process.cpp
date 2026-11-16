@@ -1099,6 +1099,10 @@ bool V8Process::loadProject(const QUrl& fileUrl) {
     return true;
 }
 
+double V8Process::editRevision() const {
+    return static_cast<double>(m_docState->editRevision());
+}
+
 void V8Process::setDirty(bool dirty) {
     if (dirty) m_docState->markDirty();
     else m_docState->markClean();

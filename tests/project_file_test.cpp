@@ -12,8 +12,10 @@
 #include "app/molecule/DrawingStyle.h"
 #include "app/molecule/PageSettings.h"
 #include "app/FileIO.h"
+#ifndef _WIN32
 #include <csignal>
 #include <sys/resource.h>
+#endif
 
 static int g_pass = 0, g_fail = 0;
 #define CHECK(cond, name) do { \
@@ -68,6 +70,8 @@ static void test_atomicSavePreservesOriginalOnFailure() {
     CHECK(f2.size() == originalSize, "original file is byte-for-byte unchanged");
 }
 
+// Uses POSIX file-size limits, so it does not build on Windows.
+#ifndef _WIN32
 static void test_fileIoWriteFailureKeepsOriginal() {
     std::printf("--- Test: FileIO::write failure leaves the original file intact ---\n");
     QTemporaryDir dir;
@@ -90,6 +94,8 @@ static void test_fileIoWriteFailureKeepsOriginal() {
     CHECK(io.read(url) == "ORIGINAL\n", "original content survives the failed write");
     CHECK(io.write(url, "NEW\n") && io.read(url) == "NEW\n", "a normal write still replaces the content");
 }
+
+#endif
 
 static void test_loadRejectsMissingFormatVersion() {
     std::printf("--- Test: load rejects a file missing formatVersion ---\n");
@@ -263,7 +269,9 @@ int main() {
     test_sgroupStateRoundTrip();
     test_saveLoadRoundTrip();
     test_atomicSavePreservesOriginalOnFailure();
+#ifndef _WIN32
     test_fileIoWriteFailureKeepsOriginal();
+#endif
     test_loadRejectsMissingFormatVersion();
     test_loadRejectsMissingChemistry();
     test_loadRejectsCorruptMolfile();

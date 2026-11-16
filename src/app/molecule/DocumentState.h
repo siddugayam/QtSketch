@@ -35,6 +35,9 @@ public:
     void undo();
     void redo();
     bool isDirty() const;
+    // Bumped by every content change (edit, undo, redo, load). Lets async
+    // results detect that the document changed while they ran.
+    quint64 editRevision() const;
     // Grounded requirement (not speculative): src/worker/30-templates.js's
     // loadBenzene() explicitly does `init(); addBenzeneRing(); _dirty = false`
     // -- a new document pre-populated with the starter benzene is NOT dirty.
@@ -622,6 +625,7 @@ private:
     int m_historyPointer = -1;
     bool m_inCommand = false;
     bool m_dirty = false;
+    quint64 m_editRevision = 0;
     bool m_showExplicitH = false;
     SelectionState m_selection;
     DrawingStyle m_drawingStyle;
