@@ -11,6 +11,7 @@
 #include "PeripheralNumbering.h"
 #include "FusionGraphContext.h"
 #include "NameAssembly.h"
+#include "FusionConstruction.h"
 #include "indigo.h"
 #include "indigo-inchi.h"
 #include <QStringList>
@@ -26835,10 +26836,40 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                 auto c2 = tryNameBareFusedHydrocarbon(mol, g, detectedInput);
                 if (c2.disposition == BareFusedDisposition::Named) return c2.result;
                 if (c2.disposition == BareFusedDisposition::Rejected) return {false, "", c2.message};
+                // Task 11: generic multi-component fusion construction (FR-3 / FR-4)
+                ComponentTree tree = decomposeComponentTree(g, allSSSRRings, detectedInput, mol);
+                if (hitsFr32Limitation(tree)) {
+                    QString alt1 = nameBySkeletalReplacementFallback(tree, g, allSSSRRings, mol);
+                    if (!alt1.isEmpty()) return {true, alt1, "", NamingStatus::SystematicIupacName};
+                    QString alt2 = nameByLessPreferredParentFallback(g, allSSSRRings, detectedInput, mol);
+                    if (!alt2.isEmpty()) return {true, alt2, "", NamingStatus::SystematicIupacName};
+                    QString alt3 = nameByBridgedFusedFallback(g, allSSSRRings, detectedInput, mol);
+                    if (!alt3.isEmpty()) return {true, alt3, "", NamingStatus::SystematicIupacName};
+
+                    return {false, "", "three-component ortho- and peri-fused systems (P-25.5) are not yet supported."};
+                }
+                bool hasExoSub = (allSSSRNodes.size() != g.nodes.size());
+                if (!hasExoSub && tree.valid && tree.components.size() >= 2) {
+                    QString name = constructFusionName(tree, g, mol);
+                    if (!name.isEmpty()) return {true, name, "", NamingStatus::SystematicIupacName};
+                }
                 int nInterior = static_cast<int>(detectedInput.interiorAtoms.size());
                 return {false, "", (nInterior >= 2)
                     ? "ring systems with multiple interior atoms (interior-atom ordering) are not yet supported."
                     : "peri-fused hydrocarbon system not yet supported (Stage C2 scope: bare acenaphthylene, phenalene)."};
+            }
+            // Even if detectedInput.ringSizes is empty (e.g. geometric contradiction in 2D layout detector),
+            // Phase 5 fallbacks (Skeletal replacement, Alternative parent, Bridged fusion) can still succeed:
+            {
+                ComponentTree fallbackTree = decomposeComponentTree(g, allSSSRRings, detectedInput, mol);
+                if (hitsFr32Limitation(fallbackTree) || fallbackTree.components.size() >= 2) {
+                    QString alt1 = nameBySkeletalReplacementFallback(fallbackTree, g, allSSSRRings, mol);
+                    if (!alt1.isEmpty()) return {true, alt1, "", NamingStatus::SystematicIupacName};
+                    QString alt2 = nameByLessPreferredParentFallback(g, allSSSRRings, detectedInput, mol);
+                    if (!alt2.isEmpty()) return {true, alt2, "", NamingStatus::SystematicIupacName};
+                    QString alt3 = nameByBridgedFusedFallback(g, allSSSRRings, detectedInput, mol);
+                    if (!alt3.isEmpty()) return {true, alt3, "", NamingStatus::SystematicIupacName};
+                }
             }
             if (!detectedInput.error.empty()) {
                 return {false, "", detectedInput.error.c_str()};
@@ -26884,10 +26915,40 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                 auto c2 = tryNameBareFusedHydrocarbon(mol, g, detectedInput);
                 if (c2.disposition == BareFusedDisposition::Named) return c2.result;
                 if (c2.disposition == BareFusedDisposition::Rejected) return {false, "", c2.message};
+                // Task 11: generic multi-component fusion construction (FR-3 / FR-4)
+                ComponentTree tree = decomposeComponentTree(g, allSSSRRings, detectedInput, mol);
+                if (hitsFr32Limitation(tree)) {
+                    QString alt1 = nameBySkeletalReplacementFallback(tree, g, allSSSRRings, mol);
+                    if (!alt1.isEmpty()) return {true, alt1, "", NamingStatus::SystematicIupacName};
+                    QString alt2 = nameByLessPreferredParentFallback(g, allSSSRRings, detectedInput, mol);
+                    if (!alt2.isEmpty()) return {true, alt2, "", NamingStatus::SystematicIupacName};
+                    QString alt3 = nameByBridgedFusedFallback(g, allSSSRRings, detectedInput, mol);
+                    if (!alt3.isEmpty()) return {true, alt3, "", NamingStatus::SystematicIupacName};
+
+                    return {false, "", "ortho- and peri-fused ring systems (P-25.3.1.1.2) are not yet supported."};
+                }
+                bool hasExoSub = (allSSSRNodes.size() != g.nodes.size());
+                if (!hasExoSub && tree.valid && tree.components.size() >= 2) {
+                    QString name = constructFusionName(tree, g, mol);
+                    if (!name.isEmpty()) return {true, name, "", NamingStatus::SystematicIupacName};
+                }
                 int nInterior = static_cast<int>(detectedInput.interiorAtoms.size());
                 return {false, "", (nInterior >= 2)
                     ? "ring systems with multiple interior atoms (interior-atom ordering) are not yet supported."
                     : "peri-fused hydrocarbon system not yet supported (Stage C2 scope: bare acenaphthylene, phenalene)."};
+            }
+            // Even if detectedInput.ringSizes is empty (e.g. geometric contradiction in 2D layout detector),
+            // Phase 5 fallbacks (Skeletal replacement, Alternative parent, Bridged fusion) can still succeed:
+            {
+                ComponentTree fallbackTree = decomposeComponentTree(g, allSSSRRings, detectedInput, mol);
+                if (hitsFr32Limitation(fallbackTree) || fallbackTree.components.size() >= 2) {
+                    QString alt1 = nameBySkeletalReplacementFallback(fallbackTree, g, allSSSRRings, mol);
+                    if (!alt1.isEmpty()) return {true, alt1, "", NamingStatus::SystematicIupacName};
+                    QString alt2 = nameByLessPreferredParentFallback(g, allSSSRRings, detectedInput, mol);
+                    if (!alt2.isEmpty()) return {true, alt2, "", NamingStatus::SystematicIupacName};
+                    QString alt3 = nameByBridgedFusedFallback(g, allSSSRRings, detectedInput, mol);
+                    if (!alt3.isEmpty()) return {true, alt3, "", NamingStatus::SystematicIupacName};
+                }
             }
             if (!detectedInput.error.empty()) {
                 return {false, "", detectedInput.error.c_str()};
@@ -29335,6 +29396,56 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
 
                             return {true, retainedResult->baseName, "", finalStatus};
                         }
+                    }
+                }
+            }
+
+            bool hasExoSub = (allSSSRNodes.size() != g.nodes.size());
+            bool hasSaturatedCarbon = false;
+            for (int n : allSSSRNodes) {
+                if (g.nodes[n].atomicNumber == 6) {
+                    int doubleOrAromCount = 0;
+                    for (int order : g.nodes[n].bondOrders) {
+                        if (order >= 2) doubleOrAromCount++;
+                    }
+                    if (doubleOrAromCount == 0) {
+                        hasSaturatedCarbon = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!hasExoSub && !hasSaturatedCarbon) {
+                FusedRingSystemInput fusionInput = detectFusedRingDirections(mol);
+                ComponentTree fusionTree = decomposeComponentTree(g, allSSSRRings, fusionInput, mol);
+                bool hasMergedBenzo = false;
+                bool hasRetainedBenzoheterocycle = false;
+                bool hasMultiRingBridge = false;
+                int parentCount = 0;
+                QString parentName;
+                if (fusionTree.parentIndex >= 0 && fusionTree.parentIndex < static_cast<int>(fusionTree.components.size())) {
+                    parentName = fusionTree.components[fusionTree.parentIndex].name;
+                }
+                for (const auto &c : fusionTree.components) {
+                    if (c.isMergedBenzoheterocycle) hasMergedBenzo = true;
+                    if (c.order >= 1 && c.ringCount >= 2) hasMultiRingBridge = true;
+                    if (c.name.contains("benzo") && c.seniorityRank < 100) hasRetainedBenzoheterocycle = true;
+                    if (!parentName.isEmpty() && c.name == parentName) parentCount++;
+                }
+                bool isMultiParentBridge = (hasMultiRingBridge && parentCount >= 2 &&
+                                            fusionTree.parentIndex >= 0 &&
+                                            fusionTree.components[fusionTree.parentIndex].ringCount == 1);
+                bool isNonRetainedCarbocycle = (N >= 4 && !hasBranching && ends == 2 && centers == N - 2);
+                if (isNonRetainedCarbocycle) {
+                    for (int node = 0; node < static_cast<int>(g.nodes.size()); ++node) {
+                        if (g.nodes[node].atomicNumber != 6) { isNonRetainedCarbocycle = false; break; }
+                    }
+                }
+                if (fusionTree.valid && !hitsFr32Limitation(fusionTree) && fusionTree.components.size() >= 2 &&
+                    (hasMergedBenzo || hasRetainedBenzoheterocycle || isMultiParentBridge || isNonRetainedCarbocycle)) {
+                    QString name = constructFusionName(fusionTree, g, mol);
+                    if (!name.isEmpty()) {
+                        return {true, name, "", NamingStatus::SystematicIupacName};
                     }
                 }
             }

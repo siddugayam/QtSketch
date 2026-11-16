@@ -105,6 +105,10 @@ public:
     // Convenience accessors
     const std::set<int> &periCenters() const { return m_interiorAtoms; }
 
+    // Perimeter cycle (FR-5.5 / P-25.3.3)
+    const std::vector<int> &perimeterCycle() const { return m_perimeterCycle; }
+    bool hasSinglePerimeterComponent() const { return m_hasSinglePerimeterComponent; }
+
     // Ring adjacency
     std::vector<RingAdjacency> adjacentRings(int ringIndex) const;
     FusedBondType junctionType(int ring1, int ring2) const;
@@ -117,6 +121,8 @@ private:
     std::map<int, std::vector<int>> m_atomToRings;
     std::set<int> m_interiorAtoms;
     std::set<int> m_peripheralAtoms;
+    std::vector<int> m_perimeterCycle;
+    bool m_hasSinglePerimeterComponent{false};
 
     std::vector<OrthoJunction> m_orthoJunctions;
     std::vector<SpiroJunction> m_spiroJunctions;

@@ -122,4 +122,26 @@ void registerIndoleFamily(std::vector<RetainedRingSystem> &registry) {
     //    SMILES c1ccn2cc1cc2 verified (8 atoms, 1N at bridgehead atom[3] deg=3).
     //    Deferred: 5-5 fused system with bridgehead N is structurally different and
     //    requires separate research to verify the correct numbering.
+    // 2,1-benzothiazole: 9 atoms, 6-5 bicyclic, N at 1 and S at 2 (NOT "S at 1
+    // N at 2" as an earlier draft comment claimed -- verified via PubChem CID
+    // 638008, IUPACName literally "2,1-benzothiazole", SMILES
+    // C1=CC2=CSN=C2C=C1: tracing that SMILES shows N bonded directly to one
+    // ring-fusion carbon (-> C7a) and the CH-S side bonded to the other
+    // fusion carbon (-> C3a) with S between the CH and N, i.e. N1-S2-C3-C3a-
+    // C4-C5-C6-C7-C7a-(back to N1). All 9 bond-letter pairs below were
+    // confirmed to match this molecule's real bonds once N/S were corrected
+    // to N=1/S=2 -- every other position in this entry was already right.
+    // Appendix 2 retained benzoheterocycle.
+    registry.push_back(RetainedRingSystem{
+        "2,1-benzothiazole",
+        "c1ccc2nscc2c1",
+        {"5","6","7","7a","1","2","3","3a","4"},
+        {
+            {'a', {"1","2"}}, {'b', {"2","3"}}, {'c', {"3","3a"}},
+            {'d', {"3a","4"}}, {'e', {"4","5"}}, {'f', {"5","6"}},
+            {'g', {"6","7"}}, {'h', {"7","7a"}}, {'i', {"7a","1"}},
+        },
+        35,
+        "2,1-benzothiazolo",
+    });
 }

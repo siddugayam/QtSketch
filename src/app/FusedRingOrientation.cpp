@@ -1,4 +1,5 @@
 #include "FusedRingOrientation.h"
+#include "FusedSystemTopology.h"
 #include <queue>
 #include <map>
 #include <set>
@@ -57,22 +58,50 @@ std::vector<FusedRingOrientationResult> computeAllPreferredOrientations(const Fu
         return {res};
     }
 
-    int num_rings = static_cast<int>(input.ringSizes.size());
-    if (input.fusions.size() >= static_cast<size_t>(num_rings)) {
-        res.success = false;
-        res.error = "Non-tree ring systems (ortho-and-peri-fused like phenalene/pyrene) are not yet supported.";
-        return {res};
+    // If full ring atoms are available, verify single perimeter component (reject bridged/cage)
+    if (!input.ringAtoms.empty()) {
+        std::vector<GraphBond> bonds;
+        std::set<std::pair<int, int>> seenBonds;
+        if (!input.ringDirectedCycles.empty()) {
+            for (const auto &cyc : input.ringDirectedCycles) {
+                for (size_t i = 0; i < cyc.size(); ++i) {
+                    int u = cyc[i];
+                    int v = cyc[(i + 1) % cyc.size()];
+                    if (u > v) std::swap(u, v);
+                    if (seenBonds.insert({u, v}).second) {
+                        bonds.push_back({u, v, 1});
+                    }
+                }
+            }
+        }
+        if (!bonds.empty()) {
+            FusedSystemTopology topo(input.ringAtoms, bonds);
+            if (!topo.hasSinglePerimeterComponent()) {
+                res.success = false;
+                res.error = "Bridged or non-planar ring systems without a single perimeter are not supported.";
+                return {res};
+            }
+        }
     }
+
+    int num_rings = static_cast<int>(input.ringSizes.size());
 
     // adj[ring] = list of (neighborRing, bondIndexWithinRing, isOutgoing)
     // -- isOutgoing true means THIS ring's bondIndex is the one recorded in
-    // input.fusions (ring1==this ring); false means we're looking at it from
-    // ring2's side and need the mirrored angle (edge midpoint + PI).
+    // input.fusions (ring1==this ring); bondIndex is ONLY valid in ring1.
     struct AdjEntry { int neighbor; CycleEdgeIndex bondIndex; bool isOutgoing; };
     std::vector<std::vector<AdjEntry>> adj(num_rings);
     for (const auto &edge : input.fusions) {
-        adj[edge.ring1].push_back({edge.ring2, edge.bondIndex, true});
-        adj[edge.ring2].push_back({edge.ring1, edge.bondIndex, false});
+        if (edge.ring1 >= 0 && edge.ring1 < num_rings && edge.ring2 >= 0 && edge.ring2 < num_rings) {
+            adj[edge.ring1].push_back({edge.ring2, edge.bondIndex, true});
+            adj[edge.ring2].push_back({edge.ring1, edge.bondIndex, false});
+        }
+    }
+    for (const auto &edge : input.closingFusions) {
+        if (edge.ring1 >= 0 && edge.ring1 < num_rings && edge.ring2 >= 0 && edge.ring2 < num_rings) {
+            adj[edge.ring1].push_back({edge.ring2, edge.bondIndex, true});
+            adj[edge.ring2].push_back({edge.ring1, edge.bondIndex, false});
+        }
     }
 
     std::vector<int> inDegree(num_rings, 0);
@@ -96,20 +125,16 @@ std::vector<FusedRingOrientationResult> computeAllPreferredOrientations(const Fu
     q.push(rootRing);
     int visited_count = 1;
 
-    const double TOLERANCE = 1e-6;
-
     while (!q.empty()) {
         int u = q.front();
         q.pop();
         for (const auto &nbr : adj[u]) {
+            // bondIndex is only defined for ring1 (isOutgoing == true)
+            if (!nbr.isOutgoing) continue;
             int v = nbr.neighbor;
             if (placed[v].placed) continue;
-            double edgeAngle;
-            if (nbr.isOutgoing) {
-                edgeAngle = edgeMidpointAngle(placed[u].rotation, input.ringSizes[u], nbr.bondIndex);
-            } else {
-                edgeAngle = edgeMidpointAngle(placed[u].rotation, input.ringSizes[u], nbr.bondIndex) + PI;
-            }
+
+            double edgeAngle = edgeMidpointAngle(placed[u].rotation, input.ringSizes[u], nbr.bondIndex);
             double dist = apothem(input.ringSizes[u]) + apothem(input.ringSizes[v]);
             double vx = placed[u].x + dist * std::cos(edgeAngle);
             double vy = placed[u].y + dist * std::sin(edgeAngle);
@@ -123,6 +148,31 @@ std::vector<FusedRingOrientationResult> computeAllPreferredOrientations(const Fu
     if (visited_count != num_rings) {
         res.success = false;
         res.error = "Disconnected ring system";
+        return {res};
+    }
+
+    // Validate ALL fusions (including closure edges) for geometric consistency
+    auto checkFusionGeom = [&](const std::vector<FusedRingEdge> &edges) -> bool {
+        for (const auto &edge : edges) {
+            int r1 = edge.ring1;
+            int r2 = edge.ring2;
+            if (r1 < 0 || r1 >= num_rings || r2 < 0 || r2 >= num_rings) continue;
+            double edgeAngle = edgeMidpointAngle(placed[r1].rotation, input.ringSizes[r1], edge.bondIndex);
+            double dist = apothem(input.ringSizes[r1]) + apothem(input.ringSizes[r2]);
+            double exp_x = placed[r1].x + dist * std::cos(edgeAngle);
+            double exp_y = placed[r1].y + dist * std::sin(edgeAngle);
+            double dx = placed[r2].x - exp_x;
+            double dy = placed[r2].y - exp_y;
+            if (dx * dx + dy * dy > 0.25) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    if (!checkFusionGeom(input.fusions) || !checkFusionGeom(input.closingFusions)) {
+        res.success = false;
+        res.error = "Geometric contradiction: Impossible cyclic fusion closure (mismatched ring sizes or distorted geometry)";
         return {res};
     }
 
@@ -145,26 +195,18 @@ std::vector<FusedRingOrientationResult> computeAllPreferredOrientations(const Fu
     // reflection (flip y), times 2 more for a 180-degree rotation -- a small,
     // chemically-meaningful candidate set (not continuous/arbitrary rotation
     // search), generalizing the old code's 12 discrete hex symmetries.
-    //
-    // NOTE: a broader "every vertex of every ring" candidate set was tried
-    // here and made things WORSE (regressed naphthalene/anthracene/
-    // naphthacene, which were correct with the narrower set) -- the
-    // branching-ground-truth regression's real cause is NOT candidate
-    // breadth; it's elsewhere (scoring criteria or tie-break behavior).
-    // Reverted to this narrower, empirically-correct-for-linear-chains set.
-    //
-    // Fix for Bug A: Each fusion bond's base rotation now gets TWO partners:
-    // (1) its Y-reflection (already present), and (2) its 180-degree X-mirror
-    // rotation. For a linear chain, this ensures BOTH terminal rings can be
-    // "uppermost" regardless of BFS root choice, eliminating atom-order
-    // dependence on which end gets locant 1.
     std::vector<double> candidateRotations;
-    for (const auto &edge : input.fusions) {
-        double a = edgeMidpointAngle(placed[edge.ring1].rotation, input.ringSizes[edge.ring1], edge.bondIndex);
-        candidateRotations.push_back(-a);
-        // Add 180-degree (PI) rotation partner for this fusion bond
-        candidateRotations.push_back(-a + PI);
-    }
+    auto addRotations = [&](const std::vector<FusedRingEdge> &edges) {
+        for (const auto &edge : edges) {
+            if (edge.ring1 >= 0 && edge.ring1 < num_rings) {
+                double a = edgeMidpointAngle(placed[edge.ring1].rotation, input.ringSizes[edge.ring1], edge.bondIndex);
+                candidateRotations.push_back(-a);
+                candidateRotations.push_back(-a + PI);
+            }
+        }
+    };
+    addRotations(input.fusions);
+    addRotations(input.closingFusions);
     if (candidateRotations.empty()) candidateRotations.push_back(0.0);
 
     struct CandidateResult {
@@ -185,24 +227,11 @@ std::vector<FusedRingOrientationResult> computeAllPreferredOrientations(const Fu
                 double y = placed[i].x * std::sin(rot) + placed[i].y * std::cos(rot);
                 if (reflect) y = -y;
                 cur_pos[i] = {x, y};
-                // Each ring's own vertex-0 angle must undergo the EXACT
-                // same point transform (rotate by rot, then reflect) as the
-                // ring's own relative position vector would -- NOT "negate
-                // first, then add rot" (that was the previous formula here,
-                // confirmed wrong by direct derivation during the P-25.3.3
-                // orientation plan): reflecting a point at angle theta maps
-                // it to angle -theta, so reflect(rotate(angle, rot)) =
-                // -(angle + rot) = -angle - rot, not -angle + rot. Verified
-                // the non-reflected branch (rot alone, no sign issue) was
-                // already correct; only the reflected branch's sign on
-                // `rot` was wrong.
                 cur_rotation[i] = reflect ? (-placed[i].rotation - rot) : (placed[i].rotation + rot);
             }
 
             // Group rings into horizontal rows (same y within tolerance) to
-            // find the largest contiguous row -- mirrors the old code's
-            // r_groups-by-hex-row logic, generalized to real y with a
-            // tolerance instead of exact integer r equality.
+            // find the largest contiguous row
             std::vector<std::pair<double,double>> sortedByY = cur_pos;
             std::sort(sortedByY.begin(), sortedByY.end(), [](auto &a, auto &b){ return a.second < b.second; });
 
@@ -255,22 +284,6 @@ std::vector<FusedRingOrientationResult> computeAllPreferredOrientations(const Fu
         }
     }
 
-    // Find the best score, then collect EVERY candidate that ties it (within
-    // floating-point tolerance) -- not just the first one found. For a
-    // topologically-symmetric system (e.g. 3 equivalent leaf rings off one
-    // central ring), multiple genuinely-tied orientations exist and only a
-    // heteroatom-aware tie-break (which this purely-geometric module has no
-    // atom-identity data to perform) can correctly choose among them. Real,
-    // confirmed bug this fixes: picking an arbitrary "first" tied candidate
-    // here silently chose a different (and wrong, by the already-hand-
-    // verified ground truth) orientation than before this refactor, for a
-    // real 3-leaf branching molecule -- not a hex-grid-specific issue, a
-    // pre-existing gap this is the first change to actually expose. Callers
-    // that have real atom/heteroatom data (IupacNamer.cpp) use
-    // computeAllPreferredOrientations to get every tied candidate and pick
-    // correctly; computePreferredOrientation (below) stays as a thin
-    // backward-compatible wrapper returning just the first for callers that
-    // don't need tie-aware behavior.
     ScoreTuple best_score = {-1, -1e9, -1e9, -1e9};
     for (const auto &c : allCandidates) {
         if (best_score < c.score) best_score = c.score;
@@ -321,7 +334,7 @@ FusedRingOrientationResult computePreferredOrientation(const FusedRingSystemInpu
         FusedRingOrientationResult res;
         if (input.ringSizes.empty()) { res.success = true; return res; }
         res.success = false;
-        res.error = "Non-tree ring systems (ortho-and-peri-fused like phenalene/pyrene) are not yet supported.";
+        res.error = "No valid orientation found for ring system.";
         return res;
     }
     return all[0];

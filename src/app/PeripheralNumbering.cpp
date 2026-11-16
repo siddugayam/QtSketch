@@ -5,6 +5,7 @@
 #include <cmath>
 #include <algorithm>
 #include <QStringList>
+#include <queue>
 
 // ============================================================================
 // General peripheral numbering for branching fused ring systems
@@ -660,4 +661,161 @@ std::map<int, QString> computePeripheralNumberingGeneral(
     }
 
     return bestIt->locantMap;
+}
+
+
+std::vector<SystemLocant> numberInteriorAtoms(
+    const std::vector<int> &perimeterOrdering,
+    const Graph &g,
+    const std::set<int> &interiorAtoms) {
+    if (perimeterOrdering.empty() || interiorAtoms.empty()) {
+        return {};
+    }
+
+    std::set<int> systemAtoms(perimeterOrdering.begin(), perimeterOrdering.end());
+    systemAtoms.insert(interiorAtoms.begin(), interiorAtoms.end());
+
+    struct PeriphInfo {
+        int num{0};
+        char letter{'\0'};
+    };
+
+    std::map<int, PeriphInfo> periphMap;
+    int curNum = 1;
+    int lastNonBhNum = 0;
+    int numBhSince = 0;
+
+    for (int atom : perimeterOrdering) {
+        int degInSystem = 0;
+        if (atom >= 0 && atom < static_cast<int>(g.nodes.size())) {
+            for (int nei : g.nodes[atom].neighbors) {
+                if (systemAtoms.count(nei)) degInSystem++;
+            }
+        }
+        if (degInSystem <= 2) {
+            numBhSince = 0;
+            periphMap[atom] = {curNum, '\0'};
+            lastNonBhNum = curNum;
+            curNum++;
+        } else {
+            char suffix = static_cast<char>('a' + numBhSince);
+            numBhSince++;
+            periphMap[atom] = {lastNonBhNum, suffix};
+        }
+    }
+
+    int maxPeriphNum = lastNonBhNum;
+    char highestLetterAtMax = '\0';
+    for (int atom : perimeterOrdering) {
+        if (periphMap[atom].num == maxPeriphNum && periphMap[atom].letter != '\0') {
+            highestLetterAtMax = std::max(highestLetterAtMax, periphMap[atom].letter);
+        }
+    }
+
+    auto periphLess = [](const PeriphInfo &a, const PeriphInfo &b) -> bool {
+        if (a.num != b.num) return a.num < b.num;
+        if ((a.letter == '\0') != (b.letter == '\0')) {
+            return a.letter == '\0'; // unlettered precedes lettered
+        }
+        return a.letter < b.letter;
+    };
+
+    std::map<int, SystemLocant> uLoc;
+
+    if (interiorAtoms.size() == 1) {
+        // Single interior atom (e.g. phenalene 9b): both IUPAC and CAS agree on letter suffix
+        int u = *interiorAtoms.begin();
+        char nextLetter = (highestLetterAtMax != '\0') ? static_cast<char>(highestLetterAtMax + 1) : 'a';
+        SystemLocant loc;
+        loc.peripheralNumber = maxPeriphNum;
+        loc.letter = nextLetter;
+        loc.superscript = 0;
+        loc.casPeripheralNumber = maxPeriphNum;
+        loc.casLetter = nextLetter;
+        uLoc[u] = loc;
+    } else {
+        for (int u : interiorAtoms) {
+            std::map<int, int> dist;
+            dist[u] = 0;
+            std::queue<int> q;
+            q.push(u);
+
+            int minPeriphDist = -1;
+            std::vector<int> reachedPeriphAtoms;
+
+            while (!q.empty()) {
+                int curr = q.front();
+                q.pop();
+                int d = dist[curr];
+
+                if (minPeriphDist != -1 && d > minPeriphDist) {
+                    break;
+                }
+
+                if (periphMap.find(curr) != periphMap.end()) {
+                    if (minPeriphDist == -1) {
+                        minPeriphDist = d;
+                    }
+                    if (d == minPeriphDist) {
+                        reachedPeriphAtoms.push_back(curr);
+                    }
+                    continue; // don't expand through periphery
+                }
+
+                if (curr >= 0 && curr < static_cast<int>(g.nodes.size())) {
+                    for (int nei : g.nodes[curr].neighbors) {
+                        if (!systemAtoms.count(nei)) continue;
+                        if (dist.find(nei) == dist.end()) {
+                            dist[nei] = d + 1;
+                            q.push(nei);
+                        }
+                    }
+                }
+            }
+
+            if (reachedPeriphAtoms.empty() || minPeriphDist <= 0) {
+                continue;
+            }
+
+            // Tie-breaks per FR-5.5.2:
+            // (a) fewest bonds (already enforced by BFS minPeriphDist)
+            // (b) lowest peripheral locant
+            // (c) lowest superscript (already equal: minPeriphDist)
+            // (d) deterministic atom-id order with trace sink flag
+            std::stable_sort(reachedPeriphAtoms.begin(), reachedPeriphAtoms.end(), [&](int p1, int p2) {
+                const auto &info1 = periphMap[p1];
+                const auto &info2 = periphMap[p2];
+                if (info1.num != info2.num || info1.letter != info2.letter) {
+                    return periphLess(info1, info2);
+                }
+                traceNaming("interior_locant_tie_exhausted", "interior-locant tie-break exhausted ordered rules");
+                return p1 < p2;
+            });
+
+            int bestP = reachedPeriphAtoms[0];
+            SystemLocant loc;
+            loc.peripheralNumber = periphMap[bestP].num;
+            loc.letter = periphMap[bestP].letter;
+            loc.superscript = minPeriphDist;
+            uLoc[u] = loc;
+        }
+
+        // Assign CAS locants for multiple interior atoms
+        std::vector<int> sortedInterior(interiorAtoms.begin(), interiorAtoms.end());
+        std::stable_sort(sortedInterior.begin(), sortedInterior.end(), [&](int a, int b) {
+            return uLoc[a] < uLoc[b];
+        });
+        char nextCasLetter = (highestLetterAtMax != '\0') ? static_cast<char>(highestLetterAtMax + 1) : 'a';
+        for (int a : sortedInterior) {
+            uLoc[a].casPeripheralNumber = maxPeriphNum;
+            uLoc[a].casLetter = nextCasLetter++;
+        }
+    }
+
+    std::vector<SystemLocant> result;
+    result.reserve(interiorAtoms.size());
+    for (int a : interiorAtoms) {
+        result.push_back(uLoc[a]);
+    }
+    return result;
 }

@@ -28,6 +28,8 @@ set(IUPAC_NAMING_SOURCES
     src/app/FusionGraphContext.h src/app/FusionGraphContext.cpp
     src/app/FusedSystemTopology.h src/app/FusedSystemTopology.cpp
     src/app/BareFusedHydrocarbonNamer.h src/app/BareFusedHydrocarbonNamer.cpp
+    src/app/SystemLocant.h
+    src/app/FusionConstruction.h src/app/FusionConstruction.cpp
     src/app/NameAssembly.h src/app/NameAssembly.cpp
     src/app/retained/HydrocarbonFamily.h src/app/retained/HydrocarbonFamily.cpp
     src/app/retained/QuinolineFamily.h src/app/retained/QuinolineFamily.cpp
@@ -309,14 +311,12 @@ else()
     target_link_libraries(smiles_driver_v72 PRIVATE Qt6::Core ${INDIGO_LIB_DIR}/indigo.dll ${INDIGO_LIB_DIR}/indigo-inchi.dll)
 endif()
 
-qt_add_executable(fused_ring_orientation_test tests/fused_ring_orientation_test.cpp src/app/FusedRingOrientation.h src/app/FusedRingOrientation.cpp)
+qt_add_executable(fused_ring_orientation_test tests/fused_ring_orientation_test.cpp src/app/FusedRingOrientation.h src/app/FusedRingOrientation.cpp src/app/FusedSystemTopology.h src/app/FusedSystemTopology.cpp)
 target_include_directories(fused_ring_orientation_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app
 )
-if (MSVC)
-    target_link_libraries(fused_ring_orientation_test PRIVATE Qt6::Core)
-endif()
+target_link_libraries(fused_ring_orientation_test PRIVATE Qt6::Core)
 add_test(NAME fused_ring_orientation_test COMMAND fused_ring_orientation_test)
 
 qt_add_executable(fused_ring_direction_detector_test tests/fused_ring_direction_detector_test.cpp src/app/FusedRingDirectionDetector.h src/app/FusedRingDirectionDetector.cpp src/app/FusedRingOrientation.h src/app/FusedRingOrientation.cpp src/app/FusedSystemTopology.h src/app/FusedSystemTopology.cpp)
@@ -345,7 +345,20 @@ else()
 endif()
 add_test(NAME fused_system_topology_test COMMAND fused_system_topology_test)
 
-qt_add_executable(naming_validation_test tests/naming_validation_test.cpp src/app/NamingValidation.h src/app/NamingValidation.cpp src/app/FusedRingOrientation.h src/app/FusedRingOrientation.cpp src/app/NamingTypes.h)
+qt_add_executable(peripheral_numbering_test tests/peripheral_numbering_test.cpp src/app/PeripheralNumbering.h src/app/PeripheralNumbering.cpp src/app/SystemLocant.h src/app/FusedRingOrientation.h src/app/FusedRingOrientation.cpp src/app/FusedRingDirectionDetector.h src/app/FusedRingDirectionDetector.cpp src/app/FusedSystemTopology.h src/app/FusedSystemTopology.cpp src/app/NamingTrace.h src/app/NamingTrace.cpp)
+target_include_directories(peripheral_numbering_test PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app
+    ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo
+)
+if (MSVC)
+    target_link_libraries(peripheral_numbering_test PRIVATE Qt6::Core ${INDIGO_LIB_DIR}/indigo.lib)
+else()
+    target_link_libraries(peripheral_numbering_test PRIVATE Qt6::Core ${INDIGO_LIB_DIR}/indigo.dll)
+endif()
+add_test(NAME peripheral_numbering_test COMMAND peripheral_numbering_test)
+
+qt_add_executable(naming_validation_test tests/naming_validation_test.cpp src/app/NamingValidation.h src/app/NamingValidation.cpp src/app/FusedRingOrientation.h src/app/FusedRingOrientation.cpp src/app/FusedSystemTopology.h src/app/FusedSystemTopology.cpp src/app/NamingTypes.h)
 target_include_directories(naming_validation_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app
@@ -356,6 +369,28 @@ else()
     target_link_libraries(naming_validation_test PRIVATE Qt6::Core)
 endif()
 add_test(NAME naming_validation_test COMMAND naming_validation_test)
+
+qt_add_executable(system_locant_test tests/system_locant_test.cpp src/app/SystemLocant.h)
+target_include_directories(system_locant_test PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app
+)
+target_link_libraries(system_locant_test PRIVATE Qt6::Core)
+add_test(NAME system_locant_test COMMAND system_locant_test)
+
+qt_add_executable(fusion_construction_test tests/fusion_construction_test.cpp ${IUPAC_NAMING_SOURCES} src/app/BondStereoPerception.h src/app/BondStereoPerception.cpp)
+target_include_directories(fusion_construction_test PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app
+    ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo
+    ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo-inchi
+)
+if (MSVC)
+    target_link_libraries(fusion_construction_test PRIVATE Qt6::Core ${INDIGO_LIB_DIR}/indigo.lib ${INDIGO_LIB_DIR}/indigo-inchi.lib)
+else()
+    target_link_libraries(fusion_construction_test PRIVATE Qt6::Core ${INDIGO_LIB_DIR}/indigo.dll ${INDIGO_LIB_DIR}/indigo-inchi.dll)
+endif()
+add_test(NAME fusion_construction_test COMMAND fusion_construction_test)
 
 qt_add_executable(retained_ring_registry_test tests/retained_ring_registry_test.cpp ${IUPAC_NAMING_SOURCES} src/app/BondStereoPerception.h src/app/BondStereoPerception.cpp)
 target_include_directories(retained_ring_registry_test PRIVATE

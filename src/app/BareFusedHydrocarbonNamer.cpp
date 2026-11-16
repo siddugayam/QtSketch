@@ -1,4 +1,5 @@
 #include "BareFusedHydrocarbonNamer.h"
+#include "FusedSystemTopology.h"
 #include "indigo.h"
 
 #include <set>
@@ -109,12 +110,15 @@ BareFusedHydrocarbonResult tryNameBareFusedHydrocarbon(
         }
     }
 
-    // Dispatch by multiset of ring sizes
-    std::vector<int> sortedRings = input.ringSizes;
-    std::sort(sortedRings.begin(), sortedRings.end());
+    // Canonical descriptor: perimeter length, interior count, total atoms (SSSR-independent)
+    FusedSystemTopology topo(inputGraph.ringAtoms, g.bonds);
+    auto perim = topo.perimeterCycle();
+    int perimLen = static_cast<int>(perim.size());
+    int interiorCount = static_cast<int>(interiorGraphNodes.size());
+    int totalAtoms = static_cast<int>(g.nodes.size());
 
-    if (sortedRings == std::vector<int>{5, 6, 6}) {
-        // Acenaphthylene entry
+    // Acenaphthylene: 11-atom perimeter, 1 interior atom, 12 total carbons
+    if (perimLen == 11 && interiorCount == 1 && totalAtoms == 12) {
         if (sp3Atoms.empty()) {
             return {BareFusedDisposition::Named, {true, "acenaphthylene", "", NamingStatus::SystematicIupacName}, ""};
         } else if (sp3Atoms.size() == 2) {
@@ -137,12 +141,8 @@ BareFusedHydrocarbonResult tryNameBareFusedHydrocarbon(
         }
     }
 
-    if (sortedRings == std::vector<int>{6, 6, 6}) {
-        // Phenalene entry
-        if (interiorGraphNodes.size() != 1) {
-            return {BareFusedDisposition::NotMatched, {}, ""};
-        }
-        int interiorNode = *interiorGraphNodes.begin();
+    // Phenalene: 12-atom perimeter, 1 interior atom, 13 total carbons
+    if (perimLen == 12 && interiorCount == 1 && totalAtoms == 13) {
         if (sp3Atoms.empty()) {
             return {BareFusedDisposition::Rejected, {}, "requires indicated-hydrogen tautomer"};
         }
@@ -152,6 +152,7 @@ BareFusedHydrocarbonResult tryNameBareFusedHydrocarbon(
 
         // Exactly one sp3 atom
         int sp3 = *sp3Atoms.begin();
+        int interiorNode = *interiorGraphNodes.begin();
         if (sp3 == interiorNode) {
             return {BareFusedDisposition::Named, {true, "9bH-phenalene", "", NamingStatus::SystematicIupacName}, ""};
         }
@@ -177,22 +178,8 @@ BareFusedHydrocarbonResult tryNameBareFusedHydrocarbon(
             "non-Kekule diradical phenalene isomer (sp3 at an unstarred position) is not a closed-shell parent hydride, not supported."};
     }
 
-    // Pyrene entry. Deliberately NOT keyed on the ring-size multiset: pyrene's
-    // SSSR is not representation-canonical (confirmed this session -- a prior
-    // "second pyrene ordering" fixture that superficially looked like an
-    // alternate ring-size basis of the same molecule turned out to just be a
-    // different, smaller, mislabeled 14-carbon molecule; see c97a194). Keyed
-    // instead on ring count, interior-atom count, and total atom count, all of
-    // which stayed stable across every representation tested. Bare only:
-    // hydro-pyrene and substituted-pyrene naming need the interior-atom
-    // (10b/10c) ordering rule, which is deliberately out of scope here (legacy
-    // A-22.2's "clockwise sequence" tie-break has no codebase precedent yet,
-    // and bare pyrene's own name exposes no interior locant, so it isn't
-    // needed just to recognize the bare parent).
-    bool isPyreneSkeleton = input.ringSizes.size() == 4
-        && interiorGraphNodes.size() == 2
-        && g.nodes.size() == 16;
-    if (isPyreneSkeleton) {
+    // Pyrene: 14-atom perimeter, 2 interior atoms, 16 total carbons
+    if (perimLen == 14 && interiorCount == 2 && totalAtoms == 16) {
         if (sp3Atoms.empty()) {
             return {BareFusedDisposition::Named, {true, "pyrene", "", NamingStatus::SystematicIupacName}, ""};
         }

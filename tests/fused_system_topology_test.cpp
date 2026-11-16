@@ -485,6 +485,142 @@ static void test_hand_crafted() {
     }
 }
 
+static void test_phenalene_perimeter() {
+    cout << "Test: Phenalene perimeter cycle" << endl;
+    int mol = indigoLoadMoleculeFromString("C1=CC2=CC=CC3=CC=CC(=C1)C23");
+    if (mol < 0) {
+        cout << "  FAIL: indigoLoadMoleculeFromString failed" << endl;
+        failed++;
+        return;
+    }
+    indigoAromatize(mol);
+    IndigoMolContext ctx = loadMoleculeContext(mol);
+    indigoFree(mol);
+
+    FusedSystemTopology topo(ctx.sssrRings, ctx.g);
+    bool ok = true;
+    if (!topo.hasSinglePerimeterComponent()) {
+        cout << "  FAIL: expected hasSinglePerimeterComponent() == true" << endl;
+        ok = false;
+    }
+    if (topo.perimeterCycle().size() != 12) {
+        cout << "  FAIL: expected perimeterCycle size 12, got " << topo.perimeterCycle().size() << endl;
+        ok = false;
+    }
+    if (ok) {
+        cout << "  PASS: Phenalene perimeter cycle (12 atoms, single component)" << endl;
+        passed++;
+    } else {
+        failed++;
+    }
+}
+
+static void test_pyrene_perimeter() {
+    cout << "Test: Pyrene perimeter cycle" << endl;
+    int mol = indigoLoadMoleculeFromString("c1cc2ccc3cccc4ccc(c1)c2c34");
+    if (mol < 0) {
+        cout << "  FAIL: indigoLoadMoleculeFromString failed" << endl;
+        failed++;
+        return;
+    }
+    indigoAromatize(mol);
+    IndigoMolContext ctx = loadMoleculeContext(mol);
+    indigoFree(mol);
+
+    FusedSystemTopology topo(ctx.sssrRings, ctx.g);
+    bool ok = true;
+    if (!topo.hasSinglePerimeterComponent()) {
+        cout << "  FAIL: expected hasSinglePerimeterComponent() == true" << endl;
+        ok = false;
+    }
+    if (topo.perimeterCycle().size() != 14) {
+        cout << "  FAIL: expected perimeterCycle size 14, got " << topo.perimeterCycle().size() << endl;
+        ok = false;
+    }
+    if (ok) {
+        cout << "  PASS: Pyrene perimeter cycle (14 atoms, single component)" << endl;
+        passed++;
+    } else {
+        failed++;
+    }
+}
+
+static void test_perimeter_plus_interior_equals_total() {
+    cout << "Test: Perimeter plus interior equals total heavy atoms" << endl;
+    bool ok = true;
+
+    // Phenalene: 13 heavy atoms (12 perim + 1 interior)
+    {
+        int mol = indigoLoadMoleculeFromString("C1=CC2=CC=CC3=CC=CC(=C1)C23");
+        indigoAromatize(mol);
+        IndigoMolContext ctx = loadMoleculeContext(mol);
+        indigoFree(mol);
+        FusedSystemTopology topo(ctx.sssrRings, ctx.g);
+        size_t total = topo.perimeterCycle().size() + topo.interiorAtoms().size();
+        if (total != ctx.g.nodes.size()) {
+            cout << "  FAIL: Phenalene total (" << total << ") != nodes (" << ctx.g.nodes.size() << ")" << endl;
+            ok = false;
+        }
+    }
+
+    // Pyrene: 16 heavy atoms (14 perim + 2 interior)
+    {
+        int mol = indigoLoadMoleculeFromString("c1cc2ccc3cccc4ccc(c1)c2c34");
+        indigoAromatize(mol);
+        IndigoMolContext ctx = loadMoleculeContext(mol);
+        indigoFree(mol);
+        FusedSystemTopology topo(ctx.sssrRings, ctx.g);
+        size_t total = topo.perimeterCycle().size() + topo.interiorAtoms().size();
+        if (total != ctx.g.nodes.size()) {
+            cout << "  FAIL: Pyrene total (" << total << ") != nodes (" << ctx.g.nodes.size() << ")" << endl;
+            ok = false;
+        }
+    }
+
+    if (ok) {
+        cout << "  PASS: Perimeter + interior == total heavy atoms for phenalene and pyrene" << endl;
+        passed++;
+    } else {
+        failed++;
+    }
+}
+
+static void test_bridged_has_no_single_perimeter() {
+    cout << "Test: Bridged/spiro has no single perimeter component" << endl;
+    bool ok = true;
+
+    // Bicyclo[2.2.1]heptane (norbornane)
+    {
+        int mol = indigoLoadMoleculeFromString("C1CC2CCC1C2");
+        IndigoMolContext ctx = loadMoleculeContext(mol);
+        indigoFree(mol);
+        FusedSystemTopology topo(ctx.sssrRings, ctx.g);
+        if (topo.hasSinglePerimeterComponent()) {
+            cout << "  FAIL: norbornane expected hasSinglePerimeterComponent() == false" << endl;
+            ok = false;
+        }
+    }
+
+    // Spiro[4.5]decane
+    {
+        int mol = indigoLoadMoleculeFromString("C1CCC2(CCCCC2)C1");
+        IndigoMolContext ctx = loadMoleculeContext(mol);
+        indigoFree(mol);
+        FusedSystemTopology topo(ctx.sssrRings, ctx.g);
+        if (topo.hasSinglePerimeterComponent()) {
+            cout << "  FAIL: spiro[4.5]decane expected hasSinglePerimeterComponent() == false" << endl;
+            ok = false;
+        }
+    }
+
+    if (ok) {
+        cout << "  PASS: Bridged and spiro systems correctly report no single perimeter component" << endl;
+        passed++;
+    } else {
+        failed++;
+    }
+}
+
 int main() {
     setvbuf(stdout, nullptr, _IONBF, 0);
     qword sid = indigoAllocSessionId();
@@ -496,6 +632,10 @@ int main() {
     test_pyrene();
     test_spiro_decane();
     test_hand_crafted();
+    test_phenalene_perimeter();
+    test_pyrene_perimeter();
+    test_perimeter_plus_interior_equals_total();
+    test_bridged_has_no_single_perimeter();
 
     indigoReleaseSessionId(sid);
 

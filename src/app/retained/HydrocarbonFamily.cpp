@@ -124,4 +124,40 @@ void registerHydrocarbonFamily(std::vector<RetainedRingSystem> &registry) {
         // never independently verified and is superseded by this check.)
         "tetraceno",
     });
+
+    // Phenanthrene -- 14 carbons; angular 6-6-6 ring system.
+    // Appendix 1 table position 48 (seniorityRank = 47).
+    registry.push_back(RetainedRingSystem{
+        "phenanthrene",
+        "c1ccc2ccc3ccccc3c2c1",
+        {"3","2","1","10a","10","9","8a","8","7","6","5","4b","4a","4"},
+        {
+            {'a', {"1","2"}},   {'b', {"2","3"}},   {'c', {"3","4"}},
+            {'d', {"4","4a"}},  {'e', {"4a","4b"}}, {'f', {"4b","5"}},
+            {'g', {"5","6"}},   {'h', {"6","7"}},   {'i', {"7","8"}},
+            {'j', {"8","8a"}},  {'k', {"8a","9"}},  {'l', {"9","10"}},
+            {'m', {"10","10a"}},{'n', {"10a","1"}},
+        },
+        47,
+        "phenanthro",
+    });
+
+    // Indene -- 9 carbons; 6-5 ortho-fused ring system.
+    // Appendix 1 table position 58 (seniorityRank = 57).
+    // SMILES 'C1C=Cc2ccccc12' producing atoms in order:
+    // atom 0: C1 -> "1", atom 1: C2 -> "2", atom 2: C3 -> "3", atom 3: C3a -> "3a",
+    // atom 4: C4 -> "4", atom 5: C5 -> "5", atom 6: C6 -> "6", atom 7: C7 -> "7",
+    // atom 8: C7a -> "7a"
+    registry.push_back(RetainedRingSystem{
+        "indene",
+        "C1C=Cc2ccccc12",
+        {"1","2","3","3a","4","5","6","7","7a"},
+        {
+            {'a', {"1","2"}}, {'b', {"2","3"}}, {'c', {"3","3a"}},
+            {'d', {"3a","4"}}, {'e', {"4","5"}}, {'f', {"5","6"}},
+            {'g', {"6","7"}}, {'h', {"7","7a"}}, {'i', {"7a","1"}},
+        },
+        57,
+        "indeno",
+    });
 }

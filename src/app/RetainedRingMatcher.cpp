@@ -48,7 +48,7 @@
 // unconditionally regressed 3 plain branching-fusion tests, see PeripheralNumbering.cpp).
 
 // Build the full registry once, on first use.
-static const std::vector<RetainedRingSystem>& fullRegistry() {
+const std::vector<RetainedRingSystem>& fullRegistry() {
     static std::vector<RetainedRingSystem> registry = [] {
         std::vector<RetainedRingSystem> r;
         registerHydrocarbonFamily(r);
@@ -104,7 +104,7 @@ static const std::vector<RetainedRingSystem>& fullRegistry() {
 // indigoExactMatch (which returns a real mapping object on success, zero
 // otherwise, and takes two ordinary molecules -- no query-molecule
 // representational issues at all).
-static bool matchesRetainedSystem(int mol, const std::set<int> &ringAtoms,
+bool matchesRetainedSystem(int mol, const std::set<int> &ringAtoms,
                                     const RetainedRingSystem &sys,
                                     std::map<int,int> &outAtomMap) {
     if (static_cast<int>(ringAtoms.size()) != static_cast<int>(sys.peripheralLocants.size())) {
@@ -302,16 +302,10 @@ static QString buildAnyBondElementSmarts(int refMol, std::vector<int> &outDfsOrd
 // Forward declarations: both are defined further down this file (used
 // originally for fusion-bond locant tie-breaking), reused here unmodified
 // per this task's own interface contract -- do not reimplement either.
-static std::vector<std::vector<int>> computeAutomorphisms(int refMol);
+std::vector<std::vector<int>> computeAutomorphisms(int refMol);
 static bool locantLess(const QString &a, const QString &b);
 
-// Result of a successful skeleton-only (bond-order-agnostic) match.
-struct SkeletonMatchResult {
-    std::map<int,int> atomMap;      // qPos -> real target atom index (same
-                                     // convention as matchesRetainedSystem)
-    QStringList hydroLocants;       // sys.peripheralLocants[] strings for
-                                     // every saturation position found
-};
+// SkeletonMatchResult defined in RetainedRingMatcher.h
 
 // Fallback for matchesRetainedSystem: same topology + heteroatom identity,
 // bond order ignored. See the doc comment above buildAnyBondElementSmarts
@@ -321,7 +315,7 @@ struct SkeletonMatchResult {
 // "Hydro-prefix locant is letter-suffixed; bridgehead saturation is not yet
 // supported." rejection convention used elsewhere in this engine
 // (IupacNamer.cpp's P-31 hydro-prefix mechanism).
-static bool skeletonMatchRetainedSystem(int mol, const std::set<int> &ringAtoms,
+bool skeletonMatchRetainedSystem(int mol, const std::set<int> &ringAtoms,
                                           const RetainedRingSystem &sys,
                                           SkeletonMatchResult &outResult) {
     if (static_cast<int>(ringAtoms.size()) != static_cast<int>(sys.peripheralLocants.size())) {
@@ -629,7 +623,7 @@ static bool isPreferredBase(const RetainedRingSystem &a, int aHeteroatomRank, in
 // naphthalene's point-symmetry automorphism relabels the very same bond
 // "2,3", which is lower and is the real published citation
 // "naphtho[2,3-g]isoquinoline", not "naphtho[6,7-g]isoquinoline").
-static std::vector<std::vector<int>> computeAutomorphisms(int refMol) {
+std::vector<std::vector<int>> computeAutomorphisms(int refMol) {
     std::vector<int> atomHandles;
     int iter = indigoIterateAtoms(refMol);
     int h;
@@ -876,14 +870,13 @@ std::optional<RingSystemNameResult> tryRetainedBaseDecomposition(int mol) {
     // AND ends==2 AND centers==N-2 (i.e. exactly a straight path through all N rings, no branching).
     // Also, validFusion from buildRingAdjacency must be true (no spiro/bridged fusions).
     bool isLinearChain = (ends == 2 && centers == N - 2 && !hasBranching);
-    bool isPeriFusedTricycle = (N == 3 && ends == 0 && centers == 3 && !hasBranching &&
-                                shared[0][1] == 2 && shared[1][2] == 2 && shared[0][2] == 2);
+    bool isPeriFused = (ends == 0 && centers == N && !hasBranching);
     // std::cerr << "DEBUG: N=" << N << " ends=" << ends << " centers=" << centers << " hasBranching=" << hasBranching << " isLinearChain=" << isLinearChain << std::endl;
-    if (!isLinearChain && !isPeriFusedTricycle) {
+    if (!isLinearChain && !isPeriFused) {
         return std::nullopt; // Branching systems fall through to nameBranchingFusion
     }
 
-    if (isPeriFusedTricycle) {
+    if (isPeriFused) {
         // Peri-fused tricycle (e.g. perimidine): 3 rings sharing a central junction in a delta cycle.
         // Support whole-molecule exact match (k == N == 3).
         std::set<int> allRingAtoms;
@@ -1226,7 +1219,8 @@ std::optional<RingSystemNameResult> tryRetainedBaseDecomposition(int mol) {
             }
 
             if (!info.isPlainBenzo &&
-                (info.sys == nullptr || remAmbiguous || info.sys->fusionPrefix.isEmpty())) {
+                (info.sys == nullptr || remAmbiguous || info.sys->fusionPrefix.isEmpty() ||
+                 !info.sys->indicatedHydrogenLocant.isEmpty() || info.sys->name == "indene")) {
                 return std::nullopt;
             }
 
@@ -1641,7 +1635,7 @@ std::optional<RingSystemNameResult> tryRetainedBaseDecomposition(int mol) {
     // (see RetainedRingTypes.h's doc comment on fusionPrefix), and not the
     // plain-benzo monocyclic case just classified above: don't guess.
     if (!remainderIsPlainBenzo &&
-        (remainderSys == nullptr || remainderAmbiguous || remainderSys->fusionPrefix.isEmpty())) {
+        (remainderSys == nullptr || remainderAmbiguous || remainderSys->fusionPrefix.isEmpty() || remainderSys->name == "indene")) {
         return std::nullopt;
     }
 

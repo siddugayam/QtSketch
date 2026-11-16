@@ -5472,6 +5472,123 @@ int main() {
         }
     }
     {
+        // Phase 4 Task 11: dibenzo[c,g]phenanthrene
+        int m = indigoLoadMoleculeFromString("C1=CC=C2C(=C1)C=CC3=C2C4=C(C=C3)C=CC5=CC=CC=C54");
+        IupacResult r = IupacNamer::generateName(m);
+        indigoFree(m);
+        if (r.success && r.name == "dibenzo[c,g]phenanthrene") {
+            std::cout << "[PASS] dibenzo[c,g]phenanthrene\n";
+            passed++;
+        } else {
+            std::cout << "[FAIL] dibenzo[c,g]phenanthrene: got success=" << r.success << " name='" << r.name.toStdString() << "' err='" << r.error.toStdString() << "'\n";
+            failed++;
+        }
+    }
+    {
+        // Phase 4 Task 11: thieno[3,2-f][2,1]benzothiazole
+        int m = indigoLoadMoleculeFromString("c1cc2c(s1)cc3nscc3c2");
+        IupacResult r = IupacNamer::generateName(m);
+        indigoFree(m);
+        if (r.success && r.name == "thieno[3,2-f][2,1]benzothiazole") {
+            std::cout << "[PASS] thieno[3,2-f][2,1]benzothiazole\n";
+            passed++;
+        } else {
+            std::cout << "[FAIL] thieno[3,2-f][2,1]benzothiazole: got success=" << r.success << " name='" << r.name.toStdString() << "' err='" << r.error.toStdString() << "'\n";
+            failed++;
+        }
+    }
+    {
+        // Phase 4 Task 11: difuro[3,2-b:3,4-e]pyridine
+        int m = indigoLoadMoleculeFromString("n1c2cocc2cc2occc12");
+        IupacResult r = IupacNamer::generateName(m);
+        indigoFree(m);
+        if (r.success && r.name == "difuro[3,2-b:3,4-e]pyridine") {
+            std::cout << "[PASS] difuro[3,2-b:3,4-e]pyridine\n";
+            passed++;
+        } else {
+            std::cout << "[FAIL] difuro[3,2-b:3,4-e]pyridine: got success=" << r.success << " name='" << r.name.toStdString() << "' err='" << r.error.toStdString() << "'\n";
+            failed++;
+        }
+    }
+    {
+        // Phase 4 Task 11: dipyrido[1,2-a:2,1-c]pyrazine
+        int m = indigoLoadMoleculeFromString("[n]12ccccc1c1cccc[n]1cc2");
+        IupacResult r = IupacNamer::generateName(m);
+        indigoFree(m);
+        if (r.success && r.name == "dipyrido[1,2-a:2,1-c]pyrazine") {
+            std::cout << "[PASS] dipyrido[1,2-a:2,1-c]pyrazine\n";
+            passed++;
+        } else {
+            std::cout << "[FAIL] dipyrido[1,2-a:2,1-c]pyrazine: got success=" << r.success << " name='" << r.name.toStdString() << "' err='" << r.error.toStdString() << "'\n";
+            failed++;
+        }
+    }
+    {
+        // Phase 4 Task 11: naphtho[1,2-c:7,8-c']difuran
+        int m = indigoLoadMoleculeFromString("c12cocc1ccc1ccc3cocc3c12");
+        IupacResult r = IupacNamer::generateName(m);
+        indigoFree(m);
+        if (r.success && r.name == "naphtho[1,2-c:7,8-c']difuran") {
+            std::cout << "[PASS] naphtho[1,2-c:7,8-c']difuran\n";
+            passed++;
+        } else {
+            std::cout << "[FAIL] naphtho[1,2-c:7,8-c']difuran: got success=" << r.success << " name='" << r.name.toStdString() << "' err='" << r.error.toStdString() << "'\n";
+            failed++;
+        }
+    }
+    {
+        // Phase 5 Task 12: 1,2,3,4,5,6-hexaazacyclopenta[cd]pentalene (Alternative 1)
+        int m = indigoLoadMoleculeFromString("N1=NC2=NN=C3C2=C1N=N3");
+        IupacResult r = IupacNamer::generateName(m);
+        indigoFree(m);
+        if (r.success && r.name == "1,2,3,4,5,6-hexaazacyclopenta[cd]pentalene") {
+            std::cout << "[PASS] 1,2,3,4,5,6-hexaazacyclopenta[cd]pentalene\n";
+            passed++;
+        } else {
+            std::cout << "[FAIL] 1,2,3,4,5,6-hexaazacyclopenta[cd]pentalene: got success=" << r.success << " name='" << r.name.toStdString() << "' err='" << r.error.toStdString() << "'\n";
+            failed++;
+        }
+    }
+    {
+        // Phase 5 Task 12: 1,4,9-tetraazaphenalene (Alternative 1)
+        int m = indigoLoadMoleculeFromString("n1ccc2nccc3ccnc1[n]23");
+        IupacResult r = IupacNamer::generateName(m);
+        indigoFree(m);
+        if (r.success && (r.name == "1,4,9-tetraazaphenalene" || r.name == "1,4,9,9b-tetraazaphenalene")) {
+            std::cout << "[PASS] 1,4,9-tetraazaphenalene\n";
+            passed++;
+        } else {
+            std::cout << "[FAIL] 1,4,9-tetraazaphenalene: got success=" << r.success << " name='" << r.name.toStdString() << "' err='" << r.error.toStdString() << "'\n";
+            failed++;
+        }
+    }
+    {
+        // Phase 5 Task 13: cyclobuta[1,7]indeno[5,6-b]naphthalene (Alternative 2)
+        int m = indigoLoadMoleculeFromString("c5cccc4c5cc3c(c4)c2c1c(c3)ccc1c2");
+        IupacResult r = IupacNamer::generateName(m);
+        indigoFree(m);
+        if (r.success && r.name == "cyclobuta[1,7]indeno[5,6-b]naphthalene") {
+            std::cout << "[PASS] cyclobuta[1,7]indeno[5,6-b]naphthalene\n";
+            passed++;
+        } else {
+            std::cout << "[FAIL] cyclobuta[1,7]indeno[5,6-b]naphthalene: got success=" << r.success << " name='" << r.name.toStdString() << "' err='" << r.error.toStdString() << "'\n";
+            failed++;
+        }
+    }
+    {
+        // Phase 5 Task 13: 1,12-ethenobenzo[4,5]cyclohepta[1,2,3-de]naphthalene (Alternative 3)
+        int m = indigoLoadMoleculeFromString("C1c2cccc3ccc4ccc5c(c4c23)c(ccc5)C=1");
+        IupacResult r = IupacNamer::generateName(m);
+        indigoFree(m);
+        if (r.success && r.name == "1,12-ethenobenzo[4,5]cyclohepta[1,2,3-de]naphthalene") {
+            std::cout << "[PASS] 1,12-ethenobenzo[4,5]cyclohepta[1,2,3-de]naphthalene\n";
+            passed++;
+        } else {
+            std::cout << "[FAIL] 1,12-ethenobenzo[4,5]cyclohepta[1,2,3-de]naphthalene: got success=" << r.success << " name='" << r.name.toStdString() << "' err='" << r.error.toStdString() << "'\n";
+            failed++;
+        }
+    }
+    {
         // Phase 30.5 extension: 1,4-methanonaphthalene (P-25.4 specific narrow case)
         int m = indigoLoadMoleculeFromString("C1C2C=CC1c3ccccc23");
         IupacResult r = IupacNamer::generateName(m);

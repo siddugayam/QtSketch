@@ -63,6 +63,8 @@ void FusedSystemTopology::compute(const std::vector<std::set<int>> &rings,
     m_atomToRings.clear();
     m_interiorAtoms.clear();
     m_peripheralAtoms.clear();
+    m_perimeterCycle.clear();
+    m_hasSinglePerimeterComponent = false;
     m_orthoJunctions.clear();
     m_spiroJunctions.clear();
     m_periJunctions.clear();
@@ -198,5 +200,65 @@ void FusedSystemTopology::compute(const std::vector<std::set<int>> &rings,
                 m_adjacencyList[r].push_back(adj);
             }
         }
+    }
+
+    // 7. Perimeter cycle extraction (FR-5.5 / P-25.3.3)
+    if (m_peripheralAtoms.empty() || !m_bridgedJunctions.empty() || !m_spiroJunctions.empty()) {
+        return;
+    }
+
+    // Build perimeter boundary edge graph:
+    // Bonds between peripheral atoms that belong to EXACTLY 1 ring
+    std::map<int, std::vector<int>> perimAdj;
+    for (const auto &b : bonds) {
+        int u = b.u;
+        int v = b.v;
+        if (m_peripheralAtoms.count(u) && m_peripheralAtoms.count(v)) {
+            int ringsContainingBoth = 0;
+            for (const auto &ring : m_rings) {
+                if (ring.count(u) && ring.count(v)) {
+                    ringsContainingBoth++;
+                }
+            }
+            if (ringsContainingBoth == 1) {
+                perimAdj[u].push_back(v);
+                perimAdj[v].push_back(u);
+            }
+        }
+    }
+
+    // Every peripheral atom must have degree exactly 2 in the perimeter boundary graph
+    for (int a : m_peripheralAtoms) {
+        if (perimAdj[a].size() != 2) {
+            return;
+        }
+    }
+
+    // Walk the boundary cycle starting from the peripheral atom with lowest ID
+    int startAtom = *m_peripheralAtoms.begin();
+    std::sort(perimAdj[startAtom].begin(), perimAdj[startAtom].end());
+    int nextAtom = perimAdj[startAtom][0];
+
+    m_perimeterCycle.push_back(startAtom);
+    int curr = nextAtom;
+    int prev = startAtom;
+
+    while (curr != startAtom && m_perimeterCycle.size() <= m_peripheralAtoms.size()) {
+        m_perimeterCycle.push_back(curr);
+        const auto &nbrs = perimAdj[curr];
+        if (nbrs.size() != 2) {
+            m_perimeterCycle.clear();
+            return;
+        }
+        int next = (nbrs[0] == prev) ? nbrs[1] : nbrs[0];
+        prev = curr;
+        curr = next;
+    }
+
+    if (curr == startAtom && m_perimeterCycle.size() == m_peripheralAtoms.size()) {
+        m_hasSinglePerimeterComponent = true;
+    } else {
+        m_perimeterCycle.clear();
+        m_hasSinglePerimeterComponent = false;
     }
 }
