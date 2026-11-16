@@ -126,7 +126,14 @@ void registerHydrocarbonFamily(std::vector<RetainedRingSystem> &registry) {
     });
 
     // Phenanthrene -- 14 carbons; angular 6-6-6 ring system.
-    // Appendix 1 table position 48 (seniorityRank = 47).
+    // seniorityRank=47 (lower number = higher seniority, per
+    // FusionConstruction.h): one step less senior than anthracene (46),
+    // far more senior than the generic cyclo-prefixed rings (>=100). The
+    // specific Blue Book Appendix 1 table-position this was originally
+    // cited against was not independently verified -- do not trust an
+    // exact table-position claim here. The rank's practical correctness is
+    // established empirically (dibenzo[c,g]phenanthrene parent-selection
+    // fixture, tests/fusion_construction_test.cpp), not by that citation.
     registry.push_back(RetainedRingSystem{
         "phenanthrene",
         "c1ccc2ccc3ccccc3c2c1",
@@ -143,7 +150,12 @@ void registerHydrocarbonFamily(std::vector<RetainedRingSystem> &registry) {
     });
 
     // Indene -- 9 carbons; 6-5 ortho-fused ring system.
-    // Appendix 1 table position 58 (seniorityRank = 57).
+    // seniorityRank=57 (lower number = higher seniority): one step less
+    // senior than phenanthrene (47), still far more senior than the
+    // generic cyclo-prefixed rings (>=100). Blue Book Appendix 1
+    // table-position not independently verified -- see phenanthrene's
+    // comment above for the same caveat; correctness here rests on the
+    // passing fixture tests, not on a verified table citation.
     // SMILES 'C1C=Cc2ccccc12' producing atoms in order:
     // atom 0: C1 -> "1", atom 1: C2 -> "2", atom 2: C3 -> "3", atom 3: C3a -> "3a",
     // atom 4: C4 -> "4", atom 5: C5 -> "5", atom 6: C6 -> "6", atom 7: C7 -> "7",
