@@ -232,6 +232,8 @@ ApplicationWindow {
             activeSketch.requestMolfileForNaming("iupac_name")
             return
         }
+        // One structure job at a time, so a late reply cannot land on another tab.
+        if (window.isProcessing) return
         if (op !== "layout" && op !== "aromatize") window.isProcessing = true
         activeSketch.requestSerialize(op)
     }
@@ -2286,7 +2288,13 @@ ApplicationWindow {
                 }
                 return loaded
             } else if (activeCanvas) {
-                activeCanvas.loadStructure(fmt, data)
+                if (!activeCanvas.loadStructure(fmt, data)) {
+                    messageDialogsGroup.workerErrorDialog.errorText =
+                        "Open failed: could not read a structure from " + fileUrl + "."
+                    messageDialogsGroup.workerErrorDialog.severe = false
+                    messageDialogsGroup.workerErrorDialog.open()
+                    return false
+                }
                 window.centerViewOnPage()
                 setDocFile(DocumentManager.activeDocId, fileUrl)
                 return true

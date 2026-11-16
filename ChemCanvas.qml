@@ -460,8 +460,9 @@ Item {
 
     function loadStructure(fmt, data, centerOnPage) {
         _needsCentering = true
-        sketch.loadStructure(fmt, data, !!centerOnPage)
+        const ok = sketch.loadStructure(fmt, data, !!centerOnPage)
         refresh()
+        return ok
     }
 
     function serializeMol() {

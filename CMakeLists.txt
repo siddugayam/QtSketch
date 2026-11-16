@@ -485,7 +485,7 @@ target_include_directories(project_file_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app
 )
-target_link_libraries(project_file_test PRIVATE Qt6::Core Qt6::Gui molecule_model)
+target_link_libraries(project_file_test PRIVATE Qt6::Core Qt6::Gui Qt6::Qml molecule_model)
 add_test(NAME project_file_test COMMAND project_file_test)
 
 # SettingsService test

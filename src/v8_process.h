@@ -82,7 +82,7 @@ public:
     Q_INVOKABLE QString getStructure(const QString& fmt);
     Q_INVOKABLE QString serializeMol();
     Q_INVOKABLE QString getMolfileForNaming();
-    Q_INVOKABLE void loadStructure(const QString& format, const QString& data, bool centerOnPage = false);
+    Q_INVOKABLE bool loadStructure(const QString& format, const QString& data, bool centerOnPage = false);
     Q_INVOKABLE bool importReaction(const QString& text);
     Q_INVOKABLE void insertFunctionalGroup(const QString& fgName, double cx, double cy, int targetAtomId = -1, bool fullStructure = true);
     Q_INVOKABLE void insertLibraryTemplateFused(const QString& fgName, double cx, double cy, int targetBondId);

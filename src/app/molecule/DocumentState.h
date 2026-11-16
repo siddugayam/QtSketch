@@ -319,7 +319,7 @@ public:
     // 40-serialize.js: deserializeMol via _applyLoadedStruct). No-ops (no history entry) on a
     // parse failure. Extension data (name, texts, rxnArrows, etc.) is wiped on success, matching
     // the real JS exactly -- it never carries anything across a document replace.
-    void deserializeMol(const QString& data, bool centerOnPage = false);
+    bool deserializeMol(const QString& data, bool centerOnPage = false);
 
     // Document name (40-serialize.js's setMoleculeName). No-op if unchanged, matching the real
     // JS's `if (oldName === newName) return`. getMoleculeName needs no wrapper -- pure read,
