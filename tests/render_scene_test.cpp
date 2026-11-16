@@ -6,6 +6,7 @@
 #include <QImage>
 #include <QPainter>
 #include <QFontDatabase>
+#include <QFontInfo>
 #include "app/render/RenderScene.h"
 #include "app/render/Exporter.h"
 #include "app/molecule/RenderPrimitives.h"
@@ -151,7 +152,10 @@ int main(int argc, char** argv) {
     prims3.atoms.append(atom4);
     
     DrawingStyle style3;
-    style3.fontFamily = "Arial";
+    // Arial is not installed on every Linux machine; fall back to whatever
+    // family the system resolves for the default font.
+    style3.fontFamily = QFontDatabase::families().contains("Arial")
+        ? QStringLiteral("Arial") : QFontInfo(QFont()).family();
     style3.fontSize = 10;
     style3.modelToMmScale = 5.08 / 1.5;
     

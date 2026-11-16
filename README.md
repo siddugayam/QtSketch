@@ -116,7 +116,7 @@ This produces `dist/QtSketch.app` and `dist/QtSketch-0.1-arm64.dmg`. See
 
 ## Tests
 
-22 Qt Test executables are registered with CTest and built with the app:
+22 test programs are registered with CTest and built with the app:
 
 ```
 ctest --test-dir build --output-on-failure
@@ -139,7 +139,7 @@ src/v8_process.*    Command surface exposed to QML (the name is historical; it c
                     DocumentState directly)
 *.qml, components/, dialogs/   User interface
 js/                 Small QML helper scripts
-tests/              Qt Test suites and IUPAC golden data
+tests/              Test programs and IUPAC golden data
 templates/          Structure template library
 assets/, icons/, fonts/        Monomer library, toolbar icons, icon font
 packaging/macos/    macOS build and packaging scripts

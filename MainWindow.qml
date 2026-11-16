@@ -200,6 +200,13 @@ ApplicationWindow {
         if (files.length > 5) files = files.slice(0, 5)
         uiSettings.recentFilesJoined = files.join("|")
     }
+    function removeRecentFile(fileUrl) {
+        var files = uiSettings.recentFilesJoined ? uiSettings.recentFilesJoined.split("|") : []
+        var idx = files.indexOf(fileUrl.toString())
+        if (idx === -1) return
+        files.splice(idx, 1)
+        uiSettings.recentFilesJoined = files.join("|")
+    }
     // Declared on window (root), not a nested Item, and called everywhere as
     // window.executeStructureOp(...) — the Structure menu's MenuItemRow children get
     // reparented into AppMenuBarItem's internal Popup (default property alias), and the
@@ -286,6 +293,49 @@ ApplicationWindow {
         }
         return canvas
     }
+    // Start a background job unless one is already running. Tags are kept per
+    // kind, so a second job could re-tag the first one's reply to another tab.
+    function refuseIfBusy() {
+        if (!window.isProcessing) return false
+        messageDialogsGroup.workerErrorDialog.errorText = "Another structure job is still running. Try again when it finishes."
+        messageDialogsGroup.workerErrorDialog.severe = false
+        messageDialogsGroup.workerErrorDialog.open()
+        return true
+    }
+    function beginJob() {
+        if (refuseIfBusy()) return false
+        window.isProcessing = true
+        return true
+    }
+    // Load a job's result into the tab that asked for it; report an empty or unreadable result.
+    function applyJobResult(kind, label, molfile) {
+        let problem = ""
+        if (!molfile) {
+            problem = label + ": no result. The structure may be empty or not supported by this operation."
+        } else {
+            const target = asyncTarget(kind, label)
+            if (target && !target.loadMolfile(molfile))
+                problem = label + ": the result could not be loaded into the document."
+        }
+        if (problem) {
+            messageDialogsGroup.workerErrorDialog.errorText = problem
+            messageDialogsGroup.workerErrorDialog.severe = false
+            messageDialogsGroup.workerErrorDialog.open()
+        }
+    }
+    // Batch file replies are loaded into the active tab, so drop them if the
+    // tab that asked is no longer active or has changed.
+    function batchTargetIsActive() {
+        const canvas = asyncTarget("batch", "Open batch file")
+        if (canvas && canvas !== activeCanvas) {
+            messageDialogsGroup.workerErrorDialog.errorText =
+                "Open batch file: result discarded because another tab is now active. Open the file again."
+            messageDialogsGroup.workerErrorDialog.severe = false
+            messageDialogsGroup.workerErrorDialog.open()
+            return false
+        }
+        return !!canvas
+    }
 
     // Mark clean only after the write succeeds.
     function finishPlainSave(data) {
@@ -298,6 +348,7 @@ ApplicationWindow {
             messageDialogsGroup.workerErrorDialog.open()
             return
         }
+        setDocFile(DocumentManager.activeDocId, window.pendingSaveUrl)
         if (activeCanvas) activeCanvas.setClean()
         const appData = StandardPaths.writableLocation(StandardPaths.AppDataLocation)
         const rid = DocumentManager.recoveryIdFor(DocumentManager.activeDocId)
@@ -400,26 +451,35 @@ ApplicationWindow {
         // file reuses whatever document is already active (normally the
         // single blank tab the app opened with) instead of leaving an extra
         // empty tab behind.
+        let restored = 0
         for (let i = 0; i < sortedFiles.length; i++) {
-            const addedId = i > 0 ? DocumentManager.addDocument() : -1
+            // Reuse the starting tab until something has been restored into it.
+            const addedId = restored > 0 ? DocumentManager.addDocument() : -1
             let path = appData + "/recovery/" + sortedFiles[i]
             const fwd = path.replace(/\\/g, "/")
-            const ok = window.loadFromFile(Qt.url((fwd.startsWith("/") ? "file://" : "file:///") + fwd))
+            const url = Qt.url((fwd.startsWith("/") ? "file://" : "file:///") + fwd)
+            const ok = window.loadFromFile(url)
             // Keep an unreadable or unloadable recovery file for the next launch.
             if (!ok) {
                 console.warn("Recovery: could not restore", path, "- file kept")
                 if (addedId >= 0) DocumentManager.closeDocument(addedId)
                 continue
             }
+            restored++
             // Recovered work is unsaved: drop the recovery path and keep the doc dirty.
             delete docFilePaths[DocumentManager.activeDocId]
             delete docTitles[DocumentManager.activeDocId]
             titleRev++
-            if (activeSketch) activeSketch.setDirty(true)
-            // The content is now loaded into a document with its own, freshly
-            // minted recovery id -- remove the old file under its old name so it
-            // isn't offered for recovery again on every future launch.
-            fileIO.remove(path)
+            removeRecentFile(url)
+            if (activeSketch) {
+                activeSketch.setDirty(true)
+                // Write the copy under the new recovery id now, not on the next 60 s tick.
+                activeSketch.requestProjectSerialization("autosave")
+            }
+            // Remove the old file only once the new copy exists, so it is not
+            // offered again on later launches and is never the only copy lost.
+            const newCopy = appData + "/recovery/autosave_" + DocumentManager.recoveryIdFor(DocumentManager.activeDocId) + ".qtsketch"
+            if (newCopy !== path && fileIO.exists(newCopy)) fileIO.remove(path)
         }
     }
 
@@ -645,8 +705,7 @@ ApplicationWindow {
                 // IndigoService::layout preserves the structure's original centroid,
                 // so no forced re-centering here -- don't disturb where the user had it.
                 if (newMol) {
-                    const target = window.asyncTarget("layout", "Layout")
-                    if (target) target.loadMolfile(newMol)
+                    window.applyJobResult("layout", "Layout", newMol)
                 } else if (error) {
                     messageDialogsGroup.workerErrorDialog.errorText = "Layout: " + error
                     messageDialogsGroup.workerErrorDialog.severe = false
@@ -656,8 +715,7 @@ ApplicationWindow {
             function onCommonScaffoldFinished(result, error) {
                 window.isProcessing = false
                 if (result) {
-                    const target = window.asyncTarget("scaffold", "Find Common Scaffold")
-                    if (target) target.loadMolfile(result)
+                    window.applyJobResult("scaffold", "Find Common Scaffold", result)
                 } else {
                     messageDialogsGroup.workerErrorDialog.errorText = "Find Common Scaffold: " + (error || "unknown error")
                     messageDialogsGroup.workerErrorDialog.severe = false
@@ -667,8 +725,7 @@ ApplicationWindow {
             function onRgroupDecompositionFinished(result, error) {
                 window.isProcessing = false
                 if (result) {
-                    const target = window.asyncTarget("rgroup", "Decompose to R-Groups")
-                    if (target) target.loadMolfile(result)
+                    window.applyJobResult("rgroup", "Decompose to R-Groups", result)
                 } else {
                     messageDialogsGroup.workerErrorDialog.errorText = "Decompose to R-Groups: " + (error || "unknown error")
                     messageDialogsGroup.workerErrorDialog.severe = false
@@ -723,6 +780,7 @@ ApplicationWindow {
             }
             function onRdfBatchParsed(recordsJson, error) {
                 if (recordsJson && activeSketch) {
+                    if (!window.batchTargetIsActive()) { window.isProcessing = false; return }
                     activeSketch.sendCommand("deserializeRdfBatch", [recordsJson])
                 } else {
                     window.isProcessing = false
@@ -733,6 +791,7 @@ ApplicationWindow {
             }
             function onIndigoBatchParsed(recordsJson, error) {
                 if (recordsJson && activeSketch) {
+                    if (!window.batchTargetIsActive()) { window.isProcessing = false; return }
                     activeSketch.sendCommand("deserializeIndigoBatch", [recordsJson])
                 } else {
                     window.isProcessing = false
@@ -743,38 +802,31 @@ ApplicationWindow {
             }
             function onClean2dFinished(newMol) {
                 window.isProcessing = false
-                const target = newMol ? window.asyncTarget("clean2d", "Clean 2D") : null
-                if (target) target.loadMolfile(newMol)
+                window.applyJobResult("clean2d", "Clean 2D", newMol)
             }
             function onAromatizeFinished(newMol) {
                 window.isProcessing = false
-                const target = newMol ? window.asyncTarget("aromatize", "Aromatize") : null
-                if (target) target.loadMolfile(newMol)
+                window.applyJobResult("aromatize", "Aromatize", newMol)
             }
             function onDearomatizeFinished(newMol) {
                 window.isProcessing = false
-                const target = newMol ? window.asyncTarget("dearomatize", "Dearomatize") : null
-                if (target) target.loadMolfile(newMol)
+                window.applyJobResult("dearomatize", "Dearomatize", newMol)
             }
             function onUnfoldHydrogensFinished(newMol) {
                 window.isProcessing = false
-                const target = newMol ? window.asyncTarget("unfoldH", "Add explicit hydrogens") : null
-                if (target) target.loadMolfile(newMol)
+                window.applyJobResult("unfoldH", "Add explicit hydrogens", newMol)
             }
             function onFoldHydrogensFinished(newMol) {
                 window.isProcessing = false
-                const target = newMol ? window.asyncTarget("foldH", "Remove explicit hydrogens") : null
-                if (target) target.loadMolfile(newMol)
+                window.applyJobResult("foldH", "Remove explicit hydrogens", newMol)
             }
             function onNormalizeFinished(newMol) {
                 window.isProcessing = false
-                const target = newMol ? window.asyncTarget("normalize", "Normalize") : null
-                if (target) target.loadMolfile(newMol)
+                window.applyJobResult("normalize", "Normalize", newMol)
             }
             function onStandardizeFinished(newMol) {
                 window.isProcessing = false
-                const target = newMol ? window.asyncTarget("standardize", "Standardize") : null
-                if (target) target.loadMolfile(newMol)
+                window.applyJobResult("standardize", "Standardize", newMol)
             }
             function onSmilesFinished(smiles) {
                 if (smiles) indigoSvc.copyToClipboard(smiles)
@@ -804,9 +856,16 @@ ApplicationWindow {
                 if (result) indigoSvc.copyToClipboard(result)
             }
             function onRenderFinished(success, error) {
+                // Grid and batch exports also write PNG and other formats; name the real one.
+                const m = window.pendingRenderUrl.toString().toLowerCase().match(/\.([a-z0-9]+)$/)
+                const ext = m ? m[1].toUpperCase() : ""
                 if (!success) {
-                    const isPdf = window.pendingRenderUrl.toString().toLowerCase().endsWith(".pdf")
-                    messageDialogsGroup.workerErrorDialog.errorText = (isPdf ? "PDF export failed: " : "SVG export failed: ") + error
+                    messageDialogsGroup.workerErrorDialog.errorText = (ext ? ext + " export" : "Export") + " failed: " + error
+                    messageDialogsGroup.workerErrorDialog.severe = false
+                    messageDialogsGroup.workerErrorDialog.open()
+                } else if (error) {
+                    // Partial success, e.g. some batch records could not be read.
+                    messageDialogsGroup.workerErrorDialog.errorText = "Export finished: " + error
                     messageDialogsGroup.workerErrorDialog.severe = false
                     messageDialogsGroup.workerErrorDialog.open()
                 }
@@ -814,8 +873,7 @@ ApplicationWindow {
             function onReactionMappingFinished(result, error) {
                 window.isProcessing = false
                 if (result) {
-                    const target = window.asyncTarget("mapping", "Atom Mapping")
-                    if (target) target.loadMolfile(result)
+                    window.applyJobResult("mapping", "Atom Mapping", result)
                 } else {
                     messageDialogsGroup.workerErrorDialog.errorText = "Atom Mapping: " + (error || "unknown error")
                     messageDialogsGroup.workerErrorDialog.severe = false
@@ -825,8 +883,7 @@ ApplicationWindow {
             function onIonizeFinished(result, error) {
                 window.isProcessing = false
                 if (result) {
-                    const target = window.asyncTarget("ionize", "Ionize at pH")
-                    if (target) target.loadMolfile(result)
+                    window.applyJobResult("ionize", "Ionize at pH", result)
                 } else {
                     messageDialogsGroup.workerErrorDialog.errorText = "Ionize at pH: " + (error || "unknown error")
                     messageDialogsGroup.workerErrorDialog.severe = false
@@ -900,13 +957,19 @@ ApplicationWindow {
             // Biopolymer load
             function onBiopolymerLoaded(molfile) {
                 window.isProcessing = false
-                const target = window.asyncTarget("biopolymer", "Load biopolymer")
-                if (target) target.loadMolfile(molfile)
+                window.applyJobResult("biopolymer", "Load biopolymer", molfile)
                 biopolymerDialog.onLoadSuccess()
             }
             function onBiopolymerLoadError(error) {
                 window.isProcessing = false
-                biopolymerDialog.showLoadError(error)
+                if (biopolymerDialog.visible) {
+                    biopolymerDialog.showLoadError(error)
+                } else {
+                    // File > Open of .helm or .idt does not open the dialog.
+                    messageDialogsGroup.workerErrorDialog.errorText = "Open failed: " + error
+                    messageDialogsGroup.workerErrorDialog.severe = false
+                    messageDialogsGroup.workerErrorDialog.open()
+                }
             }
 
             // Biopolymer export results → shown in dialog textarea
@@ -1066,7 +1129,8 @@ ApplicationWindow {
                             indigoSvc.findCommonScaffold(parsed.molfiles);
                         }
                     } else {
-                        window.isProcessing = false;
+                        // Exports never set the busy flag; do not clear another job's.
+                        if (!window._pendingBatchAction.startsWith("export_")) window.isProcessing = false;
                         messageDialogsGroup.workerErrorDialog.errorText = "Batch structure analysis: not enough valid structures in this batch.";
                         messageDialogsGroup.workerErrorDialog.severe = false;
                         messageDialogsGroup.workerErrorDialog.open();
@@ -2113,32 +2177,32 @@ ApplicationWindow {
             if (activeSketch) activeSketch.sendCommand("loadSdfBatchRecord", [index])
         }
         onFindScaffoldRequested: {
-            window.isProcessing = true
+            if (!activeSketch || !window.beginJob()) return
             _pendingBatchAction = "scaffold"
             if (activeSketch) activeSketch.sendCommand("getSdfBatchMolfiles")
             sdfRecordPicker.close()
         }
         onDecomposeRequested: {
-            window.isProcessing = true
+            if (!activeSketch || !window.beginJob()) return
             _pendingBatchAction = "decompose"
             if (activeSketch) activeSketch.sendCommand("getSdfBatchMolfiles")
             sdfRecordPicker.close()
         }
         onDecomposePerMoleculeRequested: {
-            window.isProcessing = true
+            if (!activeSketch || !window.beginJob()) return
             _pendingBatchAction = "decompose_permolecule"
             if (activeSketch) activeSketch.sendCommand("getSdfBatchMolfiles")
             sdfRecordPicker.close()
         }
         onRankBySimilarityRequested: {
-            window.isProcessing = true
+            if (!activeSketch || !window.beginJob()) return
             _pendingBatchAction = "similarity"
             window.pendingSimilarityRefMolfile = activeCanvas ? activeCanvas.getMolfile() : ""
             if (activeSketch) activeSketch.sendCommand("getSdfBatchMolfiles")
             sdfRecordPicker.close()
         }
         onAlignToScaffoldRequested: {
-            window.isProcessing = true
+            if (!activeSketch || !window.beginJob()) return
             _pendingBatchAction = "align"
             if (activeSketch) activeSketch.sendCommand("getSdfBatchMolfiles")
         }
@@ -2208,25 +2272,30 @@ ApplicationWindow {
     }
 
     function loadFromFile(fileUrl) {
+        if (refuseIfBusy()) return false
         const fileStrEarly = fileUrl.toString().toLowerCase()
         if (fileStrEarly.endsWith(".rdf")) {
             pendingSdfBatchUrl = fileUrl
             window.isProcessing = true
+            window.tagAsync("batch")
             indigoSvc.parseRdfBatch(fileUrl)
             return
         } else if (fileStrEarly.endsWith(".smi") || fileStrEarly.endsWith(".smiles")) {
             pendingSdfBatchUrl = fileUrl
             window.isProcessing = true
+            window.tagAsync("batch")
             indigoSvc.parseIndigoBatchFile(fileUrl, "smiles")
             return
         } else if (fileStrEarly.endsWith(".cml")) {
             pendingSdfBatchUrl = fileUrl
             window.isProcessing = true
+            window.tagAsync("batch")
             indigoSvc.parseIndigoBatchFile(fileUrl, "cml")
             return
         } else if (fileStrEarly.endsWith(".cdx")) {
             pendingSdfBatchUrl = fileUrl
             window.isProcessing = true
+            window.tagAsync("batch")
             indigoSvc.parseIndigoBatchFile(fileUrl, "cdx")
             return
         } else if (fileStrEarly.endsWith(".rxn")) {
@@ -2389,6 +2458,10 @@ ApplicationWindow {
         }
 
         onLoadRequested: function(format, seqType, text) {
+            if (window.isProcessing) {
+                biopolymerDialog.showLoadError("another structure job is still running. Try again when it finishes.")
+                return
+            }
             window.isProcessing = true
             window.tagAsync("biopolymer")
             if      (format === "Sequence") indigoSvc.loadBioSequence(text, seqType)

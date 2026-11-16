@@ -67,9 +67,12 @@ QtObject {
     // "SegoeUI" (no such font) and falls back — QML's own font.family property has no
     // such requirement, so these quoted variants exist only for ctx.font assignments,
     // never for font.family: bindings.
-    readonly property string fontFamilyCss: "'" + fontFamily + "'"
-    readonly property string fontDisplayCss: "'" + fontDisplay + "'"
-    readonly property string fontMonoCss: "'" + fontMono + "'"
+    // Canvas accepts only installed family names, so the fontconfig aliases used on
+    // Linux ("Sans Serif", "Monospace") are rejected and the size is lost too. A CSS
+    // generic family after the name gives Canvas a fallback it always accepts.
+    readonly property string fontFamilyCss: "'" + fontFamily + "', sans-serif"
+    readonly property string fontDisplayCss: "'" + fontDisplay + "', sans-serif"
+    readonly property string fontMonoCss: "'" + fontMono + "', monospace"
 
     // Windows 11 type ramp. Fluent's Caption is 12px and Body is 14px; the old
     // scale ran 10/11/12, below the 12px floor for readable body text, which is

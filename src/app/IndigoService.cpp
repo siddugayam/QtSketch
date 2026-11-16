@@ -742,6 +742,7 @@ void IndigoService::renderReactionGridToFile(const QString &molfile, const QUrl 
     }
     QPointer<IndigoService> self = this;
     QString path = fileUrl.toLocalFile();
+    if (path.isEmpty()) { emit renderFinished(false, "Invalid file path."); return; }
     QString outFormat = QFileInfo(path).suffix().toLower();
     if (outFormat.isEmpty()) outFormat = format;
     if (outFormat != "pdf" && outFormat != "png" && outFormat != "svg") {
@@ -760,10 +761,13 @@ void IndigoService::renderReactionGridToFile(const QString &molfile, const QUrl 
                 int arr = indigoCreateArray();
                 int count = 0;
                 int comp;
+                // indigoArrayAdd copies, so each component and iterator is freed here.
                 int reactants = indigoIterateReactants(rx);
-                while ((comp = indigoNext(reactants)) > 0) { indigoArrayAdd(arr, comp); count++; }
+                while ((comp = indigoNext(reactants)) > 0) { indigoArrayAdd(arr, comp); indigoFree(comp); count++; }
+                indigoFree(reactants);
                 int products = indigoIterateProducts(rx);
-                while ((comp = indigoNext(products)) > 0) { indigoArrayAdd(arr, comp); count++; }
+                while ((comp = indigoNext(products)) > 0) { indigoArrayAdd(arr, comp); indigoFree(comp); count++; }
+                indigoFree(products);
                 if (count > 0) {
                     indigoSetOption("render-output-format", outFormat.toUtf8().constData());
                     int res = indigoRenderGridToFile(arr, nullptr, count, path.toUtf8().constData());
@@ -943,8 +947,9 @@ void IndigoService::exportBatchToFile(const QStringList &molfiles, const QUrl &f
         QString error;
         unsigned long long sid = indigoAllocSessionId();
         indigoSetSessionId(sid);
+        int buffer = -1;
         try {
-            int buffer = indigoWriteBuffer();
+            buffer = indigoWriteBuffer();
             int saver = buffer >= 0 ? indigoCreateSaver(buffer, format.toUtf8().constData()) : -1;
             if (saver >= 0) {
                 int written = 0;
@@ -978,18 +983,25 @@ void IndigoService::exportBatchToFile(const QStringList &molfiles, const QUrl &f
                     error = QString::fromUtf8(indigoGetLastError());
                 } else {
                     QSaveFile out(path);
-                    if (out.open(QIODevice::WriteOnly) && out.write(raw, size) == size && out.commit()) ok = true;
-                    else error = QString("Failed to write %1: %2").arg(path, out.errorString());
+                    if (out.open(QIODevice::WriteOnly) && out.write(raw, size) == size && out.commit()) {
+                        ok = true;
+                        // Success with a message: the file was written, but not every record.
+                        if (written < molfiles.size())
+                            error = QString("%1 of %2 records were written; %3 could not be read and were skipped.")
+                                        .arg(written).arg(molfiles.size()).arg(molfiles.size() - written);
+                    } else {
+                        error = QString("Failed to write %1: %2").arg(path, out.errorString());
+                    }
                 }
             } else {
                 error = QString("Failed to create %1 saver: %2").arg(format, QString::fromUtf8(indigoGetLastError()));
             }
-            if (buffer >= 0) indigoFree(buffer);
         } catch (const std::exception &e) {
             error = QString::fromUtf8(e.what());
         } catch (...) {
             error = "Unknown exception during batch export.";
         }
+        if (buffer >= 0) indigoFree(buffer);
         indigoReleaseSessionId(sid);
         emitOnGuiThread(self, [ok, error](IndigoService *s) { emit s->renderFinished(ok, error); });
     });
@@ -1580,7 +1592,8 @@ void IndigoService::substructureSearch(const QString &molfile, const QString &sm
 // ── Biopolymer loading ────────────────────────────────────────────────────────
 // Each function: parse notation → expand monomers to atoms → 2D layout → molfile
 void IndigoService::loadBioSequence(const QString &text, const QString &seqType) {
-    if (text.isEmpty()) return;
+    // The caller has already marked the app busy, so always answer.
+    if (text.isEmpty()) { emit biopolymerLoadError("SEQUENCE loader: the input is empty."); return; }
     QString badChars;
     if (!validateBioSequenceAlphabet(text, seqType, /*isFasta=*/false, badChars)) {
         emit biopolymerLoadError(QString("SEQUENCE loader: Invalid symbols in the sequence: %1").arg(badChars));
@@ -1611,7 +1624,8 @@ void IndigoService::loadBioSequence(const QString &text, const QString &seqType)
 }
 
 void IndigoService::loadBioFasta(const QString &text, const QString &seqType) {
-    if (text.isEmpty()) return;
+    // The caller has already marked the app busy, so always answer.
+    if (text.isEmpty()) { emit biopolymerLoadError("FASTA loader: the input is empty."); return; }
     QString badChars;
     if (!validateBioSequenceAlphabet(text, seqType, /*isFasta=*/true, badChars)) {
         emit biopolymerLoadError(QString("FASTA loader: Invalid symbols in the sequence: %1").arg(badChars));
@@ -1642,7 +1656,8 @@ void IndigoService::loadBioFasta(const QString &text, const QString &seqType) {
 }
 
 void IndigoService::loadBioHelm(const QString &text) {
-    if (text.isEmpty()) return;
+    // The caller has already marked the app busy, so always answer.
+    if (text.isEmpty()) { emit biopolymerLoadError("HELM loader: the input is empty."); return; }
     if (!BioInputGuards::helmIsSafe(text)) {
         emit biopolymerLoadError("HELM loader: mixtures and alternatives such as (A,G) or (A+C) are not supported.");
         return;
@@ -1671,7 +1686,8 @@ void IndigoService::loadBioHelm(const QString &text) {
 }
 
 void IndigoService::loadBioIdt(const QString &text) {
-    if (text.isEmpty()) return;
+    // The caller has already marked the app busy, so always answer.
+    if (text.isEmpty()) { emit biopolymerLoadError("IDT loader: the input is empty."); return; }
     QString badChars;
     if (!BioInputGuards::idtIsSafe(text, badChars)) {
         emit biopolymerLoadError(QString("IDT loader: Invalid symbols in the sequence: %1 (ambiguity codes are not supported)").arg(badChars));
@@ -1701,7 +1717,8 @@ void IndigoService::loadBioIdt(const QString &text) {
 }
 
 void IndigoService::loadBioAxoLabs(const QString &text) {
-    if (text.isEmpty()) return;
+    // The caller has already marked the app busy, so always answer.
+    if (text.isEmpty()) { emit biopolymerLoadError("AxoLabs loader: the input is empty."); return; }
     QPointer<IndigoService> self = this;
     (void)QtConcurrent::run([self, text]() {
         QString result; QString err;

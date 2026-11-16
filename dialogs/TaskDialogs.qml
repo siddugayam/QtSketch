@@ -178,8 +178,7 @@ Item {
         onOpened: { smilesInput.text = ""; smilesInput.forceActiveFocus() }
         onAccepted: {
             const smi = smilesInput.text.trim()
-            if (smi) {
-                win.isProcessing = true
+            if (smi && win.beginJob()) {
                 const isRxn = smi.startsWith("$RXN") || (smi.split(">").length - 1) === 2
                 if (isRxn && win.activeSketch) {
                     if (win.activeCanvas) win.activeCanvas.clearCanvas()
@@ -240,8 +239,7 @@ Item {
         onOpened: { ionizePhInput.text = "7.4"; ionizePhInput.forceActiveFocus() }
         onAccepted: {
             const pH = parseFloat(ionizePhInput.text)
-            if (!isNaN(pH) && win.activeSketch) {
-                win.isProcessing = true
+            if (!isNaN(pH) && win.activeSketch && win.beginJob()) {
                 win.pendingIonizePh = pH
                 win.activeSketch.requestSerialize("ionize")
             }
@@ -289,8 +287,7 @@ Item {
             // SMILES" already uses. InChI carries no 2D coordinates, so the
             // layout step here isn't optional the way it might seem.
             const txt = inchiLoadInput.text.trim()
-            if (txt) {
-                win.isProcessing = true
+            if (txt && win.beginJob()) {
                 win.tagAsync("layout")
                 win.indigoSvc.layout(txt)
             }

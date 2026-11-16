@@ -34,7 +34,9 @@ done
 
 # macdeployqt can exit non-zero on harmless warnings, so check its result instead.
 "$MACDEPLOYQT" "$APP" -qmldir="$ROOT" -no-strip >/dev/null 2>&1 || true
-[ -d "$APP/Contents/Frameworks/QtCore.framework" ] || { echo "macdeployqt did not bundle Qt"; exit 1; }
+for fw in QtCore QtQuick; do
+    [ -d "$APP/Contents/Frameworks/$fw.framework" ] || { echo "macdeployqt did not bundle $fw"; exit 1; }
+done
 
 # Homebrew Qt: macdeployqt leaves some copied libraries pointing at /opt/homebrew.
 find "$APP/Contents" -type f \( -name "*.dylib" -o -path "*.framework/Versions/A/*" -o -path "*MacOS/*" \) | while read -r f; do

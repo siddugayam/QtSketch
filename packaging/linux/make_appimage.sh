@@ -50,4 +50,5 @@ export LDAI_OUTPUT="$ROOT/dist/QtSketch-$VERSION-$ARCH.AppImage"
 "$TOOLS/linuxdeploy-$ARCH.AppImage" --appdir "$APPDIR" \
     --desktop-file "$ROOT/dist/qtsketch.desktop" --icon-file "$ROOT/dist/qtsketch.png" \
     --plugin qt --output appimage
-sha256sum "$LDAI_OUTPUT" | tee "$LDAI_OUTPUT.sha256"
+# Record the bare file name so "sha256sum -c" works next to the download.
+(cd "$(dirname "$LDAI_OUTPUT")" && sha256sum "$(basename "$LDAI_OUTPUT")" | tee "$(basename "$LDAI_OUTPUT").sha256")

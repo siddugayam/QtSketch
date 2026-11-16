@@ -455,7 +455,7 @@ Item {
     // worker before display -- pass true for coordinate-less sources (SMILES/
     // InChI layout output), false/omit for placement-preserving write-backs.
     function loadMolfile(data, centerOnPage) {
-        loadStructure('mol', data, centerOnPage)
+        return loadStructure('mol', data, centerOnPage)
     }
 
     function loadStructure(fmt, data, centerOnPage) {
@@ -1220,6 +1220,14 @@ Item {
             }
         }
 
+        // Clear the hover when the pointer leaves, so letter keys typed
+        // elsewhere do not relabel the atom that was last under it.
+        onExited: {
+            if (pressed) return
+            const o = sketch.overlayState
+            if (o.hoverAtomId != null || o.hoverBondId != null || o.hoverRingSize)
+                setOverlayState(Object.assign({}, o, { hoverAtomId: null, hoverBondId: null, hoverRingSize: null }))
+        }
         onPositionChanged: (m) => {
             if (panning) {
                 offsetX += m.x - pressX

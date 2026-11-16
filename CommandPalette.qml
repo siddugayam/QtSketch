@@ -47,9 +47,9 @@ Popup {
         { name: "Structure: Search Substructure (SMARTS)…", action: function() { window.executeStructureOp("smartsSearch") } },
         { name: "Structure: R-Groups…", action: function() { window.executeStructureOp("rgroups") } },
         
-        { name: "Reaction: Auto-map Reaction", action: function() { window.isProcessing = true; if (window.activeSketch) window.activeSketch.requestSerialize("automap") } },
-        { name: "Reaction: Clear Mapping", action: function() { window.isProcessing = true; if (window.activeSketch) window.activeSketch.requestSerialize("clear_mapping") } },
-        { name: "Reaction: Correct Reacting Centers", action: function() { window.isProcessing = true; if (window.activeSketch) window.activeSketch.requestSerialize("correct_reacting_centers") } },
+        { name: "Reaction: Auto-map Reaction", action: function() { if (window.activeSketch && window.beginJob()) window.activeSketch.requestSerialize("automap") } },
+        { name: "Reaction: Clear Mapping", action: function() { if (window.activeSketch && window.beginJob()) window.activeSketch.requestSerialize("clear_mapping") } },
+        { name: "Reaction: Correct Reacting Centers", action: function() { if (window.activeSketch && window.beginJob()) window.activeSketch.requestSerialize("correct_reacting_centers") } },
         
         { name: "Copy: SMILES", action: function() { if (window.activeSketch) window.activeSketch.requestSerialize("smiles") } },
         { name: "Copy: Canonical SMILES", action: function() { if (window.activeSketch) window.activeSketch.requestSerialize("canonical_smiles") } },

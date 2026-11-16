@@ -88,9 +88,10 @@ Item {
                     }
                 }
             } else {
+                // finishPlainSave records the file name once the write succeeds.
                 win.pendingSaveUrl = selectedFile
-                win.setDocFile(DocumentManager.activeDocId, selectedFile)
                 if (win.activeSketch) win.activeSketch.requestStructure(fmt, "save")
+                else win.cancelAfterSave()
             }
         }
         onRejected: win.cancelAfterSave()
@@ -142,6 +143,7 @@ Item {
             if (fileStr.endsWith(".rdf")) format = "rdf"
             else if (fileStr.endsWith(".smi")) format = "smiles"
             else if (fileStr.endsWith(".cml")) format = "cml"
+            win.pendingRenderUrl = selectedFile
             win.indigoSvc.exportBatchToFile(win._pendingBatchGridMolfiles, selectedFile, format)
         }
     }
@@ -162,9 +164,8 @@ Item {
         property int maxAcceptableWarnings: 5
 
         onAccepted: {
-            if (!win.activeSketch) return
+            if (!win.activeSketch || !win.beginJob()) return
             pendingFileUrl = selectedFile
-            win.isProcessing = true
             win.imagoSvc.recognizeImage(selectedFile)
         }
     }

@@ -176,8 +176,7 @@ AppMenuBar {
                 text: "Auto-map Reaction"
                 iconSource: "reaction-map.svg"
                 onTriggered: {
-                    root.win.isProcessing = true
-                    if (root.win.activeSketch) root.win.activeSketch.requestSerialize("automap")
+                    if (root.win.activeSketch && root.win.beginJob()) root.win.activeSketch.requestSerialize("automap")
                     reactionsMenuTrigger.close()
                 }
             }
@@ -186,8 +185,7 @@ AppMenuBar {
                 text: "Clear Mapping"
                 iconSource: "reaction-map.svg"
                 onTriggered: {
-                    root.win.isProcessing = true
-                    if (root.win.activeSketch) root.win.activeSketch.requestSerialize("clear_mapping")
+                    if (root.win.activeSketch && root.win.beginJob()) root.win.activeSketch.requestSerialize("clear_mapping")
                     reactionsMenuTrigger.close()
                 }
             }
@@ -196,8 +194,7 @@ AppMenuBar {
                 text: "Correct Reacting Centers"
                 iconSource: "reaction-map.svg"
                 onTriggered: {
-                    root.win.isProcessing = true
-                    if (root.win.activeSketch) root.win.activeSketch.requestSerialize("correct_reacting_centers")
+                    if (root.win.activeSketch && root.win.beginJob()) root.win.activeSketch.requestSerialize("correct_reacting_centers")
                     reactionsMenuTrigger.close()
                 }
             }

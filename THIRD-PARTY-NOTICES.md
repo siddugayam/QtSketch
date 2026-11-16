@@ -8,8 +8,9 @@ QtSketch uses the following third-party components.
   SvgWidgets, linked dynamically.
 - **Source:** https://www.qt.io and https://code.qt.io
 - **License:** GNU Lesser General Public License v3.0 (open-source licensing of these modules)
-- **Note:** Distributed builds ship the unmodified Qt libraries as separate files, so they can
-  be replaced. The macOS app bundle also contains libraries that Homebrew's Qt depends on
+- **Note:** Distributed builds ship the Qt libraries as separate files, so they can be replaced.
+  The Qt code is not changed; on macOS only the library load paths are rewritten so the app finds
+  its bundled copies. The macOS app bundle also contains libraries that Homebrew's Qt depends on
   (for example ICU, OpenSSL, FreeType, HarfBuzz, GLib, libpng, zstd), each under its own
   licence.
 
@@ -67,7 +68,7 @@ QtSketch uses the following third-party components.
 ## Libraries in the macOS app bundle
 
 The macOS app (`packaging/macos/make_app.sh`) copies Homebrew's Qt and the libraries it depends
-on into `QtSketch.app/Contents/Frameworks`. Each library is a separate, unmodified file. Licences
+on into `QtSketch.app/Contents/Frameworks`. Each library is a separate file; only its load paths are rewritten, and its code is not changed. Licences
 as declared by Homebrew:
 
 | Library | License |
