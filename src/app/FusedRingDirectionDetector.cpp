@@ -264,7 +264,7 @@ FusedRingSystemInput detectFusedRingDirections(int mol) {
 
         for (int nextR : ringAdj[r]) {
             if (visited[nextR]) {
-                if (nextR != parent[r] && r < nextR) {
+                if (r < nextR && nextR != parent[r]) {
                     std::pair<int,int> b_out = sharedAtoms[{r, nextR}];
                     closingEdges.push_back({r, nextR, b_out.first, b_out.second});
                 }

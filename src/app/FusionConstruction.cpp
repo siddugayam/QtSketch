@@ -1751,8 +1751,8 @@ QString constructFusionName(const ComponentTree &tree, const Graph &g, int mol) 
     std::map<int, QStringList> multiParentJunctions;
     for (const auto &kv : junctionMap) {
         int host = kv.first.first;
-        int att = kv.first.second;
         if (tree.components[host].name == parentName || tree.components[host].order == 0) {
+            int att = kv.first.second;
             multiParentJunctions[att].append(kv.second.piece);
         }
     }
@@ -2257,7 +2257,9 @@ QString nameByBridgedFusedFallback(
             while (int a = indigoNext(aIter)) {
                 GraphNode node;
                 node.id = indigoIndex(a);
+                node.indigoIdx = -1;
                 node.atomicNumber = indigoAtomicNumber(a);
+                node.totalH = 0;
                 coreG.nodes.push_back(node);
                 indigoFree(a);
             }

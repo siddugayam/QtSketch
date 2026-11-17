@@ -75,7 +75,6 @@ static void placeRingAtoms(
 // atom" start per P-25.3.3.1.1, not just the cycle order).
 struct PerimeterWalkResult {
     std::vector<int> cycle;
-    std::map<int, Pt2D> pos;
 };
 
 // Walk the true outer perimeter of an assembled hex-grid ring system clockwise.
@@ -237,7 +236,7 @@ static PerimeterWalkResult walkPeripheryClockwise(
     }
     if (signedArea < 0.0) std::reverse(cycle.begin(), cycle.end());
 
-    return {cycle, pos};
+    return {cycle};
 }
 
 // Blue Book "lowest locants" comparison for a single locant string: numeric

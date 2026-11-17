@@ -143,8 +143,6 @@ bool randomizeAtomOrder(const std::string& smiles, int seed, std::string& outSmi
 
     const char* reorderedC = indigoSmiles(newMol);
     std::string reordered = reorderedC ? reorderedC : "";
-    const char* reorderedCanonC = indigoCanonicalSmiles(newMol);
-    std::string reorderedCanon = reorderedCanonC ? reorderedCanonC : "";
     indigoFree(newMol);
 
     // Indigo's SMILES writer emits "[Te]" (capitalized) even for aromatic

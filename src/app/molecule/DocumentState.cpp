@@ -2319,9 +2319,9 @@ DocumentState::FunctionalGroupPlacement DocumentState::computeFunctionalGroupPla
     double minX = 0, maxX = 0, minY = 0, maxY = 0, attachX = 0, attachY = 0;
     bool haveAttachPos = false;
     {
-        bool any = false;
         int aIter = indigoIterateAtoms(fgHandle);
         if (aIter >= 0) {
+            bool any = false;
             int a;
             while ((a = indigoNext(aIter)) > 0) {
                 float* xyz = indigoXYZ(a);

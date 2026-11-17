@@ -62,7 +62,6 @@ double PlacementUtils::snapAngle(double rawAngle, const QList<double>& existingA
                 double candidate = snapped - i * snapInterval;
                 if (!isAngleTooClose(candidate, existingAngles)) {
                     bestCandidate = candidate;
-                    foundClear = true;
                     break;
                 }
             }

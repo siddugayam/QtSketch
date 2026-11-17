@@ -7,6 +7,8 @@
 #include "AtomOrderRandomizer.h"
 #include "indigo.h"
 
+#include <cerrno>
+#include <climits>
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -18,7 +20,14 @@ int main(int argc, char* argv[]) {
     }
 
     std::string smiles = argv[1];
-    int seed = std::atoi(argv[2]);
+    char* endptr = nullptr;
+    errno = 0;
+    long val = std::strtol(argv[2], &endptr, 10);
+    if (errno != 0 || endptr == argv[2] || *endptr != '\0' || val < INT_MIN || val > INT_MAX) {
+        std::cerr << "Error: invalid seed value: " << argv[2] << std::endl;
+        return 1;
+    }
+    int seed = static_cast<int>(val);
 
     qword sid = indigoAllocSessionId();
     indigoSetSessionId(sid);

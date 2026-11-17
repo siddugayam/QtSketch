@@ -22,7 +22,7 @@ static std::string escapeJson(const std::string &s) {
 class FileTraceSink : public NamingTraceSink {
     FILE *m_fp;
 public:
-    FileTraceSink(FILE *fp) : m_fp(fp) {}
+    explicit FileTraceSink(FILE *fp) : m_fp(fp) {}
     ~FileTraceSink() override { if (m_fp && m_fp != stdout && m_fp != stderr) fclose(m_fp); }
     void record(const NamingTraceEvent &event) override {
         std::string cat = event.category.toStdString();
@@ -51,11 +51,10 @@ int main(int argc, char** argv) {
         return 2;
     }
     
-    FILE *traceFp = nullptr;
     FileTraceSink *sink = nullptr;
     
     if (tracePath) {
-        traceFp = fopen(tracePath, "w");
+        FILE *traceFp = fopen(tracePath, "w");
         if (!traceFp) {
             std::cerr << "ERROR: cannot open trace file: " << tracePath << std::endl;
             return 1;

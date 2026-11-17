@@ -50,6 +50,7 @@ namespace {
 RenderScene::RenderScene(QObject* parent) 
     : QObject(parent)
     , m_modelToMmScale(5.08 / 1.5)  // Default: 1.5 model units = 5.08 mm
+    , m_fontSubstituted(false)
     , m_regularFontMetrics(QFont())
     , m_boldFontMetrics(QFont())
 {

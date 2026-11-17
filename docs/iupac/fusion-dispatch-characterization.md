@@ -53,7 +53,7 @@ std::vector<RingSystemNameResult> branchResults =
     nameBranchingFusion(g, mol, indigoToGraphIdx, ringCount, rootAtom);
 ```
 
-### Input Construction
+### Site 1 Input Construction
 
 - **`g`**: The `Graph` object passed as parameter to `nameRingSystemAsSubstituent`
 - **`mol`**: The molecule handle passed as parameter to `nameRingSystemAsSubstituent`
@@ -73,7 +73,7 @@ std::vector<RingSystemNameResult> branchResults =
 - **`ringSubsetOverride` (6th param)**: NOT passed (defaults to `nullptr`)
 - **`extraSubstituents` (7th param)**: NOT passed (defaults to `{}`)
 
-### Fusion Function Assumptions
+### Site 1 Fusion Function Assumptions
 
 Both functions use `FusionGraphContext` to obtain SSSR rings and check disjointness.
 With `ringSubsetOverride == nullptr`, they compute SSSR rings from `mol` via Indigo
@@ -87,7 +87,7 @@ The functions' early logic checks:
 Both functions then build the `shared` matrix and `sharedNodesPairs` to identify
 fusion connections, mirroring the logic in Site 1's own BFS traversal.
 
-### Result Handling
+### Site 1 Result Handling
 
 Results from both functions are collected into a `candidates` vector (lines 2871-2873,
 2888-2890). Each result is checked:
@@ -123,7 +123,7 @@ If no valid candidate found, returns empty string.
 The selected name is then formatted (lines 3081-3095) and returned wrapped in parentheses
 with locant and "-yl" suffix: `"(" + stem + "-" + locantStr + "-yl" + ")"`
 
-### Failure Handling
+### Site 1 Failure Handling
 
 - Hard failures (non-sentinel errors) cause immediate `return ""`
 - "No match" sentinels allow fall-through to next mechanism
@@ -150,7 +150,7 @@ auto branchRes = nameBranchingFusion(g, mol, indigoToGraphIdx, NC, freeValAtom,
                                        &realComponentIndigo, extraSubs);
 ```
 
-### Input Construction
+### Site 2 Input Construction
 
 - **`g`**: `Graph g`, local to `generateNameImpl` (built at line 12012 from the
   molecule's heavy atoms), NOT a function parameter -- `generateNameImpl` takes
@@ -184,7 +184,7 @@ auto branchRes = nameBranchingFusion(g, mol, indigoToGraphIdx, NC, freeValAtom,
   }
   ```
 
-### Fusion Function Assumptions
+### Site 2 Fusion Function Assumptions
 
 With `ringSubsetOverride == &realComponentIndigo`, the `FusionGraphContext` uses the
 provided ring subset instead of computing SSSR from `mol`. This is critical: the
@@ -196,7 +196,7 @@ the isolated rings attached to the real component. This allows the fusion functi
 to incorporate these substituents into their numbering without having to re-detect
 and re-name them.
 
-### Result Handling
+### Site 2 Result Handling
 
 Results are checked directly for success (lines 23344-23346, 23350-23352):
 ```cpp
@@ -219,7 +219,7 @@ The `baseName` is used directly as the component name.
 If either mechanism succeeds, `mcSuccess` is set to true and `mcName` to the result,
 and the function returns early (line 23361: `return {true, mcName, ""};`).
 
-### Failure Handling
+### Site 2 Failure Handling
 
 - If neither mechanism succeeds, falls through to later checks (line 23354-23362)
 - The calls are guarded by topology checks (lines 23339-23354):
@@ -245,7 +245,7 @@ chainResults = nameLinearChainFusion(g, mol, indigoToGraphIdx, ringCount);
 branchResults = nameBranchingFusion(g, mol, indigoToGraphIdx, ringCount);
 ```
 
-### Input Construction
+### Site 3 Input Construction
 
 - **`g`**: `Graph g`, local to `generateNameImpl` (built at line 12012), NOT a
   parameter -- same local as Site 2 above, since both sites are in the same
@@ -265,7 +265,7 @@ branchResults = nameBranchingFusion(g, mol, indigoToGraphIdx, ringCount);
 - **`ringSubsetOverride` (6th param)**: NOT passed (defaults to `nullptr`)
 - **`extraSubstituents` (7th param)**: NOT passed (defaults to `{}`)
 
-### Fusion Function Assumptions
+### Site 3 Fusion Function Assumptions
 
 With all optional parameters at defaults, the functions compute SSSR from `mol`
 via `FusionGraphContext` and proceed with standard logic.
@@ -293,7 +293,7 @@ for (int i = 0; i < N; ++i) {
 }
 ```
 
-### Result Handling
+### Site 3 Result Handling
 
 Results are assigned to local variables and checked (lines 23566-23568, 23634-23636):
 ```cpp
@@ -338,7 +338,7 @@ seniority check and may fall back to chain naming.
 
 Other errors cause immediate return (line 23619: `return {false, "", chainResults[0].error};`)
 
-### Failure Handling
+### Site 3 Failure Handling
 
 - Sentinel "no match" errors allow fall-through
 - Specific rejection errors may trigger fallback logic

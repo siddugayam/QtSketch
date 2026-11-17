@@ -16,7 +16,6 @@ Usage:
 
 import re
 import csv
-import sys
 import os
 import argparse
 import codecs
@@ -29,7 +28,7 @@ def unescape_cpp_string(s):
     content = s[1:-1]
     try:
         return codecs.decode(content, 'unicode_escape')
-    except:
+    except Exception:
         return content
 
 
@@ -422,7 +421,7 @@ def parse_additional_formats(raw_path, start_id):
                     next_id += 1
                     continue
             
-        except Exception as e:
+        except Exception:
             # If we can't parse, add with empty SMILES
             if ' -> ' in line:
                 parts = line.split(' -> ', 1)
@@ -492,12 +491,11 @@ def main():
     for test_id in range(1, max_test_id + 1):
         # Get pinned data from C++ source
         if test_id in cpp_data:
-            smiles, pinned_name, pinned_success, error_substring = cpp_data[test_id]
+            smiles, pinned_name, pinned_success, _ = cpp_data[test_id]
         else:
             smiles = smiles_from_output.get(test_id, '')
             pinned_name = ''
             pinned_success = True
-            error_substring = ''
         
         # Get actual results
         if test_id in results:

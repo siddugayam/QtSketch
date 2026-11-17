@@ -37,6 +37,11 @@ public:
     Q_INVOKABLE QString read(const QString& fileUrl) {
         QUrl url(fileUrl);
         QFile file(url.isLocalFile() ? url.toLocalFile() : fileUrl);
+        constexpr qint64 kMaxFileSize = 50 * 1024 * 1024; // 50 MB bound (CWE-120)
+        if (file.size() > kMaxFileSize) {
+            qWarning() << "FileIO read failed: file exceeds maximum allowed size:" << file.size();
+            return "";
+        }
         if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
             qWarning() << "FileIO read failed:" << file.errorString();
             return "";

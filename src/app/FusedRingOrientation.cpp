@@ -61,8 +61,8 @@ std::vector<FusedRingOrientationResult> computeAllPreferredOrientations(const Fu
     // If full ring atoms are available, verify single perimeter component (reject bridged/cage)
     if (!input.ringAtoms.empty()) {
         std::vector<GraphBond> bonds;
-        std::set<std::pair<int, int>> seenBonds;
         if (!input.ringDirectedCycles.empty()) {
+            std::set<std::pair<int, int>> seenBonds;
             for (const auto &cyc : input.ringDirectedCycles) {
                 for (size_t i = 0; i < cyc.size(); ++i) {
                     int u = cyc[i];
@@ -213,7 +213,7 @@ std::vector<FusedRingOrientationResult> computeAllPreferredOrientations(const Fu
         ScoreTuple score;
         std::vector<std::pair<double,double>> pos;
         std::vector<double> rotation;
-        double y_main, x_mid;
+        double y_main;
         bool reflected;
     };
     std::vector<CandidateResult> allCandidates;
@@ -280,7 +280,7 @@ std::vector<FusedRingOrientationResult> computeAllPreferredOrientations(const Fu
             }
 
             ScoreTuple cand_score = {max_block_size, ur, -ll, above};
-            allCandidates.push_back({cand_score, cur_pos, cur_rotation, y_main, x_mid, reflect != 0});
+            allCandidates.push_back({cand_score, cur_pos, cur_rotation, y_main, reflect != 0});
         }
     }
 
@@ -313,7 +313,7 @@ std::vector<FusedRingOrientationResult> computeAllPreferredOrientations(const Fu
             double xA = c.pos[a].first, xB = c.pos[b].first;
             bool a_in_main = (std::abs(yA - c.y_main) <= 0.1);
             bool b_in_main = (std::abs(yB - c.y_main) <= 0.1);
-            if (a_in_main != b_in_main) return a_in_main > b_in_main;
+            if (a_in_main != b_in_main) return static_cast<int>(a_in_main) > static_cast<int>(b_in_main);
             if (a_in_main) return xA < xB;
             if (std::abs(yA - yB) > 0.1) return yA > yB;
             return xA < xB;

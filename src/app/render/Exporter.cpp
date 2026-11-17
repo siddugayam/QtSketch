@@ -79,10 +79,6 @@ bool PdfExporter::exportToFile(const RenderScene& scene, const QString& filePath
     QRectF pageRectMm(0, 0, pageSizeMm.width(), pageSizeMm.height());
     QRectF centeredScene = sceneBoundsMm;
     
-    // Center the scene
-    double offsetX = (pageSizeMm.width() - sceneBoundsMm.width()) / 2 - sceneBoundsMm.left();
-    double offsetY = (pageSizeMm.height() - sceneBoundsMm.height()) / 2 - sceneBoundsMm.top();
-    
     // Convert mm to device coordinates
     // In PDF, the coordinate system is already in points
     // But we need to scale from mm to the PDF page
