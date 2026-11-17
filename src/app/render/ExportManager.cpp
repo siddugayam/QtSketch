@@ -86,7 +86,10 @@ DrawingStyle drawingStyleFromOptions(const QVariantMap& options) {
         const double v = obj["bondLength"].toDouble();
         if (std::isfinite(v) && v > 0.0) style.bondLength = v;
     }
-    if (obj.contains("lineWidth")) style.lineWidth = obj["lineWidth"].toDouble();
+    if (obj.contains("lineWidth")) {
+        const double v = obj["lineWidth"].toDouble();
+        if (std::isfinite(v) && v > 0.0) style.lineWidth = v;
+    }
     if (obj.contains("fontFamily")) style.fontFamily = obj["fontFamily"].toString();
     if (obj.contains("fontSize")) style.fontSize = obj["fontSize"].toInt();
     if (obj.contains("monochrome")) style.monochrome = obj["monochrome"].toBool();

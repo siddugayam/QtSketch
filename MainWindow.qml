@@ -432,6 +432,9 @@ ApplicationWindow {
     }
 
     property var _recoveredFiles: []
+    // docId -> old recovery file path awaiting deletion once its replacement
+    // autosave copy actually lands (see onStructureReady's "autosave" branch).
+    property var _pendingRecoveryCleanup: ({})
 
     function restoreRecoveryFiles() {
         const appData = StandardPaths.writableLocation(StandardPaths.AppDataLocation)
@@ -473,13 +476,14 @@ ApplicationWindow {
             removeRecentFile(url)
             if (activeSketch) {
                 activeSketch.setDirty(true)
-                // Write the copy under the new recovery id now, not on the next 60 s tick.
+                // Retire the old recovery file once its replacement copy
+                // actually lands (onStructureReady's "autosave" branch below)
+                // -- requestProjectSerialization is async, so checking
+                // fileIO.exists() for the new copy on the very next line would
+                // run before the write ever happens and never retry.
+                window._pendingRecoveryCleanup[DocumentManager.activeDocId] = path
                 activeSketch.requestProjectSerialization("autosave")
             }
-            // Remove the old file only once the new copy exists, so it is not
-            // offered again on later launches and is never the only copy lost.
-            const newCopy = appData + "/recovery/autosave_" + DocumentManager.recoveryIdFor(DocumentManager.activeDocId) + ".qtsketch"
-            if (newCopy !== path && fileIO.exists(newCopy)) fileIO.remove(path)
         }
     }
 
@@ -1776,6 +1780,17 @@ ApplicationWindow {
                                                     const appData = StandardPaths.writableLocation(StandardPaths.AppDataLocation)
                                                     const rid = DocumentManager.recoveryIdFor(canvasInstance.modelData)
                                                     fileIO.write(appData + "/recovery/autosave_" + rid + ".qtsketch", data)
+                                                    // Retire the stale pre-restore recovery file for this exact
+                                                    // document now that its replacement copy has actually landed
+                                                    // -- keyed by this tab's own modelData, not the global active
+                                                    // doc id, so a multi-file restore batch can't misattribute
+                                                    // cleanup if a later file becomes active before this write lands.
+                                                    const stalePath = window._pendingRecoveryCleanup[canvasInstance.modelData]
+                                                    if (stalePath) {
+                                                        delete window._pendingRecoveryCleanup[canvasInstance.modelData]
+                                                        const newCopy = appData + "/recovery/autosave_" + rid + ".qtsketch"
+                                                        if (newCopy !== stalePath) fileIO.remove(stalePath)
+                                                    }
                                                 } else if (reqId === "autosave_template") {
                                                     window._finishTemplateSave(data)
                                                 }
@@ -2279,30 +2294,31 @@ ApplicationWindow {
             window.isProcessing = true
             window.tagAsync("batch")
             indigoSvc.parseRdfBatch(fileUrl)
-            return
+            return true
         } else if (fileStrEarly.endsWith(".smi") || fileStrEarly.endsWith(".smiles")) {
             pendingSdfBatchUrl = fileUrl
             window.isProcessing = true
             window.tagAsync("batch")
             indigoSvc.parseIndigoBatchFile(fileUrl, "smiles")
-            return
+            return true
         } else if (fileStrEarly.endsWith(".cml")) {
             pendingSdfBatchUrl = fileUrl
             window.isProcessing = true
             window.tagAsync("batch")
             indigoSvc.parseIndigoBatchFile(fileUrl, "cml")
-            return
+            return true
         } else if (fileStrEarly.endsWith(".cdx")) {
             pendingSdfBatchUrl = fileUrl
             window.isProcessing = true
             window.tagAsync("batch")
             indigoSvc.parseIndigoBatchFile(fileUrl, "cdx")
-            return
+            return true
         } else if (fileStrEarly.endsWith(".rxn")) {
             const data = fileIO.read(fileUrl)
+            let ok = false
             if (data !== "" && activeSketch) {
                 if (activeCanvas) activeCanvas.clearCanvas()
-                const ok = activeSketch.importReaction(data)
+                ok = activeSketch.importReaction(data)
                 if (ok) {
                     window.centerViewOnPage()
                     setDocFile(DocumentManager.activeDocId, fileUrl)
@@ -2312,7 +2328,7 @@ ApplicationWindow {
                     messageDialogsGroup.workerErrorDialog.open()
                 }
             }
-            return
+            return ok
         }
         const data = fileIO.read(fileUrl)
         if (data === "") return false
@@ -2322,23 +2338,27 @@ ApplicationWindow {
             window.isProcessing = true
             window.tagAsync("biopolymer")
             indigoSvc.loadBioFasta(data, "DNA")
+            return true
         } else if (fileStr.endsWith(".helm")) {
             window.isProcessing = true
             window.tagAsync("biopolymer")
             indigoSvc.loadBioHelm(data)
+            return true
         } else if (fileStr.endsWith(".idt")) {
             window.isProcessing = true
             window.tagAsync("biopolymer")
             indigoSvc.loadBioIdt(data)
+            return true
         } else {
             let fmt = "mol"
             if (fileStr.endsWith(".sdf")) fmt = "sdf"
             else if (fileStr.endsWith(".ket")) fmt = "ket"
             else if (fileStr.endsWith(".qtsketch")) fmt = "qtsketch"
-            
+
             if (fmt === "sdf" && activeSketch) {
                 pendingSdfBatchUrl = fileUrl
                 activeSketch.sendCommand("deserializeSdfBatch", [data])
+                return true
             } else if (fmt === "qtsketch" && activeSketch) {
                 // loadProject takes a QUrl directly now -- toString() kept the
                 // "file://" scheme prefix, which QFile cannot open as a path.
