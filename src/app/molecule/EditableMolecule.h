@@ -171,7 +171,9 @@ public:
     // both its endpoint atoms present) otherwise; this expansion eliminates that failure case
     // entirely rather than surfacing it to the caller. Error StringResult if any id is unknown
     // or the resulting submolecule has zero atoms.
-    StringResult submoleculeMolfile(const QList<AtomId>& atomIds, const QList<BondId>& bondIds) const;
+    // forNaming=true extracts from the same E/Z-safe clone molfileForNaming() uses.
+    StringResult submoleculeMolfile(const QList<AtomId>& atomIds, const QList<BondId>& bondIds,
+                                    bool forNaming = false) const;
 
     // Replaces this object's content IN PLACE, in its OWN existing Indigo session (never
     // touches m_session) -- this is what keeps snapshot()/restore() undo-compatible across a
@@ -568,6 +570,7 @@ private:
     // entry in preservedIndexToStereo (see loadFrom), that value is kept instead of a fresh
     // indigoBondStereo() read; pass {} for a genuinely new load.
     void captureEzIntent(const QMap<int, int>& preservedIndexToStereo);
+    int namingClone() const;
 
     // The two numeric-encoding conversions Direction exists to keep apart. Both private: nothing
     // outside setBondStereo/bondStereoDirectionEnum needs raw access to either numbering.

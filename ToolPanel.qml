@@ -70,7 +70,7 @@ Rectangle {
                 // Segoe Fluent Icons ChevronDown / ChevronRight, written as
                 // \u escapes rather than literal private-use characters so the
                 // source stays ASCII and the glyphs cannot be lost in transit.
-                text: header.expanded ? "" : ""
+                text: header.expanded ? Theme.icon(0xE70D, 0xF0140) : Theme.icon(0xE76C, 0xF0142)
                 color: Theme.textSecondary
                 font { family: Theme.fontIcons; pixelSize: 10 }
             }
@@ -387,7 +387,7 @@ Rectangle {
                             visible: hovered
                             Text {
                                 // Segoe Fluent Icons Dismiss (U+E8BB)
-                                text: String.fromCharCode(0xE8BB)
+                                text: Theme.icon(0xE8BB, 0xF0156)
                                 color: "white"
                                 font { family: Theme.fontIcons; pixelSize: 9 }
                                 anchors.centerIn: parent

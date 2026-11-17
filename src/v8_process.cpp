@@ -481,7 +481,7 @@ void V8Process::requestMolfileForNaming(const QString& reqId) {
     emit structureReady(reqId, mf);
 }
 void V8Process::requestMolfileForNamingSelection(const QString& reqId) {
-    emit structureReady(reqId, m_docState->copySelection());
+    emit structureReady(reqId, m_docState->copySelection(/*forNaming=*/true));
 }
 QString V8Process::getStructure(const QString& fmt) {
     if (fmt == "ket") return m_docState->molecule().toKetJson();
@@ -506,24 +506,25 @@ bool V8Process::importReaction(const QString& text) {
     applyLocalState();
     return true;
 }
-void V8Process::loadStructure(const QString& format, const QString& data, bool centerOnPage) {
+bool V8Process::loadStructure(const QString& format, const QString& data, bool centerOnPage) {
     if (format == "mol") {
-        m_docState->deserializeMol(data, centerOnPage);
+        const bool ok = m_docState->deserializeMol(data, centerOnPage);
         applyLocalState();
-        return;
+        return ok;
     }
     if (format == "ket") {
         EditableMolecule mol(data);
-        if (!mol.isValid()) return;
+        if (!mol.isValid()) return false;
         StringResult mf = mol.toMolfile();
-        if (!mf.success) return;
-        m_docState->deserializeMol(mf.value, centerOnPage);
+        if (!mf.success) return false;
+        const bool ok = m_docState->deserializeMol(mf.value, centerOnPage);
         applyLocalState();
-        return;
+        return ok;
     }
     // sdf: out of scope -- deserializeSdf is confirmed dead (zero QML callers;
     // MainWindow.qml's own File > Open handler routes .sdf through
     // deserializeSdfBatch directly, never through here)
+    return false;
 }
 void V8Process::insertFunctionalGroup(const QString& fgName, double cx, double cy, int targetAtomId, bool fullStructure) {
     if (!m_templateLibrary) return;
@@ -1097,6 +1098,10 @@ bool V8Process::loadProject(const QUrl& fileUrl) {
     m_docState->markClean();
     applyLocalState();
     return true;
+}
+
+double V8Process::editRevision() const {
+    return static_cast<double>(m_docState->editRevision());
 }
 
 void V8Process::setDirty(bool dirty) {

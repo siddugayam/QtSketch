@@ -3,6 +3,7 @@
 
 #include <QObject>
 #include <QFile>
+#include <QSaveFile>
 #include <QTextStream>
 #include <QUrl>
 #include <QDebug>
@@ -17,7 +18,7 @@ class FileIO : public QObject {
 public:
     Q_INVOKABLE bool write(const QString& fileUrl, const QString& data) {
         QUrl url(fileUrl);
-        QFile file(url.isLocalFile() ? url.toLocalFile() : fileUrl);
+        QSaveFile file(url.isLocalFile() ? url.toLocalFile() : fileUrl);
         if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
             qWarning() << "FileIO write failed:" << file.errorString();
             return false;
@@ -26,7 +27,7 @@ public:
         out << data;
         out.flush();
         bool ok = (out.status() == QTextStream::Ok) && (file.error() == QFile::NoError);
-        file.close();
+        if (ok) ok = file.commit();
         if (!ok) {
             qWarning() << "FileIO write failed:" << file.errorString();
         }

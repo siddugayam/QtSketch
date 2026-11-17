@@ -48,6 +48,7 @@ Item {
         onAccepted: {
             const fileStr = selectedFile.toString().toLowerCase()
             if (fileStr.endsWith(".png")) {
+                win.cancelAfterSave()  // an image export does not save the document
                 win.pendingRenderUrl = selectedFile
                 // Full document snapshot (not a bare molfile) so text/images/
                 // reaction arrows/etc. reach the exported file too.
@@ -55,6 +56,7 @@ Item {
                 return
             }
             if (fileStr.endsWith(".svg")) {
+                win.cancelAfterSave()
                 win.pendingRenderUrl = selectedFile
                 if (win.activeSketch) win.activeSketch.requestProjectSerialization("render_svg")
                 return
@@ -76,7 +78,9 @@ Item {
                         win.pendingSaveUrl = selectedFile
                         win.setDocFile(DocumentManager.activeDocId, selectedFile)
                         if (win.activeCanvas) win.activeCanvas.setClean()
+                        win.continueAfterSave()
                     } else {
+                        win.cancelAfterSave()
                         win.messageDialogsGroup.workerErrorDialog.errorText =
                             "Save failed: could not write the project file to " + selectedFile + ". The document was not modified on disk; your previous save (if any) is intact."
                         win.messageDialogsGroup.workerErrorDialog.severe = true
@@ -84,11 +88,13 @@ Item {
                     }
                 }
             } else {
+                // finishPlainSave records the file name once the write succeeds.
                 win.pendingSaveUrl = selectedFile
-                win.setDocFile(DocumentManager.activeDocId, selectedFile)
                 if (win.activeSketch) win.activeSketch.requestStructure(fmt, "save")
+                else win.cancelAfterSave()
             }
         }
+        onRejected: win.cancelAfterSave()
     }
 
     FileDialog {
@@ -137,6 +143,7 @@ Item {
             if (fileStr.endsWith(".rdf")) format = "rdf"
             else if (fileStr.endsWith(".smi")) format = "smiles"
             else if (fileStr.endsWith(".cml")) format = "cml"
+            win.pendingRenderUrl = selectedFile
             win.indigoSvc.exportBatchToFile(win._pendingBatchGridMolfiles, selectedFile, format)
         }
     }
@@ -157,9 +164,8 @@ Item {
         property int maxAcceptableWarnings: 5
 
         onAccepted: {
-            if (!win.activeSketch) return
+            if (!win.activeSketch || !win.beginJob()) return
             pendingFileUrl = selectedFile
-            win.isProcessing = true
             win.imagoSvc.recognizeImage(selectedFile)
         }
     }

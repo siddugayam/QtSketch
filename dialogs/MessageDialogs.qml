@@ -28,7 +28,11 @@ Item {
 
         onButtonClicked: function(button) {
             if (button === MessageDialog.Save) {
-                win.fileDialogsGroup.saveDialog.open()
+                // Finish the close or quit once the save succeeds.
+                win._afterSave = win._pendingCloseDocId >= 0 ? "close" : "quit"
+                win._afterSaveDocId = win._pendingCloseDocId
+                win._pendingCloseDocId = -1
+                win.saveActive(false)
             } else if (button === MessageDialog.Discard) {
                 if (win._pendingCloseDocId >= 0) {
                     var docId = win._pendingCloseDocId

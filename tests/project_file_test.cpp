@@ -11,6 +11,11 @@
 #include "app/molecule/EditableMolecule.h"
 #include "app/molecule/DrawingStyle.h"
 #include "app/molecule/PageSettings.h"
+#include "app/FileIO.h"
+#ifndef _WIN32
+#include <csignal>
+#include <sys/resource.h>
+#endif
 
 static int g_pass = 0, g_fail = 0;
 #define CHECK(cond, name) do { \
@@ -64,6 +69,33 @@ static void test_atomicSavePreservesOriginalOnFailure() {
     CHECK(f2.exists(), "original file still exists after the unrelated failed save");
     CHECK(f2.size() == originalSize, "original file is byte-for-byte unchanged");
 }
+
+// Uses POSIX file-size limits, so it does not build on Windows.
+#ifndef _WIN32
+static void test_fileIoWriteFailureKeepsOriginal() {
+    std::printf("--- Test: FileIO::write failure leaves the original file intact ---\n");
+    QTemporaryDir dir;
+    QString path = dir.filePath("doc.mol");
+    QString url = QUrl::fromLocalFile(path).toString();
+    FileIO io;
+    CHECK(io.write(url, "ORIGINAL\n"), "initial FileIO write succeeds");
+
+    // A file-size limit makes the second write fail part-way through.
+    std::signal(SIGXFSZ, SIG_IGN);
+    struct rlimit old;
+    getrlimit(RLIMIT_FSIZE, &old);
+    struct rlimit small = old;
+    small.rlim_cur = 1024;
+    setrlimit(RLIMIT_FSIZE, &small);
+    bool bigOk = io.write(url, QString(100000, QChar('x')));
+    setrlimit(RLIMIT_FSIZE, &old);
+
+    CHECK(!bigOk, "oversized FileIO write reports failure");
+    CHECK(io.read(url) == "ORIGINAL\n", "original content survives the failed write");
+    CHECK(io.write(url, "NEW\n") && io.read(url) == "NEW\n", "a normal write still replaces the content");
+}
+
+#endif
 
 static void test_loadRejectsMissingFormatVersion() {
     std::printf("--- Test: load rejects a file missing formatVersion ---\n");
@@ -237,6 +269,9 @@ int main() {
     test_sgroupStateRoundTrip();
     test_saveLoadRoundTrip();
     test_atomicSavePreservesOriginalOnFailure();
+#ifndef _WIN32
+    test_fileIoWriteFailureKeepsOriginal();
+#endif
     test_loadRejectsMissingFormatVersion();
     test_loadRejectsMissingChemistry();
     test_loadRejectsCorruptMolfile();
@@ -245,3 +280,5 @@ int main() {
     std::printf("Summary: %d passed, %d failed.\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
+
+#include "moc_FileIO.cpp"

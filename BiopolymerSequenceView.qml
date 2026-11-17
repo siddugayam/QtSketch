@@ -163,7 +163,7 @@ TaskDialog {
                             if (m.ambiguous) ctx.setLineDash([])
 
                             ctx.fillStyle = Theme.badgeText
-                            ctx.font = "bold 12px " + Theme.fontDisplay
+                            ctx.font = "bold 12px " + Theme.fontDisplayCss
                             ctx.textAlign = "center"
                             ctx.textBaseline = "middle"
                             ctx.fillText(m.label, x + half, y + half)

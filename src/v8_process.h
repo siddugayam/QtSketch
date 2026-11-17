@@ -82,7 +82,7 @@ public:
     Q_INVOKABLE QString getStructure(const QString& fmt);
     Q_INVOKABLE QString serializeMol();
     Q_INVOKABLE QString getMolfileForNaming();
-    Q_INVOKABLE void loadStructure(const QString& format, const QString& data, bool centerOnPage = false);
+    Q_INVOKABLE bool loadStructure(const QString& format, const QString& data, bool centerOnPage = false);
     Q_INVOKABLE bool importReaction(const QString& text);
     Q_INVOKABLE void insertFunctionalGroup(const QString& fgName, double cx, double cy, int targetAtomId = -1, bool fullStructure = true);
     Q_INVOKABLE void insertLibraryTemplateFused(const QString& fgName, double cx, double cy, int targetBondId);
@@ -161,6 +161,8 @@ public:
     Q_INVOKABLE bool loadProject(const QUrl& fileUrl);
     Q_INVOKABLE bool saveProject(const QUrl& fileUrl);
     Q_INVOKABLE void setDirty(bool dirty);
+    // Changes whenever the document content changes (see DocumentState::editRevision).
+    Q_INVOKABLE double editRevision() const;
     
     // Get current drawing style as JSON
     Q_INVOKABLE QJsonObject getDrawingStyle() const;

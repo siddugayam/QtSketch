@@ -58,16 +58,16 @@ AppMenuBar {
     }
     AppMenuBarItem {
         text: "Structure"
-        MenuItemRow { text: "Layout"; iconSource: "layout.svg"; onTriggered: root.win.executeStructureOp("layout") }
+        MenuItemRow { text: "Layout"; iconSource: "layout.svg"; enabled: !root.win.isProcessing; onTriggered: root.win.executeStructureOp("layout") }
         MenuItemRow { text: "Layout Selected"; iconSource: "layout.svg"; enabled: Selection.hasAtoms(root.win.activeSketch, 1) && !root.win.isProcessing; onTriggered: root.win.executeStructureOp("layoutSelected") }
-        MenuItemRow { text: "Clean 2D"; iconSource: "layout.svg"; onTriggered: root.win.executeStructureOp("clean2d") }
+        MenuItemRow { text: "Clean 2D"; iconSource: "layout.svg"; enabled: !root.win.isProcessing; onTriggered: root.win.executeStructureOp("clean2d") }
         Rectangle { width: parent.width; height: 1; color: Theme.outline; opacity: 0.6 }
-        MenuItemRow { text: "Aromatize"; iconSource: "arom.svg"; onTriggered: root.win.executeStructureOp("aromatize") }
-        MenuItemRow { text: "Dearomatize"; iconSource: "dearom.svg"; onTriggered: root.win.executeStructureOp("dearomatize") }
-        MenuItemRow { text: "Add Explicit H"; iconSource: "explicit-hydrogens.svg"; onTriggered: root.win.executeStructureOp("unfoldH") }
-        MenuItemRow { text: "Remove Explicit H"; iconSource: "explicit-hydrogens.svg"; onTriggered: root.win.executeStructureOp("foldH") }
-        MenuItemRow { text: "Normalize"; iconSource: "clean.svg"; onTriggered: root.win.executeStructureOp("normalize") }
-        MenuItemRow { text: "Standardize"; iconSource: "analyse.svg"; onTriggered: root.win.executeStructureOp("standardize") }
+        MenuItemRow { text: "Aromatize"; iconSource: "arom.svg"; enabled: !root.win.isProcessing; onTriggered: root.win.executeStructureOp("aromatize") }
+        MenuItemRow { text: "Dearomatize"; iconSource: "dearom.svg"; enabled: !root.win.isProcessing; onTriggered: root.win.executeStructureOp("dearomatize") }
+        MenuItemRow { text: "Add Explicit H"; iconSource: "explicit-hydrogens.svg"; enabled: !root.win.isProcessing; onTriggered: root.win.executeStructureOp("unfoldH") }
+        MenuItemRow { text: "Remove Explicit H"; iconSource: "explicit-hydrogens.svg"; enabled: !root.win.isProcessing; onTriggered: root.win.executeStructureOp("foldH") }
+        MenuItemRow { text: "Normalize"; iconSource: "clean.svg"; enabled: !root.win.isProcessing; onTriggered: root.win.executeStructureOp("normalize") }
+        MenuItemRow { text: "Standardize"; iconSource: "analyse.svg"; enabled: !root.win.isProcessing; onTriggered: root.win.executeStructureOp("standardize") }
         MenuItemRow { text: "Ionize at pH…"; iconSource: "analyse.svg"; onTriggered: root.win.ionizeDialog.open() }
         Rectangle { width: parent.width; height: 1; color: Theme.outline; opacity: 0.6 }
         MenuItemRow { text: "Validate"; iconSource: "check.svg"; onTriggered: root.win.executeStructureOp("check") }
@@ -176,8 +176,7 @@ AppMenuBar {
                 text: "Auto-map Reaction"
                 iconSource: "reaction-map.svg"
                 onTriggered: {
-                    root.win.isProcessing = true
-                    if (root.win.activeSketch) root.win.activeSketch.requestSerialize("automap")
+                    if (root.win.activeSketch && root.win.beginJob()) root.win.activeSketch.requestSerialize("automap")
                     reactionsMenuTrigger.close()
                 }
             }
@@ -186,8 +185,7 @@ AppMenuBar {
                 text: "Clear Mapping"
                 iconSource: "reaction-map.svg"
                 onTriggered: {
-                    root.win.isProcessing = true
-                    if (root.win.activeSketch) root.win.activeSketch.requestSerialize("clear_mapping")
+                    if (root.win.activeSketch && root.win.beginJob()) root.win.activeSketch.requestSerialize("clear_mapping")
                     reactionsMenuTrigger.close()
                 }
             }
@@ -196,8 +194,7 @@ AppMenuBar {
                 text: "Correct Reacting Centers"
                 iconSource: "reaction-map.svg"
                 onTriggered: {
-                    root.win.isProcessing = true
-                    if (root.win.activeSketch) root.win.activeSketch.requestSerialize("correct_reacting_centers")
+                    if (root.win.activeSketch && root.win.beginJob()) root.win.activeSketch.requestSerialize("correct_reacting_centers")
                     reactionsMenuTrigger.close()
                 }
             }

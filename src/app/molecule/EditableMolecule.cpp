@@ -198,10 +198,18 @@ QString EditableMolecule::toKetJson() const {
 QString EditableMolecule::molfileForNaming() const {
     if (m_mol < 0) return QString();
     activateSession();
-    
+    int clone = namingClone();
+    if (clone < 0) return QString();
+    const char* mf = indigoMolfile(clone);
+    indigoFree(clone);
+    if (!mf) return QString();
+    return QString::fromUtf8(mf);
+}
+
+int EditableMolecule::namingClone() const {
     // Clone the molecule
     int clone = indigoClone(m_mol);
-    if (clone < 0) return QString();
+    if (clone < 0) return -1;
 
     // A molecule that has never been through layout (e.g. just parsed from SMILES, before
     // the app's own auto-layout step) has no real coordinates at all -- a plain V2000 molfile
@@ -338,14 +346,11 @@ QString EditableMolecule::molfileForNaming() const {
         }
     }
     
-    // Export the clone to molfile
-    const char* mf = indigoMolfile(clone);
-    indigoFree(clone);
-    if (!mf) return QString();
-    return QString::fromUtf8(mf);
+    return clone;
 }
 
-StringResult EditableMolecule::submoleculeMolfile(const QList<AtomId>& atomIds, const QList<BondId>& bondIds) const {
+StringResult EditableMolecule::submoleculeMolfile(const QList<AtomId>& atomIds, const QList<BondId>& bondIds,
+                                                  bool forNaming) const {
     StringResult r;
     if (m_mol < 0) { r.error = QStringLiteral("invalid molecule"); return r; }
     activateSession();
@@ -371,7 +376,10 @@ StringResult EditableMolecule::submoleculeMolfile(const QList<AtomId>& atomIds, 
 
     if (vertexIdx.isEmpty()) { r.error = QStringLiteral("empty selection"); return r; }
 
-    int sub = indigoCreateEdgeSubmolecule(m_mol, vertexIdx.size(), vertexIdx.data(), edgeIdx.size(), edgeIdx.data());
+    int source = forNaming ? namingClone() : m_mol;
+    if (source < 0) { r.error = QString::fromUtf8(indigoGetLastError()); return r; }
+    int sub = indigoCreateEdgeSubmolecule(source, vertexIdx.size(), vertexIdx.data(), edgeIdx.size(), edgeIdx.data());
+    if (forNaming) indigoFree(source);
     if (sub < 0) { r.error = QString::fromUtf8(indigoGetLastError()); return r; }
 
     const char* mf = indigoMolfile(sub);

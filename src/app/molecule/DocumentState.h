@@ -35,6 +35,9 @@ public:
     void undo();
     void redo();
     bool isDirty() const;
+    // Bumped by every content change (edit, undo, redo, load). Lets async
+    // results detect that the document changed while they ran.
+    quint64 editRevision() const;
     // Grounded requirement (not speculative): src/worker/30-templates.js's
     // loadBenzene() explicitly does `init(); addBenzeneRing(); _dirty = false`
     // -- a new document pre-populated with the starter benzene is NOT dirty.
@@ -143,7 +146,7 @@ public:
     // real `if (_selection.atom_ids.length === 0) return null` guard) or if extraction fails.
     // Deliberately does NOT include any selected rxnArrows/rxnPluses/multitailArrows -- the real
     // _struct.clone(atomSet, bondSet) never touches those entity types either.
-    QString copySelection() const;
+    QString copySelection(bool forNaming = false) const;
 
     // 10-state.js's deleteSelection (862-961) / this migration's own sgroup-aware-deletion
     // gap, deferred since sub-project 3a and explicitly assigned here. Deliberately has NO
@@ -316,7 +319,7 @@ public:
     // 40-serialize.js: deserializeMol via _applyLoadedStruct). No-ops (no history entry) on a
     // parse failure. Extension data (name, texts, rxnArrows, etc.) is wiped on success, matching
     // the real JS exactly -- it never carries anything across a document replace.
-    void deserializeMol(const QString& data, bool centerOnPage = false);
+    bool deserializeMol(const QString& data, bool centerOnPage = false);
 
     // Document name (40-serialize.js's setMoleculeName). No-op if unchanged, matching the real
     // JS's `if (oldName === newName) return`. getMoleculeName needs no wrapper -- pure read,
@@ -622,6 +625,7 @@ private:
     int m_historyPointer = -1;
     bool m_inCommand = false;
     bool m_dirty = false;
+    quint64 m_editRevision = 0;
     bool m_showExplicitH = false;
     SelectionState m_selection;
     DrawingStyle m_drawingStyle;

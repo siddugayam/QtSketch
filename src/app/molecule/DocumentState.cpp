@@ -182,6 +182,7 @@ void DocumentState::executeCommand(EditCommand cmd) {
         --m_historyPointer;
     }
     m_dirty = true;
+    ++m_editRevision;
 }
 
 void DocumentState::undo() {
@@ -195,6 +196,7 @@ void DocumentState::undo() {
     m_selection.clear();
     resetAllDragState();
     m_dirty = true;
+    ++m_editRevision;
 }
 
 void DocumentState::redo() {
@@ -208,6 +210,7 @@ void DocumentState::redo() {
     m_selection.clear();
     resetAllDragState();
     m_dirty = true;
+    ++m_editRevision;
 }
 
 void DocumentState::reconcileSelectionAfterCommand() {
@@ -264,17 +267,23 @@ bool DocumentState::isDirty() const {
     return m_dirty;
 }
 
+quint64 DocumentState::editRevision() const {
+    return m_editRevision;
+}
+
 void DocumentState::markClean() {
     m_dirty = false;
 }
 
 void DocumentState::markDirty() {
     m_dirty = true;
+    ++m_editRevision;
 }
 
 void DocumentState::clearHistory() {
     m_history.clear();
     m_historyPointer = -1;
+    ++m_editRevision;
 }
 
 void DocumentState::setDrawingStyle(const DrawingStyle& style) {
@@ -683,11 +692,11 @@ void DocumentState::selectChain(AtomId atomId, BondId bondId) {
     }
 }
 
-QString DocumentState::copySelection() const {
+QString DocumentState::copySelection(bool forNaming) const {
     if (m_selection.atoms.isEmpty()) return QString();
     QList<AtomId> atomIds(m_selection.atoms.begin(), m_selection.atoms.end());
     QList<BondId> bondIds(m_selection.bonds.begin(), m_selection.bonds.end());
-    StringResult r = m_molecule.submoleculeMolfile(atomIds, bondIds);
+    StringResult r = m_molecule.submoleculeMolfile(atomIds, bondIds, forNaming);
     return r.success ? r.value : QString();
 }
 
@@ -951,6 +960,7 @@ void DocumentState::loadBenzene() {
     resetAllDragState();
     m_molecule.addBenzeneRing(4.0, 4.0);
     markClean();
+    ++m_editRevision;
 }
 
 void DocumentState::buildBioSequenceView(const QString& sequenceText, const QString& seqType) {
@@ -1648,6 +1658,7 @@ void DocumentState::moveSelectionLive(double dx, double dy) {
 
     applyMoveDelta(m_dragAtomIds, m_dragArrowIds, m_dragPlusIds, m_dragMultitailIds, appliedDx, appliedDy);
     m_dirty = true;
+    ++m_editRevision;
 }
 
 void DocumentState::commitMove() {
@@ -1750,6 +1761,7 @@ void DocumentState::rotateSelectionLive(double angleDelta) {
         writeTransformPoint(m_molecule, p, cx + dx * cosA - dy * sinA, cy + dx * sinA + dy * cosA);
     }
     m_dirty = true;
+    ++m_editRevision;
 }
 
 void DocumentState::commitRotate() {
@@ -1814,6 +1826,7 @@ void DocumentState::scaleSelectionLive(double factor, double anchorX, double anc
     for (const TransformPoint& p : m_scaleOrigPos)
         writeTransformPoint(m_molecule, p, ax + (p.x - ax) * candidateFactor, ay + (p.y - ay) * candidateFactor);
     m_dirty = true;
+    ++m_editRevision;
 }
 
 void DocumentState::commitScale() {
@@ -3233,13 +3246,13 @@ void DocumentState::renameSGroup(SGroupId id, const QString& newLabel) {
     executeCommand(std::move(cmd));
 }
 
-void DocumentState::deserializeMol(const QString& data, bool centerOnPage) {
+bool DocumentState::deserializeMol(const QString& data, bool centerOnPage) {
     EditableMolecule& mol = m_molecule;
     auto before = std::make_shared<MoleculeSnapshot>(mol.snapshot());
     // centerOnPage doubles as "is this a same-document write-back" (layout/aromatize/
     // normalize results, per this function's own established convention) rather than a
     // genuinely new document being opened -- see loadFrom's preserveEzIntent parameter.
-    if (!mol.loadFrom(data, centerOnPage)) return;
+    if (!mol.loadFrom(data, centerOnPage)) return false;
 
     EditCommand cmd;
     cmd.execute = [this, &mol, data, centerOnPage]() {
@@ -3249,6 +3262,7 @@ void DocumentState::deserializeMol(const QString& data, bool centerOnPage) {
     };
     cmd.invert = [&mol, before]() { mol.restore(*before); };
     executeCommand(std::move(cmd));
+    return true;
 }
 
 void DocumentState::centerMoleculeOnOrigin() {

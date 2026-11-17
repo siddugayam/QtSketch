@@ -117,6 +117,29 @@ static void test_documentStateUndoRedo() {
     CHECK(!doc.canRedo(), "old redo branch truncated by executing a new command");
 }
 
+// Async replies compare editRevision() to drop results for a changed document.
+static void test_editRevisionTracksContentChanges() {
+    std::printf("--- editRevision tracks content changes ---\n");
+    DocumentState doc;
+    quint64 r0 = doc.editRevision();
+    AtomId c = doc.addAtom(QStringLiteral("C"), 0.0, 0.0);
+    quint64 r1 = doc.editRevision();
+    CHECK(r1 != r0, "editRevision changes after an edit");
+    doc.selectAtom(c);
+    doc.clearSelection();
+    CHECK(doc.editRevision() == r1, "editRevision unchanged by selection");
+    doc.markClean();
+    CHECK(doc.editRevision() == r1, "editRevision unchanged by markClean");
+    doc.undo();
+    quint64 r2 = doc.editRevision();
+    CHECK(r2 != r1, "editRevision changes after undo");
+    doc.redo();
+    CHECK(doc.editRevision() != r2, "editRevision changes after redo");
+    quint64 r3 = doc.editRevision();
+    doc.deserializeMol(QString());
+    CHECK(doc.editRevision() != r3, "editRevision changes after a load");
+}
+
 static void test_executeCommandReentrancyGuard() {
     std::printf("--- Test: executeCommand ignores a reentrant call from within its own execute ---\n");
     DocumentState doc;
@@ -4603,6 +4626,7 @@ int main() {
     test_selectionStateBasics();
     test_editCommandBasics();
     test_documentStateUndoRedo();
+    test_editRevisionTracksContentChanges();
     test_executeCommandReentrancyGuard();
     test_undoReentrancyGuard();
     test_selectionReconciliationRemovesFullyStaleId();

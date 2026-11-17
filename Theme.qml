@@ -43,25 +43,36 @@ QtObject {
     // One family name per property, never a comma list: QML's font.family takes
     // a single family and treats "A, B" as a literal name that matches nothing,
     // silently falling back. Qt's own font matching handles absent families.
-    readonly property string fontFamily: "Segoe UI Variable Text"
-    readonly property string fontDisplay: "Segoe UI Variable Display"
+    // Segoe and Consolas ship only on Windows; other platforms use the system UI
+    // face, a system monospace face and the bundled Material Design Icons font.
+    readonly property bool isWindows: Qt.platform.os === "windows"
+    readonly property string fontFamily: isWindows ? "Segoe UI Variable Text" : Qt.application.font.family
+    readonly property string fontDisplay: isWindows ? "Segoe UI Variable Display" : Qt.application.font.family
     // Consolas rather than Fluent's Cascadia Mono: it ships on every Windows
     // back to Vista, and the monospace face carries no Fluent identity the way
     // Segoe UI Variable does — reliability is worth more here.
-    readonly property string fontMono: "Consolas"
+    readonly property string fontMono: isWindows ? "Consolas" : (Qt.platform.os === "osx" ? "Menlo" : "Monospace")
     // Segoe Fluent Icons is the Windows 11 system icon font. All codepoints
     // used here are shared with Segoe MDL2 Assets (Windows 10), so the glyphs
     // survive on older Windows even though the family name differs.
-    readonly property string fontIcons: "Segoe Fluent Icons"
+    readonly property string fontIcons: isWindows ? "Segoe Fluent Icons" : "Material Design Icons"
+    readonly property FontLoader _mdiFont: FontLoader { source: "fonts/materialdesignicons-webfont.ttf" }
+    // Icon glyph for Theme.fontIcons: the Segoe codepoint on Windows, the MDI one elsewhere.
+    function icon(segoeCode, mdiCode) {
+        return String.fromCodePoint(isWindows ? segoeCode : mdiCode)
+    }
 
     // Canvas2D's ctx.font takes a CSS font shorthand string, which requires quoting
     // multi-word family names ("Segoe UI") or the parser silently mangles them into
     // "SegoeUI" (no such font) and falls back — QML's own font.family property has no
     // such requirement, so these quoted variants exist only for ctx.font assignments,
     // never for font.family: bindings.
-    readonly property string fontFamilyCss: "'" + fontFamily + "'"
-    readonly property string fontDisplayCss: "'" + fontDisplay + "'"
-    readonly property string fontMonoCss: "'" + fontMono + "'"
+    // Canvas accepts only installed family names, so the fontconfig aliases used on
+    // Linux ("Sans Serif", "Monospace") are rejected and the size is lost too. A CSS
+    // generic family after the name gives Canvas a fallback it always accepts.
+    readonly property string fontFamilyCss: "'" + fontFamily + "', sans-serif"
+    readonly property string fontDisplayCss: "'" + fontDisplay + "', sans-serif"
+    readonly property string fontMonoCss: "'" + fontMono + "', monospace"
 
     // Windows 11 type ramp. Fluent's Caption is 12px and Body is 14px; the old
     // scale ran 10/11/12, below the 12px floor for readable body text, which is
