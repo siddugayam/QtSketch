@@ -11,9 +11,10 @@ docker build --platform "$PLAT" -t "$IMAGE" "$ROOT/packaging/linux"
 mkdir -p "$ROOT/dist"
 docker run --rm --platform "$PLAT" -v "$ROOT:/src:ro" -v "$ROOT/dist:/out" "$IMAGE" bash -euo pipefail -c '
     mkdir /work && cd /src
-    tar --exclude=./build --exclude=./build_* --exclude=./dist --exclude=./indigo --exclude=./.git -cf - . | tar -xf - -C /work
+    tar --exclude=./build --exclude=./build_* --exclude=./dist --exclude=./indigo --exclude=./imago --exclude=./.git -cf - . | tar -xf - -C /work
     cd /work
     packaging/linux/fetch_indigo.sh
+    packaging/linux/build_imago.sh
     cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
     cmake --build build
     QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure

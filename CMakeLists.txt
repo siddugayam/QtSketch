@@ -33,19 +33,27 @@ if (MSVC)
         ${INDIGO_LIB_DIR}/vcruntime140_1.dll
     )
 elseif (APPLE)
-    # packaging/macos/fetch_indigo.sh fills indigo/ with the EPAM macOS libraries.
+    # packaging/macos/fetch_indigo.sh fills indigo/ with the EPAM macOS libraries;
+    # packaging/macos/build_imago.sh builds imago/ from source (EPAM publishes no
+    # prebuilt Imago binaries for any platform).
     set(INDIGO_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/indigo/lib)
     set(INDIGO_LIB ${INDIGO_LIB_DIR}/libindigo.dylib)
     set(INDIGO_INCHI_LIB ${INDIGO_LIB_DIR}/libindigo-inchi.dylib)
     set(INDIGO_RENDERER_LIB ${INDIGO_LIB_DIR}/libindigo-renderer.dylib)
-    set(CMAKE_BUILD_RPATH ${INDIGO_LIB_DIR})
+    set(IMAGO_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/imago/lib)
+    set(IMAGO_LIB ${IMAGO_LIB_DIR}/libimago.dylib)
+    set(CMAKE_BUILD_RPATH ${INDIGO_LIB_DIR} ${IMAGO_LIB_DIR})
 elseif (UNIX)
-    # Linux: packaging/linux/fetch_indigo.sh fills indigo/ with the EPAM Linux libraries.
+    # Linux: packaging/linux/fetch_indigo.sh fills indigo/ with the EPAM Linux
+    # libraries; packaging/linux/build_imago.sh builds imago/ from source (EPAM
+    # publishes no prebuilt Imago binaries for any platform).
     set(INDIGO_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/indigo/lib)
     set(INDIGO_LIB ${INDIGO_LIB_DIR}/libindigo.so)
     set(INDIGO_INCHI_LIB ${INDIGO_LIB_DIR}/libindigo-inchi.so)
     set(INDIGO_RENDERER_LIB ${INDIGO_LIB_DIR}/libindigo-renderer.so)
-    set(CMAKE_BUILD_RPATH ${INDIGO_LIB_DIR})
+    set(IMAGO_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/imago/lib)
+    set(IMAGO_LIB ${IMAGO_LIB_DIR}/libimago.so)
+    set(CMAKE_BUILD_RPATH ${INDIGO_LIB_DIR} ${IMAGO_LIB_DIR})
 else()
     set(INDIGO_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/indigo/lib)
     set(IMAGO_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/imago/lib)
@@ -108,11 +116,6 @@ endif()
 # temporarily comment this back out, if console output is needed.
 set_target_properties(sketch PROPERTIES WIN32_EXECUTABLE TRUE)
 
-if (NOT WIN32)
-    # Imago is only built for Windows, so image recognition reports an error elsewhere.
-    set_source_files_properties(src/app/ImagoService.cpp PROPERTIES HEADER_FILE_ONLY ON)
-    target_sources(sketch PRIVATE src/app/ImagoServiceStub.cpp)
-endif()
 if (UNIX AND NOT APPLE)
     set_target_properties(sketch PROPERTIES OUTPUT_NAME QtSketch)
 endif()

@@ -13,7 +13,7 @@ from scratch.
   molfile, KET and CML through Indigo
 - Export to PNG, SVG and PDF, plus batch export to SDF, RDF, SMILES and CML
 - Recognition of structures in images (Insert Image), through
-  [Imago](https://github.com/epam/Imago) (Windows MinGW build only)
+  [Imago](https://github.com/epam/Imago)
 - IUPAC name generation (`src/app/IupacNamer.cpp`), written against the IUPAC Blue Book and
   checked by a golden test set
 
@@ -23,8 +23,8 @@ from scratch.
 |---|---|---|---|---|
 | Windows x64 | Qt 6.6+ MinGW kit | MinGW build in `indigo/` | yes | Main development platform |
 | Windows x64 | Qt 6.6+ MSVC kit | EPAM `indigo-libs-windows-x86_64` | no | CMake branch present |
-| macOS arm64 | Homebrew Qt 6.12, Xcode CLT | EPAM `epam.indigo` 1.45.0 wheel | no | Builds, 22/22 tests pass |
-| Linux x86_64, arm64 | Qt 6.8 (aqtinstall), Ubuntu 24.04 in Docker | EPAM `epam.indigo` 1.45.0 wheel | no | AppImage scripts in `packaging/linux/`, not yet built end to end |
+| macOS arm64 | Homebrew Qt 6.12, Xcode CLT | EPAM `epam.indigo` 1.45.0 wheel | yes, built from source (`packaging/macos/build_imago.sh`) | Builds, 22/22 tests pass; Imago build untested on Apple silicon specifically |
+| Linux x86_64, arm64 | Qt 6.8 (aqtinstall), Ubuntu 24.04 in Docker | EPAM `epam.indigo` 1.45.0 wheel | yes, built from source (`packaging/linux/build_imago.sh`) | AppImage scripts in `packaging/linux/`, not yet built end to end |
 
 ## Requirements
 
@@ -34,7 +34,9 @@ from scratch.
 - A C++20 compiler matching the Qt kit (MinGW GCC or MSVC on Windows, Apple Clang on macOS)
 - Indigo 1.43 or newer (C API headers and libraries), placed in the repository as described
   below. Indigo is not committed to git.
-- Imago (optional, Windows MinGW only), used by Insert Image
+- Imago (optional), used by Insert Image. Windows: build from source or copy a MinGW-compatible
+  build. macOS/Linux: `packaging/{macos,linux}/build_imago.sh` builds it from source (EPAM
+  publishes no prebuilt Imago binaries for any platform)
 
 ## Building on Windows (MinGW)
 
@@ -64,6 +66,9 @@ imago/
     include/imago_c.h
     lib/imago.dll
 ```
+
+`imago/include/imago_c.h` is tracked at [`packaging/imago_c.h`](packaging/imago_c.h) (the same file
+`build_imago.sh` copies into place on macOS/Linux) -- copy it in rather than writing your own.
 
 ### 3. Configure and build
 
@@ -103,6 +108,7 @@ before configuring again.
 ```bash
 brew install qt cmake
 packaging/macos/fetch_indigo.sh
+packaging/macos/build_imago.sh
 cmake -S . -B build_mac -DCMAKE_PREFIX_PATH="$(brew --prefix qt)" -DCMAKE_BUILD_TYPE=Release
 cmake --build build_mac -j
 ctest --test-dir build_mac
@@ -110,9 +116,12 @@ packaging/macos/make_app.sh build_mac
 packaging/macos/make_dmg.sh
 ```
 
+`build_imago.sh` builds Imago from source (EPAM publishes no prebuilt binaries for any platform)
+and is slow -- expect it to take much longer than building QtSketch itself.
+
 This produces `dist/QtSketch.app` and `dist/QtSketch-0.1-arm64.dmg`. See
 [packaging/macos/README.md](packaging/macos/README.md) for details and current limits
-(ad hoc signature, no Imago, Windows fonts).
+(ad hoc signature, Windows fonts).
 
 ## Tests
 

@@ -38,7 +38,7 @@ QtSketch uses the following third-party components.
 ## Imago (EPAM Systems)
 
 - **What is used:** the Imago C API for recognising structures in images (Insert Image).
-  Windows MinGW build only; the binaries are placed in `imago/` at build time.
+  The binaries are placed in `imago/` at build time (built from source on all platforms).
 - **Source:** https://github.com/epam/Imago
 - **License:** Apache License, Version 2.0
 - **Copyright:** © EPAM Systems, Inc.
@@ -95,9 +95,10 @@ Licence in
 
 ## Apache License 2.0
 
-Indigo, Imago, Ketcher and the Material Design Icons font are licensed under the Apache
-License, Version 2.0: http://www.apache.org/licenses/LICENSE-2.0. Copies of the licence text
-come with the Indigo and Imago distributions (`indigo/LICENSE`, `imago/LICENSE`) placed at
-build time.
+Indigo, Imago, OpenCV (statically linked into Imago's own build), Ketcher and the Material
+Design Icons font are licensed under the Apache License, Version 2.0:
+http://www.apache.org/licenses/LICENSE-2.0. Copies of the licence text come with the Indigo and
+Imago distributions (`indigo/LICENSE`, `imago/LICENSE`, `imago/LICENSE-OpenCV`) placed at build
+time.
 
 The names of these projects and of EPAM Systems are not used to endorse or promote QtSketch.

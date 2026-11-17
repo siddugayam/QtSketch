@@ -26,6 +26,7 @@ rm -rf "$APPDIR"
 mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/lib"
 cp "$BUILD/QtSketch" "$APPDIR/usr/bin/"
 cp "$ROOT"/indigo/lib/libindigo*.so "$APPDIR/usr/lib/"
+cp "$ROOT"/imago/lib/libimago*.so "$APPDIR/usr/lib/"
 
 # IndigoService looks for <exe dir>/../indigo and DocumentManager walks up to templates/.
 mkdir -p "$APPDIR/usr/indigo/data/molecules/basic"
@@ -36,6 +37,8 @@ LIC="$APPDIR/usr/share/licenses/qtsketch"
 mkdir -p "$LIC"
 cp "$ROOT/LICENSE" "$ROOT/NOTICE" "$ROOT/THIRD-PARTY-NOTICES.md" "$LIC/"
 cp "$ROOT/indigo/LICENCE-InChI" "$LIC/InChI-Licence-1.0.txt"
+cp "$ROOT/imago/LICENSE" "$LIC/Imago-Apache-2.0.txt"
+cp "$ROOT/imago/LICENSE-OpenCV" "$LIC/OpenCV-Apache-2.0.txt"
 for l in LGPL-3.0-only GPL-3.0-only; do
     curl -fsSL --max-time 60 "https://raw.githubusercontent.com/spdx/license-list-data/main/text/$l.txt" -o "$LIC/$l.txt"
 done

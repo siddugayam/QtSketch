@@ -16,6 +16,7 @@ BIN="$APP/Contents/MacOS/QtSketch"
 
 mkdir -p "$APP/Contents/Frameworks"
 cp "$ROOT"/indigo/lib/libindigo*.dylib "$APP/Contents/Frameworks/"
+cp "$ROOT"/imago/lib/libimago*.dylib "$APP/Contents/Frameworks/"
 
 # IndigoService looks for <exe dir>/../indigo and DocumentManager walks up to templates/.
 # Both are found under Contents/, which is inside the code signature.
@@ -26,6 +27,8 @@ mkdir -p "$APP/Contents/Resources/licenses"
 cp "$ROOT/NOTICE" "$ROOT/THIRD-PARTY-NOTICES.md" "$APP/Contents/Resources/licenses/"
 cp "$ROOT/indigo/LICENSE" "$APP/Contents/Resources/licenses/Apache-2.0.txt"
 cp "$ROOT/indigo/LICENCE-InChI" "$APP/Contents/Resources/licenses/InChI-Licence-1.0.txt"
+cp "$ROOT/imago/LICENSE" "$APP/Contents/Resources/licenses/Imago-Apache-2.0.txt"
+cp "$ROOT/imago/LICENSE-OpenCV" "$APP/Contents/Resources/licenses/OpenCV-Apache-2.0.txt"
 # Homebrew ships no licence texts. Qt is LGPL-3.0 (which builds on GPL-3.0); GLib and libintl are LGPL-2.1.
 for l in LGPL-3.0-only GPL-3.0-only LGPL-2.1-only; do
     curl -fsSL --max-time 60 "https://raw.githubusercontent.com/spdx/license-list-data/main/text/$l.txt" \
