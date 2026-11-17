@@ -52,6 +52,7 @@ void registerHydrocarbonFamily(std::vector<RetainedRingSystem> &registry) {
             // use case for "anthra-" actually needs them -- empty map is
             // valid (base-component-only use still works without it)
         46,
+        "anthra", // Blue Book FR-2.1.9 irregular stem: "anthra-" (not "anthraceneo-")
     });
 
     // Tetracene (also called naphthacene) -- 4 linearly-fused all-carbon
@@ -171,5 +172,69 @@ void registerHydrocarbonFamily(std::vector<RetainedRingSystem> &registry) {
         },
         57,
         "indeno",
+    });
+
+    // Picene -- 22 carbons; 5-ring angular PAH (phenacene series).
+    // seniorityRank=37 (Appendix 1 entry 37).
+    // Fusion prefix "piceno" (regular -ene -> -eno stem per FR-2.1.2).
+    //
+    // Locant-to-atom correspondence independently re-derived and verified via
+    // OPSIN (https://www.ebi.ac.uk/opsin/ws/<name>.json), NOT assumed from the
+    // SMILES atom-walk order. Fetched real SMILES for 1,2-dihydropicene,
+    // 3,4-dihydropicene, 5,6-dihydropicene, 13,14-dihydropicene,
+    // 9,10-dihydropicene and 11,12-dihydropicene, then matched each against
+    // this reference SMILES via an any-bond carbon-skeleton SMARTS (confirmed
+    // atom-order-identical to this SMILES's own parse order) to find which
+    // atom pair each name's sp3 CH2-CH2 saturation lands on. A prior version
+    // of this entry assumed locants "1,2,3,4,..." simply followed the SMILES
+    // atom order directly (atom 0 = "2", ..., atom 21 = "1") without this
+    // check; that assumption was wrong -- it put the real "1,2" and "3,4"
+    // edges, and the real "5,6" and "13,14" edges, on each other's atoms
+    // (OPSIN's 1,2-dihydropicene lands on what that version called locants
+    // "3","4", not "1","2"), which produced the wrong fusion bond letter for
+    // dinaphtho[1,2-c:2',1'-m]picene (engine said bond 'a', should be 'c').
+    // The real numbering walks this SMILES's atom indices in the OPPOSITE
+    // direction, starting at atom 2: atom2=1, atom1=2, atom0=3, atom21=4,
+    // atom20=4a, atom19=5, atom18=6, atom17=6a, atom16=6b, atom15=7,
+    // atom14=8, atom13=8a, atom12=9, atom11=10, atom10=11, atom9=12,
+    // atom8=12a, atom7=12b, atom6=13, atom5=14, atom4=14a, atom3=14b
+    // (back to atom2=1). All six OPSIN-derived locant pairs above are
+    // consistent with this single walk (verified, not just curve-fit to a
+    // subset), including the fixture's own bond 'c'={"3","4"} and bond
+    // 'm'={"9","10"}.
+    registry.push_back(RetainedRingSystem{
+        "picene",
+        "c1ccc2c3ccc4c5ccccc5ccc4c3ccc2c1",
+        {
+            "3", "2", "1", "14b", "14a", "14", "13", "12b", "12a", "12",
+            "11", "10", "9", "8a", "8", "7", "6b", "6a", "6", "5",
+            "4a", "4"
+        },
+        {
+            {'a', {"1", "2"}},
+            {'b', {"2", "3"}},
+            {'c', {"3", "4"}},
+            {'d', {"4", "4a"}},
+            {'e', {"4a", "5"}},
+            {'f', {"5", "6"}},
+            {'g', {"6", "6a"}},
+            {'h', {"6a", "6b"}},
+            {'i', {"6b", "7"}},
+            {'j', {"7", "8"}},
+            {'k', {"8", "8a"}},
+            {'l', {"8a", "9"}},
+            {'m', {"9", "10"}},
+            {'n', {"10", "11"}},
+            {'o', {"11", "12"}},
+            {'p', {"12", "12a"}},
+            {'q', {"12a", "12b"}},
+            {'r', {"12b", "13"}},
+            {'s', {"13", "14"}},
+            {'t', {"14", "14a"}},
+            {'u', {"14a", "14b"}},
+            {'v', {"14b", "1"}},
+        },
+        37,
+        "piceno",
     });
 }

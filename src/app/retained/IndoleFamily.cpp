@@ -144,4 +144,34 @@ void registerIndoleFamily(std::vector<RetainedRingSystem> &registry) {
         35,
         "2,1-benzothiazolo",
     });
+
+    // [1,3]benzodioxole (2H-1,3-benzodioxole): 9 atoms, 6-5 bicyclic with oxygens
+    // at locants 1 and 3, sp3 CH2 at locant 2 (indicated hydrogen 2H), bridgeheads
+    // at 3a and 7a, benzene carbons at 4, 5, 6, 7.
+    // SMILES 'O1COc2ccccc21' walks the 9-atom perimeter consecutively:
+    // atom 0: O at 1
+    // atom 1: C at 2 (CH2, indicated H)
+    // atom 2: O at 3
+    // atom 3: C at 3a (bridgehead)
+    // atom 4: C at 4
+    // atom 5: C at 5
+    // atom 6: C at 6
+    // atom 7: C at 7
+    // atom 8: C at 7a (bridgehead)
+    // All 9 bond letters 'a' through 'i' cyclically adjacent.
+    // Appendix 2 seniorityRank=70 (O-containing bicyclic).
+    // fusionPrefix="[1,3]benzodioxolo", indicatedHydrogenLocant="2".
+    registry.push_back(RetainedRingSystem{
+        "[1,3]benzodioxole",
+        "O1COc2ccccc21",
+        {"1","2","3","3a","4","5","6","7","7a"},
+        {
+            {'a', {"1","2"}}, {'b', {"2","3"}}, {'c', {"3","3a"}},
+            {'d', {"3a","4"}}, {'e', {"4","5"}}, {'f', {"5","6"}},
+            {'g', {"6","7"}}, {'h', {"7","7a"}}, {'i', {"7a","1"}},
+        },
+        70,
+        "[1,3]benzodioxolo",
+        "2",
+    });
 }

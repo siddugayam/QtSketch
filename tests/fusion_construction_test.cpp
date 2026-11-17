@@ -709,6 +709,219 @@ static void test_strict_ordering_alt1_preferred_over_alt2_and_alt3() {
     indigoFree(m);
 }
 
+static void test_parent_score_comparator_mechanics() {
+    std::cout << "Test: ParentScore comparator mechanics (field order precedence)\n";
+
+    // 1. heteroParent takes precedence over parentRingCount and parentSeniority (FR-2.3.a)
+    {
+        ParentScore a, b;
+        a.heteroParent = true;
+        a.parentRingCount = 1;
+        b.heteroParent = false;
+        b.parentRingCount = 5;
+        EXPECT_TRUE(b < a);
+        EXPECT_FALSE(a < b);
+    }
+
+    // 2. parentRingCount takes precedence over parentSeniority (FR-2.3.b)
+    {
+        ParentScore a, b;
+        a.parentRingCount = 3;
+        a.parentSeniority = 100;
+        b.parentRingCount = 2;
+        b.parentSeniority = 1;
+        EXPECT_TRUE(b < a);
+        EXPECT_FALSE(a < b);
+    }
+
+    // 3. parentSeniority (FR-2.3.c/Appendix) takes precedence over location rules (FR-3.3.1 a-f)
+    // Ensures senior parent (e.g. naphthalene) is never demoted in favor of junior parent (e.g. indene)
+    {
+        ParentScore a, b;
+        a.parentSeniority = 56; // e.g. naphthalene
+        a.higherOrderCount = 1;
+        a.firstOrderCount = 1;
+        b.parentSeniority = 80; // e.g. indene
+        b.higherOrderCount = 0;
+        b.firstOrderCount = 2;
+        EXPECT_TRUE(b < a);
+        EXPECT_FALSE(a < b);
+    }
+
+    // 4. noFr7Fallback (FR-3.3.1 a) takes precedence over higherOrderCount (FR-3.3.1 b)
+    {
+        ParentScore a, b;
+        a.noFr7Fallback = true;
+        a.higherOrderCount = 2;
+        b.noFr7Fallback = false;
+        b.higherOrderCount = 0;
+        EXPECT_TRUE(b < a);
+        EXPECT_FALSE(a < b);
+    }
+
+    // 5. higherOrderCount (FR-3.3.1 b) takes precedence over firstOrderCount (FR-3.3.1 c)
+    {
+        ParentScore a, b;
+        a.higherOrderCount = 0;
+        a.firstOrderCount = 1;
+        b.higherOrderCount = 1;
+        b.firstOrderCount = 5;
+        EXPECT_TRUE(b < a);
+        EXPECT_FALSE(a < b);
+    }
+
+    // 6. firstOrderCount (FR-3.3.1 c) takes precedence over maxIdenticalAttached (FR-3.3.1 d)
+    {
+        ParentScore a, b;
+        a.firstOrderCount = 2;
+        a.maxIdenticalAttached = 1;
+        b.firstOrderCount = 1;
+        b.maxIdenticalAttached = 5;
+        EXPECT_TRUE(b < a);
+        EXPECT_FALSE(a < b);
+    }
+
+    // 7. maxIdenticalAttached (FR-3.3.1 d) takes precedence over interparentSeniority (FR-3.3.1 e)
+    {
+        ParentScore a, b;
+        a.maxIdenticalAttached = 2;
+        a.interparentSeniority = 100;
+        b.maxIdenticalAttached = 1;
+        b.interparentSeniority = 1;
+        EXPECT_TRUE(b < a);
+        EXPECT_FALSE(a < b);
+    }
+
+    // 8. interparentSeniority (FR-3.3.1 e) takes precedence over parentName
+    {
+        ParentScore a, b;
+        a.interparentSeniority = 46; // e.g. anthracene
+        a.parentName = "zzz";
+        b.interparentSeniority = 47; // e.g. phenanthrene
+        b.parentName = "aaa";
+        EXPECT_TRUE(b < a);
+        EXPECT_FALSE(a < b);
+    }
+
+    // 9. parentName takes precedence over sortedParentRings
+    {
+        ParentScore a, b;
+        a.parentName = "aaa";
+        a.sortedParentRings = {99};
+        b.parentName = "zzz";
+        b.sortedParentRings = {1};
+        EXPECT_TRUE(b < a);
+        EXPECT_FALSE(a < b);
+    }
+
+    // 10. sortedParentRings tie-break
+    {
+        ParentScore a, b;
+        a.sortedParentRings = {1, 2};
+        b.sortedParentRings = {1, 3};
+        EXPECT_TRUE(b < a);
+        EXPECT_FALSE(a < b);
+    }
+}
+
+static void test_stage2_stage3_fixtures_and_determinism() {
+    std::cout << "Test: stage2_stage3_fixtures_and_determinism\n";
+
+    // Fixture 1: anthra-diisoquinoline
+    {
+        const char *s1 = "C1=NC=C2C=CC3=C4C2=C1C=CC4=C4C=1C2=C(C=NC=C2C=C4)C=CC31";
+        const char *s2 = "c1[n]cc2ccc3c4c2c1ccc4c1ccc2c[n]cc4ccc3c1c42";
+
+        int m1 = indigoLoadMoleculeFromString(s1);
+        EXPECT_TRUE(m1 >= 0);
+        indigoAromatize(m1);
+        auto ctx1 = loadContext(m1);
+        FusedRingSystemInput in1 = detectFusedRingDirections(m1);
+        ComponentTree tree1 = decomposeComponentTree(ctx1.g, ctx1.sssrRings, in1, m1);
+        EXPECT_TRUE(tree1.valid);
+        EXPECT_EQ(tree1.components[tree1.parentIndex].name.toStdString(), "isoquinoline");
+        EXPECT_EQ(tree1.components[tree1.parentIndex].ringCount, 2);
+        QString name1 = constructFusionName(tree1, ctx1.g, m1);
+        EXPECT_EQ(name1.toStdString(), "anthra[2,1,9a,9-def:6,5,10a,10-def']diisoquinoline");
+        indigoFree(m1);
+
+        int m2 = indigoLoadMoleculeFromString(s2);
+        EXPECT_TRUE(m2 >= 0);
+        indigoAromatize(m2);
+        auto ctx2 = loadContext(m2);
+        FusedRingSystemInput in2 = detectFusedRingDirections(m2);
+        ComponentTree tree2 = decomposeComponentTree(ctx2.g, ctx2.sssrRings, in2, m2);
+        EXPECT_TRUE(tree2.valid);
+        QString name2 = constructFusionName(tree2, ctx2.g, m2);
+        EXPECT_EQ(name1.toStdString(), name2.toStdString());
+        indigoFree(m2);
+    }
+
+    // Fixture 2: dinaphtho-picene
+    {
+        const char *s1 = "C1=CC=CC=2C=CC3=C(C=CC4=C5C=CC6=C7C=CC8=C(C7=CC=C6C5=CC=C34)C=CC3=CC=CC=C38)C12";
+        const char *s2 = "c1cc2c3ccc4c5ccc6c(ccc7c8ccccc8ccc76)c5ccc4c3ccc2c2ccccc21";
+
+        int m1 = indigoLoadMoleculeFromString(s1);
+        EXPECT_TRUE(m1 >= 0);
+        indigoAromatize(m1);
+        auto ctx1 = loadContext(m1);
+        FusedRingSystemInput in1 = detectFusedRingDirections(m1);
+        ComponentTree tree1 = decomposeComponentTree(ctx1.g, ctx1.sssrRings, in1, m1);
+        EXPECT_TRUE(tree1.valid);
+        EXPECT_EQ(tree1.components[tree1.parentIndex].name.toStdString(), "picene");
+        EXPECT_EQ(tree1.components[tree1.parentIndex].ringCount, 5);
+        QString name1 = constructFusionName(tree1, ctx1.g, m1);
+        // OPSIN-verified target name for this fixture's own SMILES (see
+        // docs/superpowers/specs/2026-11-17-fusion-tiebreak-ef-research.md);
+        // confirmed matching the real picene numbering after fixing the
+        // picene registry entry's locant-to-atom correspondence.
+        EXPECT_EQ(name1.toStdString(), "dinaphtho[1,2-c:2',1'-m]picene");
+        indigoFree(m1);
+
+        int m2 = indigoLoadMoleculeFromString(s2);
+        EXPECT_TRUE(m2 >= 0);
+        indigoAromatize(m2);
+        auto ctx2 = loadContext(m2);
+        FusedRingSystemInput in2 = detectFusedRingDirections(m2);
+        ComponentTree tree2 = decomposeComponentTree(ctx2.g, ctx2.sssrRings, in2, m2);
+        EXPECT_TRUE(tree2.valid);
+        QString name2 = constructFusionName(tree2, ctx2.g, m2);
+        EXPECT_EQ(name1.toStdString(), name2.toStdString());
+        indigoFree(m2);
+    }
+
+    // Fixture 3: bis-benzodioxolo-indole
+    {
+        const char *s1 = "O1COC=2C1=CC=1C=3C2C=NC3C=C3C1C=C1C(OCO1)=C3";
+        const char *s2 = "C1Oc2c(cc3c4c(cc5cc6OCOc6cc53)N=Cc24)O1";
+
+        int m1 = indigoLoadMoleculeFromString(s1);
+        EXPECT_TRUE(m1 >= 0);
+        indigoAromatize(m1);
+        auto ctx1 = loadContext(m1);
+        FusedRingSystemInput in1 = detectFusedRingDirections(m1);
+        ComponentTree tree1 = decomposeComponentTree(ctx1.g, ctx1.sssrRings, in1, m1);
+        EXPECT_TRUE(tree1.valid);
+        EXPECT_EQ(tree1.components[tree1.parentIndex].name.toStdString(), "indole");
+        EXPECT_EQ(tree1.components[tree1.parentIndex].ringCount, 2);
+        QString name1 = constructFusionName(tree1, ctx1.g, m1);
+        EXPECT_EQ(name1.toStdString(), "di[1,3]benzodioxolo[4,5,6-cd:5',6'-f]indole");
+        indigoFree(m1);
+
+        int m2 = indigoLoadMoleculeFromString(s2);
+        EXPECT_TRUE(m2 >= 0);
+        indigoAromatize(m2);
+        auto ctx2 = loadContext(m2);
+        FusedRingSystemInput in2 = detectFusedRingDirections(m2);
+        ComponentTree tree2 = decomposeComponentTree(ctx2.g, ctx2.sssrRings, in2, m2);
+        EXPECT_TRUE(tree2.valid);
+        QString name2 = constructFusionName(tree2, ctx2.g, m2);
+        EXPECT_EQ(name1.toStdString(), name2.toStdString());
+        indigoFree(m2);
+    }
+}
+
 int main() {
     unsigned long long sid = indigoAllocSessionId();
     indigoSetSessionId(sid);
@@ -732,6 +945,8 @@ int main() {
     test_alternative_2_cyclobuta_indeno_naphthalene();
     test_alternative_3_etheno_benzo_cyclohepta_naphthalene();
     test_strict_ordering_alt1_preferred_over_alt2_and_alt3();
+    test_parent_score_comparator_mechanics();
+    test_stage2_stage3_fixtures_and_determinism();
 
     indigoReleaseSessionId(sid);
 

@@ -157,30 +157,6 @@ static FusionComponent classifyMonocycle(int ringIdx, const std::set<int> &ringA
     return comp;
 }
 
-struct ParentScore {
-    bool heteroParent{false};
-    int parentRingCount{0};
-    int parentSeniority{0}; // lower number = more senior
-    bool noFr7Fallback{true};
-    int higherOrderCount{0}; // fewer is better
-    int firstOrderCount{0};  // more is better
-    int maxIdenticalAttached{0}; // more is better
-    QString parentName;
-    std::vector<int> sortedParentRings;
-
-    bool operator<(const ParentScore &other) const {
-        if (heteroParent != other.heteroParent) return heteroParent < other.heteroParent;
-        if (parentRingCount != other.parentRingCount) return parentRingCount < other.parentRingCount;
-        if (parentSeniority != other.parentSeniority) return parentSeniority > other.parentSeniority; // lower rank is better
-        if (noFr7Fallback != other.noFr7Fallback) return noFr7Fallback < other.noFr7Fallback;
-        if (higherOrderCount != other.higherOrderCount) return higherOrderCount > other.higherOrderCount; // fewer is better
-        if (firstOrderCount != other.firstOrderCount) return firstOrderCount < other.firstOrderCount; // more is better
-        if (maxIdenticalAttached != other.maxIdenticalAttached) return maxIdenticalAttached < other.maxIdenticalAttached;
-        if (parentName != other.parentName) return parentName > other.parentName;
-        return sortedParentRings > other.sortedParentRings;
-    }
-};
-
 static ComponentTree buildTreeFromComponents(
     const std::vector<FusionComponent> &comps,
     int parentIdx,
@@ -257,7 +233,7 @@ static ComponentTree buildTreeFromComponents(
     return tree;
 }
 
-static ParentScore scoreTree(const ComponentTree &tree, const Graph &g) {
+ParentScore scoreTree(const ComponentTree &tree, const Graph &g) {
     ParentScore score;
     if (tree.parentIndex < 0 || tree.parentIndex >= static_cast<int>(tree.components.size())) {
         return score;
@@ -279,16 +255,21 @@ static ParentScore scoreTree(const ComponentTree &tree, const Graph &g) {
     std::sort(score.sortedParentRings.begin(), score.sortedParentRings.end());
 
     std::map<QString, int> attachedNameCounts;
+    int bestInterparentSeniority = 9999;
     for (size_t i = 0; i < tree.components.size(); ++i) {
         if (static_cast<int>(i) == tree.parentIndex) continue;
         int ord = tree.components[i].order;
         if (ord == 1) {
             score.firstOrderCount++;
             attachedNameCounts[tree.components[i].prefix]++;
+            if (tree.components[i].seniorityRank > 0 && tree.components[i].seniorityRank < bestInterparentSeniority) {
+                bestInterparentSeniority = tree.components[i].seniorityRank;
+            }
         } else if (ord > 1) {
             score.higherOrderCount++;
         }
     }
+    score.interparentSeniority = bestInterparentSeniority;
     for (const auto &pair : attachedNameCounts) {
         if (pair.second > score.maxIdenticalAttached) {
             score.maxIdenticalAttached = pair.second;

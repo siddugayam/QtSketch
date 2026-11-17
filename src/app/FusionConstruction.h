@@ -36,6 +36,35 @@ struct ComponentTree {
     QString error;
 };
 
+struct ParentScore {
+    bool heteroParent{false};
+    int parentRingCount{0};
+    int parentSeniority{0}; // lower number = more senior (FR-2.3)
+    bool noFr7Fallback{true}; // FR-3.3.1 (a)
+    int higherOrderCount{0}; // fewer is better (FR-3.3.1 b)
+    int firstOrderCount{0};  // more is better (FR-3.3.1 c)
+    int maxIdenticalAttached{0}; // more is better (FR-3.3.1 d)
+    int interparentSeniority{9999}; // lower number = more senior interparent (FR-3.3.1 e)
+    QString parentName;
+    std::vector<int> sortedParentRings;
+
+    bool operator<(const ParentScore &other) const {
+        if (heteroParent != other.heteroParent) return heteroParent < other.heteroParent;
+        if (parentRingCount != other.parentRingCount) return parentRingCount < other.parentRingCount;
+        if (parentSeniority != other.parentSeniority) return parentSeniority > other.parentSeniority; // lower rank is better (FR-2.3)
+        if (noFr7Fallback != other.noFr7Fallback) return noFr7Fallback < other.noFr7Fallback;
+        if (higherOrderCount != other.higherOrderCount) return higherOrderCount > other.higherOrderCount; // fewer is better
+        if (firstOrderCount != other.firstOrderCount) return firstOrderCount < other.firstOrderCount; // more is better
+        if (maxIdenticalAttached != other.maxIdenticalAttached) return maxIdenticalAttached < other.maxIdenticalAttached;
+        if (interparentSeniority != other.interparentSeniority) return interparentSeniority > other.interparentSeniority; // lower rank is better (FR-3.3.1 e)
+        if (parentName != other.parentName) return parentName > other.parentName;
+        return sortedParentRings > other.sortedParentRings;
+    }
+};
+
+// Score a component tree for parent-selection
+ParentScore scoreTree(const ComponentTree &tree, const Graph &g);
+
 // Check if a component is fused to two mutually-fused components (FR-3.2 limitation)
 // Under FR-3.2, standard fusion nomenclature provides no means of describing the fusion
 // of one component to two other components which are themselves fused together.
