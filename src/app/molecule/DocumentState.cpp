@@ -15,6 +15,7 @@
 #include "PlacementCleanup.h"
 #include "BiopolymerImportSession.h"
 #include "BiopolymerEditCommandWrapper.h"
+#include "BiopolymerWorkspace.h"
 #include "IndigoMonomerAdapter.h"
 
 // RAII guard for m_inCommand: execute/undo/redo previously set the flag true, ran an
@@ -987,6 +988,26 @@ QString DocumentState::bioSeqType() const { return m_bioView.seqType(); }
 BiopolymerState& DocumentState::biopolymerState() { return m_biopolymerState; }
 
 const BiopolymerState& DocumentState::biopolymerState() const { return m_biopolymerState; }
+
+BiopolymerSequenceView& DocumentState::bioView() { return m_bioView; }
+
+const BiopolymerSequenceView& DocumentState::bioView() const { return m_bioView; }
+
+BiopolymerWorkspace* DocumentState::bioWorkspace() {
+    return m_bioWorkspace;
+}
+
+const BiopolymerWorkspace* DocumentState::bioWorkspace() const {
+    return m_bioWorkspace;
+}
+
+void DocumentState::setBioWorkspace(BiopolymerWorkspace* workspace) {
+    // Clean up existing workspace
+    if (m_bioWorkspace) {
+        delete m_bioWorkspace;
+    }
+    m_bioWorkspace = workspace;
+}
 
 bool DocumentState::hasBiopolymerData() const {
     return m_biopolymerState.hasBiopolymerData();

@@ -25,6 +25,9 @@
 #include "PageSettings.h"
 #include <vector>
 
+// Forward declaration for workspace (circular dependency)
+class BiopolymerWorkspace;
+
 // Import mode for biopolymer operations
 namespace BiopolymerImportMode {
     enum Type { OpenAsNew, Replace };
@@ -206,6 +209,20 @@ public:
     // Access the biopolymer state
     BiopolymerState& biopolymerState();
     const BiopolymerState& biopolymerState() const;
+    
+    // Access the biopolymer sequence view
+    BiopolymerSequenceView& bioView();
+    const BiopolymerSequenceView& bioView() const;
+    
+    // Access the biopolymer workspace (synchronized view manager)
+    // Note: Workspace is not owned by DocumentState, caller must manage lifetime
+    // For convenience, we provide accessor that creates on-demand if needed
+    // In typical usage, the workspace is created and managed by the QML layer
+    BiopolymerWorkspace* bioWorkspace();
+    const BiopolymerWorkspace* bioWorkspace() const;
+    
+    // Set the biopolymer workspace (takes ownership)
+    void setBioWorkspace(BiopolymerWorkspace* workspace);
     
     // Check if the document has biopolymer data
     bool hasBiopolymerData() const;
@@ -742,6 +759,7 @@ private:
     EditableMolecule m_molecule;
     BiopolymerSequenceView m_bioView;
     BiopolymerState m_biopolymerState;
+    BiopolymerWorkspace* m_bioWorkspace = nullptr;
     std::vector<EditCommand> m_history;
     int m_historyPointer = -1;
     bool m_inCommand = false;

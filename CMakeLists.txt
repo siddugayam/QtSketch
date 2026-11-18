@@ -482,6 +482,10 @@ add_library(molecule_model STATIC
     src/app/molecule/BiopolymerState.cpp
     src/app/molecule/BiopolymerWorkspace.h
     src/app/molecule/BiopolymerWorkspace.cpp
+    src/app/molecule/BiopolymerExportSession.h
+    src/app/molecule/BiopolymerExportSession.cpp
+    src/app/molecule/BiopolymerExportCommands.h
+    src/app/molecule/BiopolymerExportCommands.cpp
     src/app/render/RenderScene.h
     src/app/render/RenderScene.cpp
     src/app/render/Exporter.h
