@@ -470,6 +470,18 @@ add_library(molecule_model STATIC
     src/app/molecule/PageSettings.cpp
     src/app/molecule/ProjectFile.h
     src/app/molecule/ProjectFile.cpp
+    src/app/molecule/BiopolymerEditCommands.h
+    src/app/molecule/BiopolymerEditCommands.cpp
+    src/app/molecule/BiopolymerEditCommandWrapper.h
+    src/app/molecule/BiopolymerEditCommandWrapper.cpp
+    src/app/molecule/BiopolymerImportSession.h
+    src/app/molecule/BiopolymerImportSession.cpp
+    src/app/molecule/BiopolymerImportCommands.h
+    src/app/molecule/BiopolymerImportCommands.cpp
+    src/app/molecule/BiopolymerState.h
+    src/app/molecule/BiopolymerState.cpp
+    src/app/molecule/BiopolymerWorkspace.h
+    src/app/molecule/BiopolymerWorkspace.cpp
     src/app/render/RenderScene.h
     src/app/render/RenderScene.cpp
     src/app/render/Exporter.h

@@ -16,6 +16,7 @@
 
 #include "EditableMolecule.h"
 #include "BiopolymerSequenceView.h"
+#include "BiopolymerState.h"
 #include "TemplateLibrary.h"
 #include "EditCommand.h"
 #include "SelectionState.h"
@@ -23,6 +24,11 @@
 #include "DrawingStyle.h"
 #include "PageSettings.h"
 #include <vector>
+
+// Import mode for biopolymer operations
+namespace BiopolymerImportMode {
+    enum Type { OpenAsNew, Replace };
+}
 
 class DocumentState {
 public:
@@ -192,6 +198,120 @@ public:
     QList<BioMonomer> bioMonomers() const;
     QList<BioBond> bioBonds() const;
     QString bioSeqType() const;
+
+    // ========== Biopolymer State (M0-M7) ==========
+    // New biopolymer editing system with explicit residue-to-atom mappings.
+    // These methods provide access to the document-owned BiopolymerState.
+    
+    // Access the biopolymer state
+    BiopolymerState& biopolymerState();
+    const BiopolymerState& biopolymerState() const;
+    
+    // Check if the document has biopolymer data
+    bool hasBiopolymerData() const;
+    
+    // Check if biopolymer mappings are valid
+    bool isBiopolymerValid() const;
+    
+    // Get all validation issues
+    QList<QString> biopolymerValidationIssues() const;
+    
+    // ========== Biopolymer Import (M1) ==========
+    // Import biopolymer sequences with draft management and validation.
+    
+    // Import biopolymer from text (Open as new document)
+    // Returns true if import succeeded
+    bool importBiopolymerAsNew(const QString& sourceText, const QString& format = QString());
+    
+    // Import biopolymer from text (Replace current document)
+    // Returns true if import succeeded, restores previous state on failure
+    bool importBiopolymerReplace(const QString& sourceText, const QString& format = QString());
+    
+    // Import biopolymer from text with options
+    bool importBiopolymerAsNew(const QString& sourceText, const BiopolymerImportSession::ImportOptions& options,
+                                const QString& format = QString());
+    bool importBiopolymerReplace(const QString& sourceText, const BiopolymerImportSession::ImportOptions& options,
+                                 const QString& format = QString());
+    
+    // Import biopolymer from an import session
+    bool importBiopolymerFromSession(BiopolymerImportSession& session,
+                                    BiopolymerImportSession::ImportMode mode = BiopolymerImportSession::ImportMode::OpenAsNew);
+    
+    // Validate biopolymer input without importing
+    // Returns parse result with issues and warnings
+    BiopolymerImportSession::ParseResult validateBiopolymerInput(const QString& text,
+                                                               const QString& format = QString());
+    
+    // Check if input can be imported
+    bool canImportBiopolymer(const QString& text, const QString& format = QString());
+    
+    // Detect format from text
+    QString detectBiopolymerFormat(const QString& text);
+    
+    // Get supported biopolymer import formats
+    QList<QString> supportedBiopolymerImportFormats();
+    
+    // ========== Biopolymer Residue Editing (M3) ==========
+    // Transactional residue editing with undo/redo support.
+    
+    // Add a new chain
+    // Returns the new chain ID
+    int addBiopolymerChain(const QString& name, PolymerType type = PolymerType::Peptide);
+    
+    // Remove a chain
+    void removeBiopolymerChain(int chainId);
+    
+    // Rename a chain
+    void renameBiopolymerChain(int chainId, const QString& newName);
+    
+    // Add a residue to a chain
+    // Returns the new residue ID
+    int addBiopolymerResidue(int chainId, const QString& symbol);
+    
+    // Insert a residue before another residue
+    int insertBiopolymerResidueBefore(int chainId, int beforeResidueId, const QString& symbol);
+    
+    // Insert a residue after another residue
+    int insertBiopolymerResidueAfter(int chainId, int afterResidueId, const QString& symbol);
+    
+    // Replace a residue
+    void replaceBiopolymerResidue(int residueId, const QString& newSymbol);
+    
+    // Delete a residue
+    void deleteBiopolymerResidue(int residueId);
+    
+    // Delete a range of residues
+    void deleteBiopolymerResidueRange(int chainId, int startPosition, int endPosition);
+    
+    // Build a residue from a monomer template at a specific position
+    // Returns the new residue ID
+    int buildBiopolymerResidueFromTemplate(int chainId, const QString& symbol, double x, double y);
+    
+    // Connect two residues with a bond
+    void connectBiopolymerResidues(int fromResidueId, int toResidueId, BondId bondId,
+                                    const QString& connectionType = "peptide");
+    
+    // Set the atoms owned by a residue
+    void setBiopolymerResidueAtoms(int residueId, const QList<AtomId>& atomIds);
+    
+    // ========== Biopolymer Helper Methods ==========
+    
+    // Get residue by ID
+    BiopolymerResidue* biopolymerResidue(int residueId);
+    const BiopolymerResidue* biopolymerResidue(int residueId) const;
+    
+    // Get chain by ID
+    BiopolymerChain* biopolymerChain(int chainId);
+    const BiopolymerChain* biopolymerChain(int chainId) const;
+    
+    // Get all chain IDs
+    QList<int> biopolymerChainIds() const;
+    
+    // Get all residue IDs in a chain
+    QList<int> biopolymerResidueIdsInChain(int chainId) const;
+    
+    // Get atoms owned by a residue
+    QList<AtomId> biopolymerAtomsInResidue(int residueId) const;
 
     AtomId addAtom(const QString& symbol, double x, double y);
     BondId addBond(AtomId a, AtomId b, int order, int stereo = 0);
@@ -621,6 +741,7 @@ private:
 
     EditableMolecule m_molecule;
     BiopolymerSequenceView m_bioView;
+    BiopolymerState m_biopolymerState;
     std::vector<EditCommand> m_history;
     int m_historyPointer = -1;
     bool m_inCommand = false;

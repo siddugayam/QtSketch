@@ -13,6 +13,9 @@
 #include <optional>
 #include "BondAngleSuggester.h"
 #include "PlacementCleanup.h"
+#include "BiopolymerImportSession.h"
+#include "BiopolymerEditCommandWrapper.h"
+#include "IndigoMonomerAdapter.h"
 
 // RAII guard for m_inCommand: execute/undo/redo previously set the flag true, ran an
 // arbitrary EditCommand closure, then set it false -- if that closure ever threw (Indigo
@@ -978,6 +981,24 @@ void DocumentState::deleteBioMonomer(int id) {
 QList<BioMonomer> DocumentState::bioMonomers() const { return m_bioView.monomers(); }
 QList<BioBond> DocumentState::bioBonds() const { return m_bioView.bonds(); }
 QString DocumentState::bioSeqType() const { return m_bioView.seqType(); }
+
+// ========== Biopolymer State (M0-M7) ==========
+
+BiopolymerState& DocumentState::biopolymerState() { return m_biopolymerState; }
+
+const BiopolymerState& DocumentState::biopolymerState() const { return m_biopolymerState; }
+
+bool DocumentState::hasBiopolymerData() const {
+    return m_biopolymerState.hasBiopolymerData();
+}
+
+bool DocumentState::isBiopolymerValid() const {
+    return m_biopolymerState.isFullyValid();
+}
+
+QList<QString> DocumentState::biopolymerValidationIssues() const {
+    return m_biopolymerState.allValidationIssues();
+}
 
 void DocumentState::changeAtomLabel(AtomId id, const QString& newLabel) {
     EditableMolecule& mol = m_molecule;
@@ -3304,6 +3325,240 @@ void DocumentState::setMoleculeName(const QString& name) {
     cmd.execute = [&mol, name]() { mol.setName(name); };
     cmd.invert = [&mol, oldName]() { mol.setName(oldName); };
     executeCommand(std::move(cmd));
+}
+
+// ========== Biopolymer Import Methods (M1) ==========
+
+bool DocumentState::importBiopolymerAsNew(const QString& sourceText, const QString& format) {
+    BiopolymerImportSession::ImportOptions options;
+    return importBiopolymerAsNew(sourceText, options, format);
+}
+
+bool DocumentState::importBiopolymerReplace(const QString& sourceText, const QString& format) {
+    BiopolymerImportSession::ImportOptions options;
+    return importBiopolymerReplace(sourceText, options, format);
+}
+
+bool DocumentState::importBiopolymerAsNew(const QString& sourceText, 
+                                          const BiopolymerImportSession::ImportOptions& options,
+                                          const QString& format) {
+    BiopolymerImportSession session(sourceText, options);
+    
+    if (!format.isEmpty()) {
+        ImportFormat fmt = ImportFormatRegistry::formatByName(format);
+        if (fmt != ImportFormat::Unknown) {
+            session.setFormat(fmt);
+        }
+    }
+    
+    return importBiopolymerFromSession(session, BiopolymerImportSession::ImportMode::OpenAsNew);
+}
+
+bool DocumentState::importBiopolymerReplace(const QString& sourceText,
+                                           const BiopolymerImportSession::ImportOptions& options,
+                                           const QString& format) {
+    BiopolymerImportSession session(sourceText, options);
+    
+    if (!format.isEmpty()) {
+        ImportFormat fmt = ImportFormatRegistry::formatByName(format);
+        if (fmt != ImportFormat::Unknown) {
+            session.setFormat(fmt);
+        }
+    }
+    
+    return importBiopolymerFromSession(session, BiopolymerImportSession::ImportMode::Replace);
+}
+
+bool DocumentState::importBiopolymerFromSession(BiopolymerImportSession& session,
+                                                BiopolymerImportSession::ImportMode mode) {
+    // Validate
+    if (!session.isParsed()) {
+        session.parse();
+    }
+    
+    if (!session.canCommit()) {
+        return false;
+    }
+    
+    // Save current state for undo
+    BiopolymerState* previousBiopolymerState = new BiopolymerState(m_biopolymerState);
+    EditableMolecule* previousMolecule = new EditableMolecule(m_molecule);
+    
+    // Clear current document if replacing or opening as new
+    if (mode == BiopolymerImportSession::ImportMode::OpenAsNew ||
+        mode == BiopolymerImportSession::ImportMode::Replace) {
+        
+        m_molecule.clear();
+        m_biopolymerState = BiopolymerState();
+        m_selection.clear();
+    }
+    
+    // Commit the import
+    bool success = session.commitToState(m_biopolymerState, m_molecule);
+    
+    if (!success) {
+        // Restore previous state on failure
+        m_molecule = *previousMolecule;
+        m_biopolymerState = *previousBiopolymerState;
+        
+        delete previousMolecule;
+        delete previousBiopolymerState;
+        return false;
+    }
+    
+    // Mark as dirty and update revision
+    m_dirty = true;
+    m_editRevision++;
+    
+    // Delete previous state (no longer needed)
+    delete previousMolecule;
+    delete previousBiopolymerState;
+    
+    return true;
+}
+
+BiopolymerImportSession::ParseResult DocumentState::validateBiopolymerInput(const QString& text,
+                                                                          const QString& format) {
+    BiopolymerImportSession session;
+    session.setSourceText(text);
+    
+    if (!format.isEmpty()) {
+        ImportFormat fmt = ImportFormatRegistry::formatByName(format);
+        if (fmt != ImportFormat::Unknown) {
+            session.setFormat(fmt);
+        }
+    }
+    
+    return session.parse();
+}
+
+bool DocumentState::canImportBiopolymer(const QString& text, const QString& format) {
+    ParseResult result = validateBiopolymerInput(text, format);
+    return result.success && result.canAttemptCommit();
+}
+
+QString DocumentState::detectBiopolymerFormat(const QString& text) {
+    BiopolymerImportSession session;
+    session.setSourceText(text);
+    FormatDetection detection = session.detectFormat();
+    return ImportFormatRegistry::formatName(detection.format);
+}
+
+QList<QString> DocumentState::supportedBiopolymerImportFormats() {
+    QList<QString> formats;
+    for (ImportFormat fmt : ImportFormatRegistry::allFormats()) {
+        formats.append(ImportFormatRegistry::formatName(fmt));
+    }
+    return formats;
+}
+
+// ========== Biopolymer Residue Editing Methods (M3) ==========
+
+int DocumentState::addBiopolymerChain(const QString& name, PolymerType type) {
+    BiopolymerStateMutator mutator(*this);
+    auto [cmd, chainId] = mutator.addChain(name, type);
+    executeCommand(std::move(cmd));
+    return chainId;
+}
+
+void DocumentState::removeBiopolymerChain(int chainId) {
+    BiopolymerStateMutator mutator(*this);
+    EditCommand cmd = mutator.removeChain(chainId);
+    executeCommand(std::move(cmd));
+}
+
+void DocumentState::renameBiopolymerChain(int chainId, const QString& newName) {
+    BiopolymerStateMutator mutator(*this);
+    EditCommand cmd = mutator.renameChain(chainId, newName);
+    executeCommand(std::move(cmd));
+}
+
+int DocumentState::addBiopolymerResidue(int chainId, const QString& symbol) {
+    BiopolymerStateMutator mutator(*this);
+    auto [cmd, residueId] = mutator.addResidue(chainId, symbol);
+    executeCommand(std::move(cmd));
+    return residueId;
+}
+
+int DocumentState::insertBiopolymerResidueBefore(int chainId, int beforeResidueId, const QString& symbol) {
+    BiopolymerStateMutator mutator(*this);
+    auto [cmd, residueId] = mutator.insertResidueBefore(chainId, beforeResidueId, symbol);
+    executeCommand(std::move(cmd));
+    return residueId;
+}
+
+int DocumentState::insertBiopolymerResidueAfter(int chainId, int afterResidueId, const QString& symbol) {
+    BiopolymerStateMutator mutator(*this);
+    auto [cmd, residueId] = mutator.insertResidueAfter(chainId, afterResidueId, symbol);
+    executeCommand(std::move(cmd));
+    return residueId;
+}
+
+void DocumentState::replaceBiopolymerResidue(int residueId, const QString& newSymbol) {
+    BiopolymerStateMutator mutator(*this);
+    EditCommand cmd = mutator.replaceResidue(residueId, newSymbol);
+    executeCommand(std::move(cmd));
+}
+
+void DocumentState::deleteBiopolymerResidue(int residueId) {
+    BiopolymerStateMutator mutator(*this);
+    EditCommand cmd = mutator.deleteResidue(residueId);
+    executeCommand(std::move(cmd));
+}
+
+void DocumentState::deleteBiopolymerResidueRange(int chainId, int startPosition, int endPosition) {
+    BiopolymerStateMutator mutator(*this);
+    EditCommand cmd = mutator.deleteResidueRange(chainId, startPosition, endPosition);
+    executeCommand(std::move(cmd));
+}
+
+int DocumentState::buildBiopolymerResidueFromTemplate(int chainId, const QString& symbol, double x, double y) {
+    BiopolymerStateMutator mutator(*this);
+    auto [cmd, residueId] = mutator.buildResidueFromTemplate(chainId, symbol, x, y);
+    executeCommand(std::move(cmd));
+    return residueId;
+}
+
+void DocumentState::connectBiopolymerResidues(int fromResidueId, int toResidueId, BondId bondId, const QString& connectionType) {
+    BiopolymerStateMutator mutator(*this);
+    EditCommand cmd = mutator.connectResidues(fromResidueId, toResidueId, bondId, connectionType);
+    executeCommand(std::move(cmd));
+}
+
+void DocumentState::setBiopolymerResidueAtoms(int residueId, const QList<AtomId>& atomIds) {
+    BiopolymerStateMutator mutator(*this);
+    EditCommand cmd = mutator.setResidueAtoms(residueId, atomIds);
+    executeCommand(std::move(cmd));
+}
+
+// ========== Biopolymer Helper Methods ==========
+
+BiopolymerResidue* DocumentState::biopolymerResidue(int residueId) {
+    return m_biopolymerState.residue(residueId);
+}
+
+const BiopolymerResidue* DocumentState::biopolymerResidue(int residueId) const {
+    return m_biopolymerState.residue(residueId);
+}
+
+BiopolymerChain* DocumentState::biopolymerChain(int chainId) {
+    return m_biopolymerState.chain(chainId);
+}
+
+const BiopolymerChain* DocumentState::biopolymerChain(int chainId) const {
+    return m_biopolymerState.chain(chainId);
+}
+
+QList<int> DocumentState::biopolymerChainIds() const {
+    return m_biopolymerState.chainIds();
+}
+
+QList<int> DocumentState::biopolymerResidueIdsInChain(int chainId) const {
+    return m_biopolymerState.residueIdsInChain(chainId);
+}
+
+QList<AtomId> DocumentState::biopolymerAtomsInResidue(int residueId) const {
+    return m_biopolymerState.atomsOwnedByResidue(residueId);
 }
 
 
