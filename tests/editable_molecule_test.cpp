@@ -1990,7 +1990,6 @@ static void test_setBondStereo() {
 
     BondId wedgeTarget = -1;
     for (BondId bid : acMol.bondIds()) {
-        double x1 = 0, y1 = 0;
         AtomId ba = -1, bb = -1;
         if (acMol.bondOrder(bid) == 1 && acMol.bondEndpoints(bid, ba, bb) &&
             acMol.atomSymbol(ba) == QStringLiteral("C") && acMol.atomSymbol(bb) == QStringLiteral("Br")) {

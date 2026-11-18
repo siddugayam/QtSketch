@@ -49,9 +49,7 @@ def is_valid_smiles(s):
     if re.search(r'[a-z]', s) and not re.search(r'^[bcno]*$', s.lower()):
         return False
     # Must not contain obvious non-SMILES tokens (case-insensitive)
-    if re.search(r'\b(and|or|vs|phase|test|regression|dispiroter|spiro|bicyclo|methyl|ethyl|propyl|butyl|pentyl|hexyl|heptyl|octyl|nonyl|decyl|urea|clean|rejection|still|multi-word)\b', s, re.IGNORECASE):
-        return False
-    return True
+    return not re.search(r'\b(and|or|vs|phase|test|regression|dispiroter|spiro|bicyclo|methyl|ethyl|propyl|butyl|pentyl|hexyl|heptyl|octyl|nonyl|decyl|urea|clean|rejection|still|multi-word)\b', s, re.IGNORECASE)
 
 
 def parse_raw_output_for_results(raw_path):
