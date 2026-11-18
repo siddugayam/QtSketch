@@ -14,11 +14,11 @@ Usage:
     python tools/iupac/extract_baseline.py [--cpp path/to/iupac_namer_test.cpp] [--raw path/to/baseline_raw.txt] [--output path/to/baseline.csv]
 """
 
-import re
-import csv
-import os
 import argparse
 import codecs
+import csv
+import os
+import re
 
 
 def unescape_cpp_string(s):
@@ -28,7 +28,7 @@ def unescape_cpp_string(s):
     content = s[1:-1]
     try:
         return codecs.decode(content, 'unicode_escape')
-    except Exception:
+    except (UnicodeDecodeError, ValueError):
         return content
 
 
@@ -79,7 +79,7 @@ def parse_raw_output_for_results(raw_path):
             continue
         
         # Skip non-Test-N lines (Phase, Stereo, etc.)
-        if not line.startswith('[PASS] Test ') and not line.startswith('[FAIL] Test '):
+        if not line.startswith(('[PASS] Test ', '[FAIL] Test ')):
             continue
         
         # Try PASS with name
@@ -138,7 +138,7 @@ def parse_raw_output_for_smiles(raw_path):
             continue
         
         # Skip non-Test-N lines
-        if not line.startswith('[PASS] Test ') and not line.startswith('[FAIL] Test '):
+        if not line.startswith(('[PASS] Test ', '[FAIL] Test ')):
             continue
         
         # Try PASS with name
@@ -214,9 +214,9 @@ def extract_test_cases_from_cpp(cpp_path):
             continue
         
         # Remove trailing comma or semicolon
-        if line.endswith(',') or line.endswith(';'):
+        if line.endswith((',', ';')):
             line = line[:-1].strip()
-        
+
         # Remove leading/trailing braces
         if line.startswith('{'):
             line = line[1:].strip()
@@ -308,7 +308,7 @@ def parse_additional_formats(raw_path, start_id):
             continue
         
         # Skip Test N format (already parsed)
-        if line.startswith('[PASS] Test ') or line.startswith('[FAIL] Test '):
+        if line.startswith(('[PASS] Test ', '[FAIL] Test ')):
             continue
         
         # Skip non-PASS lines
@@ -338,32 +338,31 @@ def parse_additional_formats(raw_path, start_id):
                         continue
             
             # Handle Phase N format: [PASS] Phase N description: SMILES -> name
-            if line.startswith('[PASS] Phase '):
-                if ' -> ' in line:
-                    before_arrow, after_arrow = line.split(' -> ', 1)
-                    name = after_arrow.strip()
-                    
-                    # Try to extract SMILES from parentheses
-                    match = re.search(r'\(([^)\s]+)\)', before_arrow)
-                    if match and is_valid_smiles(match.group(1)):
-                        smiles = match.group(1)
-                        extra.append((next_id, smiles, name, True))
-                        next_id += 1
-                        continue
-                    
-                    # Try to extract SMILES from last token
-                    tokens = before_arrow.split()
-                    if tokens:
-                        # Look for last token that looks like SMILES
-                        for token in reversed(tokens):
-                            if is_valid_smiles(token):
-                                extra.append((next_id, token, name, True))
-                                next_id += 1
-                                continue
-                        # No SMILES found, add with empty SMILES
-                        extra.append((next_id, '', name, True))
-                        next_id += 1
-                        continue
+            if line.startswith('[PASS] Phase ') and ' -> ' in line:
+                before_arrow, after_arrow = line.split(' -> ', 1)
+                name = after_arrow.strip()
+
+                # Try to extract SMILES from parentheses
+                match = re.search(r'\(([^)\s]+)\)', before_arrow)
+                if match and is_valid_smiles(match.group(1)):
+                    smiles = match.group(1)
+                    extra.append((next_id, smiles, name, True))
+                    next_id += 1
+                    continue
+
+                # Try to extract SMILES from last token
+                tokens = before_arrow.split()
+                if tokens:
+                    # Look for last token that looks like SMILES
+                    for token in reversed(tokens):
+                        if is_valid_smiles(token):
+                            extra.append((next_id, token, name, True))
+                            next_id += 1
+                            continue
+                    # No SMILES found, add with empty SMILES
+                    extra.append((next_id, '', name, True))
+                    next_id += 1
+                    continue
             
             # Handle stereo pair format: [PASS] ... SMILES1 vs SMILES2 -> name1 vs name2
             if ' vs ' in line and ' -> ' in line:
