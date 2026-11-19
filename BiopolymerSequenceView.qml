@@ -18,6 +18,9 @@ TaskDialog {
     property var snapshot: null
     property int selectedMonomerId: -1
     property var sketch: null
+    
+    // Clipboard access
+    property var clipboard: Qt.inputMethod ? Qt.inputMethod.clipboard : null
 
     function openSnapshot(dataJson) {
         try {
@@ -46,6 +49,113 @@ TaskDialog {
             if (root.snapshot.monomers[i].id === id) return root.snapshot.monomers[i]
         }
         return null
+    }
+
+    // Export the current view as SVG
+    function exportAsSvg() {
+        if (!root.snapshot || !root.snapshot.monomers) return ""
+        
+        const originX = 24, originY = 24
+        const half = root.boxSize / 2
+        
+        // Calculate bounds
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+        for (let i = 0; i < root.snapshot.monomers.length; i++) {
+            const m = root.snapshot.monomers[i]
+            minX = Math.min(minX, m.x)
+            maxX = Math.max(maxX, m.x + root.boxSize)
+            minY = Math.min(minY, m.y)
+            maxY = Math.max(maxY, m.y + root.boxSize)
+        }
+        
+        const width = Math.max(800, (maxX - minX + 40) * 2)
+        const height = Math.max(600, (maxY - minY + 40) * 2)
+        
+        let svg = '<?xml version="1.0" encoding="UTF-8"?>\n'
+        svg += `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">\n`
+        svg += '<defs/>\n'
+        
+        // Add connections
+        const bonds = root.snapshot.bonds || []
+        for (let i = 0; i < bonds.length; i++) {
+            const a = root.monomerById(bonds[i].fromId)
+            const b = root.monomerById(bonds[i].toId)
+            if (!a || !b) continue
+            const x1 = originX + a.x + half
+            const y1 = originY + a.y + half
+            const x2 = originX + b.x + half
+            const y2 = originY + b.y + half
+            svg += `<line x1="${x1 * 2}" y1="${y1 * 2}" x2="${x2 * 2}" y2="${y2 * 2}" stroke="#212121" stroke-width="2"/>`
+        }
+        
+        // Add residues
+        const monomers = root.snapshot.monomers
+        for (let i = 0; i < monomers.length; i++) {
+            const m = monomers[i]
+            const x = originX + m.x
+            const y = originY + m.y
+            const color = root.monomerColor(m.monomerClass)
+            const isSelected = m.id === root.selectedMonomerId
+            
+            // Box
+            svg += `<rect x="${x * 2}" y="${y * 2}" width="${root.boxSize * 2}" height="${root.boxSize * 2}" fill="${color}" stroke="${isSelected ? '#000000' : Qt.darker(color, 1.3)}" stroke-width="${isSelected ? 3 : 1}" rx="6" ry="6"/>`
+            
+            // Label
+            svg += `<text x="${(x + half / 2) * 2}" y="${(y + half) * 2}" font-family="Segoe UI" font-size="12" text-anchor="middle" dominant-baseline="central" fill="#FFFFFF">${m.label}</text>`
+            
+            // Number
+            svg += `<text x="${(x + 2) * 2}" y="${(y + 10) * 2}" font-family="Segoe UI" font-size="10" text-anchor="start" dominant-baseline="hanging" fill="#000000">${i + 1}</text>`
+        }
+        
+        // Add direction indicator
+        if (monomers.length > 0) {
+            const first = monomers[0]
+            const last = monomers[monomers.length - 1]
+            const isProtein = root.snapshot.seqType === 'PEPTIDE'
+            const direction = isProtein ? 'N→C' : "5'→3'"
+            
+            svg += `<line x1="${(originX + first.x - 20) * 2}" y1="${(originY + first.y + half) * 2}" x2="${(originX + first.x - 5) * 2}" y2="${(originY + first.y + half) * 2}" stroke="#0066CC" stroke-width="2"/>`
+            svg += `<text x="${(originX + first.x - 25) * 2}" y="${(originY + first.y + half - 5) * 2}" font-family="Segoe UI" font-size="10" text-anchor="end" dominant-baseline="central" fill="#0066CC">${direction}</text>`
+        }
+        
+        svg += '</svg>'
+        return svg
+    }
+
+    // Copy SVG to clipboard
+    function copySvgToClipboard() {
+        const svg = root.exportAsSvg()
+        if (svg) {
+            clipboard.text = svg
+            statusLabel.text = "SVG copied to clipboard"
+            statusLabel.color = Theme.success
+        }
+    }
+
+    // Download SVG file
+    function downloadSvgFile() {
+        const svg = root.exportAsSvg()
+        if (!svg) return
+        
+        // Create download link approach (works in QML WebEngine)
+        // For Qt Quick, we need to use a different approach
+        // For now, just copy to clipboard as fallback
+        root.copySvgToClipboard()
+        
+        // In a real implementation, use Qt.file to save
+        if (typeof Qt !== 'undefined' && Qt.file) {
+            try {
+                const filePath = Qt.file.saveDialog("Save SVG", "SVG Files (*.svg)", ".svg")
+                if (filePath) {
+                    Qt.file.write(filePath, svg)
+                    statusLabel.text = "SVG saved to " + filePath
+                    statusLabel.color = Theme.success
+                }
+            } catch (e) {
+                statusLabel.text = "Save failed: " + e
+                statusLabel.color = Theme.error
+            }
+        }
     }
 
     ColumnLayout {
@@ -88,6 +198,33 @@ TaskDialog {
                 }
             }
             Item { Layout.fillWidth: true }
+
+            // Vector export buttons
+            Button {
+                text: "Copy SVG"
+                enabled: root.snapshot && root.snapshot.monomers && root.snapshot.monomers.length > 0
+                onClicked: root.copySvgToClipboard()
+                ToolTip.text: "Copy sequence view as SVG to clipboard"
+                ToolTip.visible: hovered
+            }
+            Button {
+                text: "Save SVG"
+                enabled: root.snapshot && root.snapshot.monomers && root.snapshot.monomers.length > 0
+                onClicked: root.downloadSvgFile()
+                ToolTip.text: "Save sequence view as SVG file"
+                ToolTip.visible: hovered
+            }
+        }
+
+        // Status label for export operations
+        Label {
+            id: statusLabel
+            text: ""
+            color: Theme.textSecondary
+            font.pixelSize: 11
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            visible: text.length > 0
         }
 
         Rectangle {

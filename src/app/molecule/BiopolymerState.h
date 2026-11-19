@@ -27,6 +27,8 @@
 #include <QMap>
 #include <QSet>
 #include "EditableMolecule.h"
+#include "BiopolymerModification.h"
+#include "BiopolymerTerminal.h"
 
 using AtomId = int;
 using BondId = int;
@@ -106,6 +108,15 @@ struct BiopolymerConnection {
     int toResidueId = 0;
     BondId bondId = -1;              // The actual bond in EditableMolecule
     QString type;                   // "peptide", "phosphodiester", "disulfide", etc.
+};
+
+// Connection types for extended connections
+enum class ConnectionType {
+    Peptide,
+    Phosphodiester,
+    Disulfide,
+    Custom,
+    Unknown
 };
 
 // Mapping validity result
@@ -239,6 +250,88 @@ public:
     TerminalGroup getCTerminus(int chainId) const;
     TerminalGroup getPhosphate5Prime(int chainId) const;
     TerminalGroup getPhosphate3Prime(int chainId) const;
+
+    // ========== Biopolymer Terminals (Extended) ==========
+
+    // Add a terminal to the state
+    bool addTerminal(const BiopolymerTerminal& terminal);
+
+    // Remove a terminal by ID
+    bool removeTerminal(int terminalId);
+
+    // Remove all terminals from a chain
+    void removeTerminalsFromChain(int chainId);
+
+    // Remove terminals by type
+    void removeTerminalsByType(TerminalType type);
+
+    // Get terminal by ID
+    BiopolymerTerminal* getTerminal(int terminalId);
+    const BiopolymerTerminal* getTerminal(int terminalId) const;
+
+    // Get all terminals
+    QList<BiopolymerTerminal> terminals() const;
+
+    // Get terminals for a specific chain
+    QList<BiopolymerTerminal> terminalsForChain(int chainId) const;
+
+    // Get terminals by type
+    QList<BiopolymerTerminal> terminalsByType(TerminalType type) const;
+
+    // Allocate a new unique terminal ID
+    int allocateTerminalId();
+
+    // ========== Biopolymer Modifications ==========
+
+    // Add a modification to the state
+    bool addModification(const BiopolymerModification& modification);
+
+    // Remove a modification by ID
+    bool removeModification(int modificationId);
+
+    // Remove all modifications from a residue
+    void removeModificationsFromResidue(int residueId);
+
+    // Remove all modifications from a chain
+    void removeModificationsFromChain(int chainId);
+
+    // Remove modifications by type
+    void removeModificationsByType(ModificationType type);
+
+    // Get modification by ID
+    BiopolymerModification* getModification(int modificationId);
+    const BiopolymerModification* getModification(int modificationId) const;
+
+    // Get all modifications
+    QList<BiopolymerModification> modifications() const;
+
+    // Get modifications for a specific residue
+    QList<BiopolymerModification> modificationsForResidue(int residueId) const;
+
+    // Get modifications for a specific chain
+    QList<BiopolymerModification> modificationsForChain(int chainId) const;
+
+    // Get modifications by type
+    QList<BiopolymerModification> modificationsByType(ModificationType type) const;
+
+    // Check if a residue has modifications
+    bool hasModifications(int residueId) const;
+
+    // Check if a chain has modifications
+    bool hasChainModifications(int chainId) const;
+
+    // Allocate a new unique modification ID
+    int allocateModificationId();
+
+    // Get next ID counters including modifications and terminals
+    struct AllIdCounters {
+        int nextResidueId = 1;
+        int nextChainId = 1;
+        int nextConnectionId = 1;
+        int nextTerminalId = 1;
+        int nextModificationId = 1;
+    };
+    AllIdCounters allIdCounters() const;
     
     // ========== Validation ==========
     
@@ -269,7 +362,8 @@ public:
     int allocateConnectionId();
     
     // Reset ID counters (used for deserialization)
-    void resetIdCounters(int nextResidueId, int nextChainId, int nextConnectionId);
+    void resetIdCounters(int nextResidueId, int nextChainId, int nextConnectionId,
+                        int nextTerminalId = 1, int nextModificationId = 1);
     
     // Get current ID counters (for serialization)
     struct IdCounters {
@@ -333,11 +427,19 @@ private:
     int m_nextResidueId = 1;
     int m_nextChainId = 1;
     int m_nextConnectionId = 1;
+    int m_nextTerminalId = 1;
+    int m_nextModificationId = 1;
     
     // Data storage
     QMap<int, BiopolymerChain> m_chains;
     QMap<int, BiopolymerResidue> m_residues;
     QList<BiopolymerConnection> m_connections;
+    
+    // Extended terminal storage (using BiopolymerTerminal)
+    QMap<int, BiopolymerTerminal> m_terminals;
+    
+    // Modification storage
+    QMap<int, BiopolymerModification> m_modifications;
     
     // Atom-to-residue mapping (for fast lookup)
     QHash<AtomId, int> m_atomToResidue;

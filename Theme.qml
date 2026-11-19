@@ -6,6 +6,22 @@ QtObject {
     property bool compactDensity: true
     property bool cpkColorsEnabled: true
 
+    // ── Reduced Motion (Accessibility) ──────────────────────────────────────
+    // When enabled, animations are disabled except for selection feedback and
+    // operation progress indicators. Follows Fluent design accessibility guidelines.
+    // Default: false (animations enabled). Can be toggled via UI settings.
+    property bool reducedMotion: false
+
+    // Effective animation durations respecting reduced motion setting
+    readonly property int effectiveDurationFast: reducedMotion ? 0 : durationFast
+    readonly property int effectiveDurationMedium: reducedMotion ? 0 : durationMedium
+    readonly property int effectiveDurationSlow: reducedMotion ? 0 : durationSlow
+
+    // Selection feedback animation is ALWAYS enabled (communicates state change)
+    // Operation progress animations are ALWAYS enabled (communicates work in progress)
+    readonly property int selectionFeedbackDuration: 100  // Always enabled for selection
+    readonly property int operationProgressDuration: 200  // Always enabled for progress
+
     // ── Fluent (Windows 11) light palette ──────────────────────────────────
     // Names on the right are the WinUI 3 resource keys these mirror, so any
     // value here can be checked against the Fluent design token it comes from.

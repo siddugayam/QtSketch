@@ -7,9 +7,13 @@ BiopolymerState::BiopolymerState(const BiopolymerState& other)
     : m_nextResidueId(other.m_nextResidueId),
       m_nextChainId(other.m_nextChainId),
       m_nextConnectionId(other.m_nextConnectionId),
+      m_nextTerminalId(other.m_nextTerminalId),
+      m_nextModificationId(other.m_nextModificationId),
       m_chains(other.m_chains),
       m_residues(other.m_residues),
       m_connections(other.m_connections),
+      m_terminals(other.m_terminals),
+      m_modifications(other.m_modifications),
       m_atomToResidue(other.m_atomToResidue),
       m_importProvenance(other.m_importProvenance)
 {
@@ -21,9 +25,13 @@ BiopolymerState& BiopolymerState::operator=(const BiopolymerState& other) {
         m_nextResidueId = other.m_nextResidueId;
         m_nextChainId = other.m_nextChainId;
         m_nextConnectionId = other.m_nextConnectionId;
+        m_nextTerminalId = other.m_nextTerminalId;
+        m_nextModificationId = other.m_nextModificationId;
         m_chains = other.m_chains;
         m_residues = other.m_residues;
         m_connections = other.m_connections;
+        m_terminals = other.m_terminals;
+        m_modifications = other.m_modifications;
         m_atomToResidue = other.m_atomToResidue;
         m_importProvenance = other.m_importProvenance;
         // Validation cache is intentionally not copied (will be rebuilt on demand)
@@ -416,6 +424,274 @@ TerminalGroup BiopolymerState::getPhosphate3Prime(int chainId) const {
     return chain ? chain->phosphate3Prime : TerminalGroup{};
 }
 
+// ========== Biopolymer Terminals (Extended) ==========
+
+bool BiopolymerState::addTerminal(const BiopolymerTerminal& terminal) {
+    // Check if terminal ID is valid
+    if (terminal.terminalId < 0) {
+        return false;
+    }
+    
+    // Check if chain exists
+    if (!m_chains.contains(terminal.chainId)) {
+        return false;
+    }
+    
+    // Check if terminal with same ID already exists
+    if (m_terminals.contains(terminal.terminalId)) {
+        return false;
+    }
+    
+    // Add the terminal
+    m_terminals[terminal.terminalId] = terminal;
+    
+    // Update next terminal ID if needed
+    m_nextTerminalId = std::max(m_nextTerminalId, terminal.terminalId + 1);
+    
+    invalidateValidationCache();
+    return true;
+}
+
+bool BiopolymerState::removeTerminal(int terminalId) {
+    if (!m_terminals.contains(terminalId)) {
+        return false;
+    }
+    
+    m_terminals.remove(terminalId);
+    invalidateValidationCache();
+    return true;
+}
+
+void BiopolymerState::removeTerminalsFromChain(int chainId) {
+    QList<int> toRemove;
+    for (auto it = m_terminals.begin(); it != m_terminals.end(); ++it) {
+        if (it->chainId == chainId) {
+            toRemove.append(it.key());
+        }
+    }
+    
+    for (int termId : toRemove) {
+        m_terminals.remove(termId);
+    }
+    
+    invalidateValidationCache();
+}
+
+void BiopolymerState::removeTerminalsByType(TerminalType type) {
+    QList<int> toRemove;
+    for (auto it = m_terminals.begin(); it != m_terminals.end(); ++it) {
+        if (it->type == type) {
+            toRemove.append(it.key());
+        }
+    }
+    
+    for (int termId : toRemove) {
+        m_terminals.remove(termId);
+    }
+    
+    invalidateValidationCache();
+}
+
+BiopolymerTerminal* BiopolymerState::getTerminal(int terminalId) {
+    auto it = m_terminals.find(terminalId);
+    return (it != m_terminals.end()) ? &it.value() : nullptr;
+}
+
+const BiopolymerTerminal* BiopolymerState::getTerminal(int terminalId) const {
+    auto it = m_terminals.find(terminalId);
+    return (it != m_terminals.end()) ? &it.value() : nullptr;
+}
+
+QList<BiopolymerTerminal> BiopolymerState::terminals() const {
+    return m_terminals.values();
+}
+
+QList<BiopolymerTerminal> BiopolymerState::terminalsForChain(int chainId) const {
+    QList<BiopolymerTerminal> result;
+    for (const auto& term : m_terminals) {
+        if (term.chainId == chainId) {
+            result.append(term);
+        }
+    }
+    return result;
+}
+
+QList<BiopolymerTerminal> BiopolymerState::terminalsByType(TerminalType type) const {
+    QList<BiopolymerTerminal> result;
+    for (const auto& term : m_terminals) {
+        if (term.type == type) {
+            result.append(term);
+        }
+    }
+    return result;
+}
+
+int BiopolymerState::allocateTerminalId() {
+    return m_nextTerminalId++;
+}
+
+// ========== Biopolymer Modifications ==========
+
+bool BiopolymerState::addModification(const BiopolymerModification& modification) {
+    // Check if modification ID is valid
+    if (modification.modificationId < 0) {
+        return false;
+    }
+    
+    // Check if residue exists
+    if (!m_residues.contains(modification.residueId)) {
+        return false;
+    }
+    
+    // Check if modification with same ID already exists
+    if (m_modifications.contains(modification.modificationId)) {
+        return false;
+    }
+    
+    // Add the modification
+    m_modifications[modification.modificationId] = modification;
+    
+    // Update next modification ID if needed
+    m_nextModificationId = std::max(m_nextModificationId, modification.modificationId + 1);
+    
+    invalidateValidationCache();
+    return true;
+}
+
+bool BiopolymerState::removeModification(int modificationId) {
+    if (!m_modifications.contains(modificationId)) {
+        return false;
+    }
+    
+    m_modifications.remove(modificationId);
+    invalidateValidationCache();
+    return true;
+}
+
+void BiopolymerState::removeModificationsFromResidue(int residueId) {
+    QList<int> toRemove;
+    for (auto it = m_modifications.begin(); it != m_modifications.end(); ++it) {
+        if (it->residueId == residueId) {
+            toRemove.append(it.key());
+        }
+    }
+    
+    for (int modId : toRemove) {
+        m_modifications.remove(modId);
+    }
+    
+    invalidateValidationCache();
+}
+
+void BiopolymerState::removeModificationsFromChain(int chainId) {
+    QList<int> toRemove;
+    for (auto it = m_modifications.begin(); it != m_modifications.end(); ++it) {
+        const BiopolymerResidue* residue = this->residue(it->residueId);
+        if (residue && residue->chainId == chainId) {
+            toRemove.append(it.key());
+        }
+    }
+    
+    for (int modId : toRemove) {
+        m_modifications.remove(modId);
+    }
+    
+    invalidateValidationCache();
+}
+
+void BiopolymerState::removeModificationsByType(ModificationType type) {
+    QList<int> toRemove;
+    for (auto it = m_modifications.begin(); it != m_modifications.end(); ++it) {
+        if (it->type == type) {
+            toRemove.append(it.key());
+        }
+    }
+    
+    for (int modId : toRemove) {
+        m_modifications.remove(modId);
+    }
+    
+    invalidateValidationCache();
+}
+
+BiopolymerModification* BiopolymerState::getModification(int modificationId) {
+    auto it = m_modifications.find(modificationId);
+    return (it != m_modifications.end()) ? &it.value() : nullptr;
+}
+
+const BiopolymerModification* BiopolymerState::getModification(int modificationId) const {
+    auto it = m_modifications.find(modificationId);
+    return (it != m_modifications.end()) ? &it.value() : nullptr;
+}
+
+QList<BiopolymerModification> BiopolymerState::modifications() const {
+    return m_modifications.values();
+}
+
+QList<BiopolymerModification> BiopolymerState::modificationsForResidue(int residueId) const {
+    QList<BiopolymerModification> result;
+    for (const auto& mod : m_modifications) {
+        if (mod.residueId == residueId) {
+            result.append(mod);
+        }
+    }
+    return result;
+}
+
+QList<BiopolymerModification> BiopolymerState::modificationsForChain(int chainId) const {
+    QList<BiopolymerModification> result;
+    for (const auto& mod : m_modifications) {
+        const BiopolymerResidue* residue = this->residue(mod.residueId);
+        if (residue && residue->chainId == chainId) {
+            result.append(mod);
+        }
+    }
+    return result;
+}
+
+QList<BiopolymerModification> BiopolymerState::modificationsByType(ModificationType type) const {
+    QList<BiopolymerModification> result;
+    for (const auto& mod : m_modifications) {
+        if (mod.type == type) {
+            result.append(mod);
+        }
+    }
+    return result;
+}
+
+bool BiopolymerState::hasModifications(int residueId) const {
+    for (const auto& mod : m_modifications) {
+        if (mod.residueId == residueId) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool BiopolymerState::hasChainModifications(int chainId) const {
+    for (const auto& mod : m_modifications) {
+        const BiopolymerResidue* residue = this->residue(mod.residueId);
+        if (residue && residue->chainId == chainId) {
+            return true;
+        }
+    }
+    return false;
+}
+
+int BiopolymerState::allocateModificationId() {
+    return m_nextModificationId++;
+}
+
+BiopolymerState::AllIdCounters BiopolymerState::allIdCounters() const {
+    return {
+        m_nextResidueId,
+        m_nextChainId,
+        m_nextConnectionId,
+        m_nextTerminalId,
+        m_nextModificationId
+    };
+}
+
 // ========== Validation ==========
 
 MappingValidity BiopolymerState::validateAllMappings() const {
@@ -543,10 +819,13 @@ int BiopolymerState::allocateConnectionId() {
     return m_nextConnectionId++;
 }
 
-void BiopolymerState::resetIdCounters(int nextResidueId, int nextChainId, int nextConnectionId) {
+void BiopolymerState::resetIdCounters(int nextResidueId, int nextChainId, int nextConnectionId,
+                                        int nextTerminalId, int nextModificationId) {
     m_nextResidueId = nextResidueId;
     m_nextChainId = nextChainId;
     m_nextConnectionId = nextConnectionId;
+    m_nextTerminalId = nextTerminalId;
+    m_nextModificationId = nextModificationId;
 }
 
 BiopolymerState::IdCounters BiopolymerState::idCounters() const {

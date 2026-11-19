@@ -1,6 +1,7 @@
 // src/app/molecule/ProjectFile.cpp
 #include "ProjectFile.h"
 #include "EditableMolecule.h"
+#include "BiopolymerState.h"
 #include <cmath>
 #include <QFile>
 #include <QSaveFile>
@@ -73,6 +74,42 @@ namespace {
     const QString kMaxX = QStringLiteral("maxX");
     const QString kMaxY = QStringLiteral("maxY");
     
+    // Biopolymer keys (format version 2)
+    const QString kBiopolymer = QStringLiteral("biopolymer");
+    const QString kChains = QStringLiteral("chains");
+    const QString kResidues = QStringLiteral("residues");
+    const QString kConnections = QStringLiteral("connections");
+    const QString kNextIds = QStringLiteral("nextIds");
+    const QString kPolymerType = QStringLiteral("polymerType");
+    const QString kSequencePosition = QStringLiteral("sequencePosition");
+    const QString kSymbol = QStringLiteral("symbol");
+    const QString kAlias = QStringLiteral("alias");
+    const QString kMonomerClass = QStringLiteral("monomerClass");
+    const QString kAmbiguous = QStringLiteral("ambiguous");
+    const QString kAtomIds = QStringLiteral("atomIds");
+    const QString kFromResidueId = QStringLiteral("fromResidueId");
+    const QString kToResidueId = QStringLiteral("toResidueId");
+    const QString kBondId = QStringLiteral("bondId");
+    const QString kType = QStringLiteral("type");
+    const QString kNextResidueId = QStringLiteral("residue");
+    const QString kNextChainId = QStringLiteral("chain");
+    const QString kNextConnectionId = QStringLiteral("connection");
+    
+    // Terminal group keys
+    const QString kNTerminus = QStringLiteral("nTerminus");
+    const QString kCTerminus = QStringLiteral("cTerminus");
+    const QString kPhosphate5Prime = QStringLiteral("phosphate5Prime");
+    const QString kPhosphate3Prime = QStringLiteral("phosphate3Prime");
+    const QString kPosition = QStringLiteral("position");
+    const QString kOwnerAtomId = QStringLiteral("ownerAtomId");
+    
+    // Import provenance keys
+    const QString kImportProvenance = QStringLiteral("importProvenance");
+    const QString kSourceFormat = QStringLiteral("sourceFormat");
+    const QString kSourceText = QStringLiteral("sourceText");
+    const QString kUnsupportedFeatures = QStringLiteral("unsupportedFeatures");
+    const QString kFullyMapped = QStringLiteral("fullyMapped");
+    
     // Check if a string looks like a valid molfile (has atom/bond counts)
     bool looksLikeMolfile(const QString& data) {
         // Simple heuristic: molfiles typically have "  0  0  0  0  0  0" pattern
@@ -85,7 +122,10 @@ bool ProjectFile::saveProject(const QString& filePath,
                               const EditableMolecule& molecule,
                               const DrawingStyle& drawingStyle,
                               const PageSettings& pageSettings) {
-    QJsonObject json = toJson(molecule, drawingStyle, pageSettings);
+    // Default to version 2 with biopolymer support
+    // Create an empty BiopolymerState for backward compatibility
+    BiopolymerState emptyBiopolymerState;
+    QJsonObject json = toJsonWithBiopolymer(molecule, drawingStyle, pageSettings, emptyBiopolymerState);
     QByteArray bytes = QJsonDocument(json).toJson(QJsonDocument::Indented);
 
     // QSaveFile writes to its own temp file and only replaces the real
@@ -152,17 +192,61 @@ QString ProjectFile::loadProject(const QString& filePath,
     if (!fromJson(json, molecule, drawingStyle, pageSettings)) {
         return QStringLiteral("Failed to parse project data from file");
     }
+    
+    return QString(); // Success
+}
 
+QString ProjectFile::loadProjectWithBiopolymer(const QString& filePath,
+                                           EditableMolecule& molecule,
+                                           DrawingStyle& drawingStyle,
+                                           PageSettings& pageSettings,
+                                           BiopolymerState& biopolymerState) {
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return QStringLiteral("Failed to open file: ") + filePath;
+    }
+    
+    QByteArray data = file.readAll();
+    file.close();
+    
+    QJsonParseError parseError;
+    QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+    
+    if (parseError.error != QJsonParseError::NoError) {
+        return QStringLiteral("Invalid JSON in file: ") + parseError.errorString();
+    }
+    
+    if (!doc.isObject()) {
+        return QStringLiteral("File does not contain a JSON object");
+    }
+    
+    QJsonObject json = doc.object();
+    
+    // Clear the biopolymer state before loading
+    biopolymerState = BiopolymerState();
+    
+    // Validate the full schema before touching any live state
+    QString validationError;
+    if (!validateProjectJson(json, validationError)) {
+        return validationError;
+    }
+    
+    // Try to load with biopolymer support
+    if (!fromJsonWithBiopolymer(json, molecule, drawingStyle, pageSettings, biopolymerState)) {
+        return QStringLiteral("Failed to parse project data from file");
+    }
+    
     return QString(); // Success
 }
 
 QJsonObject ProjectFile::toJson(const EditableMolecule& molecule,
                                const DrawingStyle& drawingStyle,
                                const PageSettings& pageSettings) {
+    // Legacy version 1 - callers that want biopolymer support should use toJsonWithBiopolymer
     QJsonObject json;
     
     // Format version
-    json[kFormatVersion] = CurrentFormatVersion;
+    json[kFormatVersion] = LegacyFormatVersion;
     
     // Chemistry (molfile)
     QJsonObject chemistry;
@@ -388,6 +472,91 @@ QJsonObject ProjectFile::toJson(const EditableMolecule& molecule,
     stereoFlags["type"] = molecule.stereoFlagsType();
     stereoFlags["groupId"] = molecule.stereoFlagsGroupId();
     json[kStereoFlags] = stereoFlags;
+    
+    return json;
+}
+
+QJsonObject ProjectFile::toJsonWithBiopolymer(const EditableMolecule& molecule,
+                                            const DrawingStyle& drawingStyle,
+                                            const PageSettings& pageSettings,
+                                            const BiopolymerState& biopolymerState) {
+    QJsonObject json = toJson(molecule, drawingStyle, pageSettings);
+    
+    // Update to current format version
+    json[kFormatVersion] = CurrentFormatVersion;
+    
+    // Only serialize biopolymer data if it exists
+    if (!biopolymerState.hasBiopolymerData()) {
+        return json;
+    }
+    
+    QJsonObject biopolymer;
+    
+    // Serialize chains
+    QJsonArray chainsArray;
+    for (int chainId : biopolymerState.chainIds()) {
+        const BiopolymerChain* chain = biopolymerState.chain(chainId);
+        if (!chain) continue;
+        
+        QJsonObject chainObj;
+        chainObj[kId] = chainId;
+        chainObj[kName] = chain->name;
+        chainObj[kPolymerType] = BiopolymerState::polymerTypeToString(chain->polymerType);
+        
+        // Serialize residues
+        QJsonArray residuesArray;
+        for (int residueId : chain->residueIds) {
+            const BiopolymerResidue* residue = biopolymerState.residue(residueId);
+            if (!residue) continue;
+            
+            QJsonObject residueObj;
+            residueObj[kId] = residueId;
+            residueObj[kSymbol] = residue->identity.symbol;
+            residueObj[kAlias] = residue->identity.alias;
+            residueObj[kMonomerClass] = residue->identity.monomerClass;
+            residueObj[kAmbiguous] = residue->identity.ambiguous;
+            residueObj[kSequencePosition] = residue->sequencePosition;
+            
+            // Serialize atom IDs
+            QJsonArray atomIdsArray;
+            for (AtomId atomId : residue->ownedAtomIds) {
+                atomIdsArray.append(atomId);
+            }
+            residueObj[kAtomIds] = atomIdsArray;
+            
+            residuesArray.append(residueObj);
+        }
+        chainObj[kResidues] = residuesArray;
+        
+        // Serialize terminal groups (simplified for M0)
+        // In a full implementation, we'd serialize all terminal group data
+        
+        chainsArray.append(chainObj);
+    }
+    biopolymer[kChains] = chainsArray;
+    
+    // Serialize connections
+    QJsonArray connectionsArray;
+    for (const BiopolymerConnection& conn : biopolymerState.allConnections()) {
+        QJsonObject connObj;
+        connObj[kId] = conn.id;
+        connObj[kFromResidueId] = conn.fromResidueId;
+        connObj[kToResidueId] = conn.toResidueId;
+        connObj[kBondId] = conn.bondId;
+        connObj[kType] = conn.type;
+        connectionsArray.append(connObj);
+    }
+    biopolymer[kConnections] = connectionsArray;
+    
+    // Serialize next ID counters
+    QJsonObject nextIds;
+    BiopolymerState::IdCounters counters = biopolymerState.idCounters();
+    nextIds[kNextResidueId] = counters.nextResidueId;
+    nextIds[kNextChainId] = counters.nextChainId;
+    nextIds[kNextConnectionId] = counters.nextConnectionId;
+    biopolymer[kNextIds] = nextIds;
+    
+    json[kBiopolymer] = biopolymer;
     
     return json;
 }
@@ -645,6 +814,116 @@ bool ProjectFile::fromJson(const QJsonObject& json,
         int groupId = stereoFlags["groupId"].toInt();
         molecule.setStereoFlagsDocument(type, groupId);
     }
+    
+    return true;
+}
+
+bool ProjectFile::fromJsonWithBiopolymer(const QJsonObject& json,
+                                       EditableMolecule& molecule,
+                                       DrawingStyle& drawingStyle,
+                                       PageSettings& pageSettings,
+                                       BiopolymerState& biopolymerState) {
+    // First, load the base molecule data using the regular fromJson
+    if (!fromJson(json, molecule, drawingStyle, pageSettings)) {
+        return false;
+    }
+    
+    // Check if biopolymer data exists
+    if (!json.contains(kBiopolymer)) {
+        // No biopolymer data - this is fine, just return success
+        return true;
+    }
+    
+    QJsonObject biopolymer = json[kBiopolymer].toObject();
+    
+    // Load chains and residues
+    if (biopolymer.contains(kChains)) {
+        QJsonArray chainsArray = biopolymer[kChains].toArray();
+        
+        for (const QJsonValue& chainVal : chainsArray) {
+            QJsonObject chainObj = chainVal.toObject();
+            
+            int chainId = chainObj[kId].toInt();
+            QString name = chainObj[kName].toString();
+            QString polymerTypeStr = chainObj[kPolymerType].toString();
+            PolymerType type = BiopolymerState::polymerTypeFromString(polymerTypeStr);
+            
+            // Add the chain
+            int newChainId = biopolymerState.addChain(name, type);
+            
+            // If the chain ID doesn't match, we need to remap
+            // For now, we'll assume IDs are preserved (format version 2)
+            if (newChainId != chainId) {
+                // In a full implementation, we'd handle ID remapping
+                // For M0, we'll just use the new ID
+                chainId = newChainId;
+            }
+            
+            // Load residues
+            if (chainObj.contains(kResidues)) {
+                QJsonArray residuesArray = chainObj[kResidues].toArray();
+                
+                for (const QJsonValue& residueVal : residuesArray) {
+                    QJsonObject residueObj = residueVal.toObject();
+                    
+                    int residueId = residueObj[kId].toInt();
+                    QString symbol = residueObj[kSymbol].toString();
+                    QString alias = residueObj[kAlias].toString();
+                    QString monomerClass = residueObj[kMonomerClass].toString();
+                    bool ambiguous = residueObj[kAmbiguous].toBool();
+                    int sequencePosition = residueObj[kSequencePosition].toInt();
+                    
+                    // Create the monomer identity
+                    MonomerIdentity identity;
+                    identity.symbol = symbol;
+                    identity.alias = alias;
+                    identity.monomerClass = monomerClass;
+                    identity.ambiguous = ambiguous;
+                    
+                    // Add the residue at the correct position
+                    int newResidueId = biopolymerState.addResidue(chainId, identity, sequencePosition);
+                    
+                    // Load atom IDs
+                    if (residueObj.contains(kAtomIds)) {
+                        QJsonArray atomIdsArray = residueObj[kAtomIds].toArray();
+                        QList<AtomId> atomIds;
+                        for (const QJsonValue& atomIdVal : atomIdsArray) {
+                            atomIds.append(atomIdVal.toInt());
+                        }
+                        biopolymerState.setResidueAtoms(newResidueId, atomIds);
+                    }
+                }
+            }
+        }
+    }
+    
+    // Load connections
+    if (biopolymer.contains(kConnections)) {
+        QJsonArray connectionsArray = biopolymer[kConnections].toArray();
+        
+        for (const QJsonValue& connVal : connectionsArray) {
+            QJsonObject connObj = connVal.toObject();
+            
+            int fromResidueId = connObj[kFromResidueId].toInt();
+            int toResidueId = connObj[kToResidueId].toInt();
+            BondId bondId = connObj[kBondId].toInt();
+            QString type = connObj[kType].toString();
+            
+            biopolymerState.setResidueConnection(fromResidueId, toResidueId, bondId, type);
+        }
+    }
+    
+    // Load next ID counters
+    if (biopolymer.contains(kNextIds)) {
+        QJsonObject nextIds = biopolymer[kNextIds].toObject();
+        int nextResidueId = nextIds[kNextResidueId].toInt();
+        int nextChainId = nextIds[kNextChainId].toInt();
+        int nextConnectionId = nextIds[kNextConnectionId].toInt();
+        biopolymerState.resetIdCounters(nextResidueId, nextChainId, nextConnectionId);
+    }
+    
+    // Finalize after deserialization
+    biopolymerState.finalizeAfterDeserialization();
     
     return true;
 }

@@ -42,8 +42,11 @@ TaskDialog {
     }
 
     // Format / type configuration
-    readonly property var formats:  ["Sequence", "FASTA", "HELM", "IDT", "AxoLabs"]
+    readonly property var formats:  ["Sequence", "FASTA", "HELM", "IDT", "AxoLabs", "SVG"]
     readonly property var seqTypes: ["DNA", "RNA", "Peptide"]
+    
+    // Vector export formats
+    readonly property var vectorFormats: ["SVG", "PDF"]
 
     // IDT and AxoLabs are oligonucleotide-only — disable Peptide type for them
     property bool typeRelevant: formatCombo.currentIndex <= 1  // Sequence or FASTA
@@ -188,14 +191,22 @@ TaskDialog {
                     required property string modelData
                     required property int index
                     text: modelData
-                    opacity: (index >= 3 && seqTypeCombo.currentIndex === 2) ? 0.35 : 1.0
+                    // SVG is always enabled for vector export
+                    opacity: (modelData === "SVG" || modelData === "PDF") ? 1.0 : 
+                            (index >= 3 && seqTypeCombo.currentIndex === 2) ? 0.35 : 1.0
                     enabled: opacity > 0.5
                     onClicked: {
-                        bioText.readOnly = false
-                        bioText.text = ""
-                        statusLabel.text = "Exporting as " + modelData + "…"
-                        statusLabel.color = Theme.textSecondary
-                        root.exportRequested(modelData)
+                        if (modelData === "SVG" || modelData === "PDF") {
+                            // Vector export - requires document to be loaded
+                            statusLabel.text = "Vector export requires an open document"
+                            statusLabel.color = Theme.caution
+                        } else {
+                            bioText.readOnly = false
+                            bioText.text = ""
+                            statusLabel.text = "Exporting as " + modelData + "…"
+                            statusLabel.color = Theme.textSecondary
+                            root.exportRequested(modelData)
+                        }
                     }
                 }
             }
