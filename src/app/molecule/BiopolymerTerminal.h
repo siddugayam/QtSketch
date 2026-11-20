@@ -2,11 +2,15 @@
 #ifndef BIOPOLYMERTERMINAL_H
 #define BIOPOLYMERTERMINAL_H
 
-#include "BiopolymerState.h"
-#include "BiopolymerModification.h"
 #include <QString>
 #include <QList>
 #include <QMap>
+#include <QSet>
+
+// Forward declarations to break circular dependencies
+enum class PolymerType;
+class BiopolymerState;
+class BiopolymerModification;
 
 // ========== Terminal Type ==========
 

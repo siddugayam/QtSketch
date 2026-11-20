@@ -10,6 +10,7 @@
 
 #include "BiopolymerEditCommands.h"
 #include "EditCommand.h"
+#include <memory>
 
 // Forward declarations
 class DocumentState;
@@ -25,6 +26,26 @@ public:
     static EditCommand createAndWrap(DocumentState& doc, Args&&... args) {
         return wrap(new T(std::forward<Args>(args)...), doc);
     }
+
+    // Constructor
+    explicit BiopolymerEditCommandWrapper(BiopolymerEditCommand* command, DocumentState& document);
+
+    // Destructor
+    ~BiopolymerEditCommandWrapper();
+
+    // EditCommand interface
+    void execute();
+    void unexecute();
+    bool canUndo() const;
+    QString description() const;
+    bool isSignificant() const;
+    void setSignificant(bool significant);
+    BiopolymerEditCommand* command() const;
+    BiopolymerEditCommand* takeCommand();
+    
+private:
+    std::shared_ptr<BiopolymerEditCommand> m_command;
+    DocumentState& m_document;
     
     // Helper methods for common operations
     
@@ -96,10 +117,6 @@ public:
                                                   const QList<AtomId>& oldAtoms,
                                                   const QList<AtomId>& newAtoms);
     
-private:
-    // Private constructor - use static methods
-    BiopolymerEditCommandWrapper() = delete;
-    
     // Internal wrapper function
     static void executeWrapper(BiopolymerEditCommand* cmd, DocumentState& doc);
     static void invertWrapper(BiopolymerEditCommand* cmd, DocumentState& doc);
@@ -166,7 +183,8 @@ public:
                                                          double x, double y);
     
 private:
-    DocumentState& m_doc;
+    std::shared_ptr<BiopolymerEditCommand> m_command;
+    DocumentState& m_document;
     
     // Helper to capture current state for a residue
     struct ResidueState {

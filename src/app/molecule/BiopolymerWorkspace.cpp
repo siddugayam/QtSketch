@@ -36,7 +36,20 @@ QSet<int> BiopolymerSelectionEvent::allChains() const {
     return chainIds;
 }
 
-// ========== BiopolymerVisibilityState Implementation ==========
+bool BiopolymerSelectionEvent::operator==(const BiopolymerSelectionEvent& other) const {
+    return scope == other.scope &&
+           atomIds == other.atomIds &&
+           bondIds == other.bondIds &&
+           residueIds == other.residueIds &&
+           chainIds == other.chainIds &&
+           isProgrammatic == other.isProgrammatic;
+}
+
+bool BiopolymerSelectionEvent::operator!=(const BiopolymerSelectionEvent& other) const {
+    return !(*this == other);
+}
+
+// ========== BiopolymerVisibilityState Implementation ===========
 
 bool BiopolymerVisibilityState::isChainVisible(int chainId) const {
     auto it = chainVisible.find(chainId);
@@ -398,7 +411,7 @@ void BiopolymerWorkspace::syncSelectionToChemistry() {
     
     // Select atoms from residues
     for (AtomId atomId : m_selection.atomIds) {
-        selection.addAtomToSelection(atomId);
+        selection.atoms.insert(atomId);
     }
     
     // Also select bonds that are between selected atoms
@@ -406,7 +419,7 @@ void BiopolymerWorkspace::syncSelectionToChemistry() {
         AtomId a1 = -1, a2 = -1;
         if (doc.molecule().bondEndpoints(bondId, a1, a2)) {
             if (m_selection.atomIds.contains(a1) && m_selection.atomIds.contains(a2)) {
-                selection.addBondToSelection(bondId);
+                selection.bonds.insert(bondId);
             }
         }
     }
@@ -421,12 +434,12 @@ void BiopolymerWorkspace::syncSelectionFromChemistry() {
     BiopolymerSelectionEvent event;
     
     // Get selected atoms from document
-    for (AtomId atomId : selection.atomIds()) {
+    for (AtomId atomId : selection.atoms) {
         event.atomIds.insert(atomId);
     }
     
     // Get selected bonds from document
-    for (BondId bondId : selection.bondIds()) {
+    for (BondId bondId : selection.bonds) {
         event.bondIds.insert(bondId);
     }
     

@@ -72,7 +72,7 @@ QString ProgressInfo::elapsedString() const {
     } else {
         int minutes = elapsedMilliseconds / 60000;
         int seconds = (elapsedMilliseconds % 60000) / 1000;
-        return QString("%1:%2 min").arg(minutes).arg(seconds, 2, 'f', 0, '0');
+        return QString("%1:%2 min").arg(minutes).arg(seconds, 2, 10, QChar('0'));
     }
 }
 
@@ -342,12 +342,12 @@ void AsyncTask::resume() {
     // Subclasses can override to implement resuming
 }
 
-void AsyncTask::updateProgress(int progress, const QString& description) {
-    m_progress.progress = progress;
+void AsyncTask::updateProgress(int progressValue, const QString& description) {
+    m_progress.progress = progressValue;
     if (!description.isEmpty()) {
         m_progress.currentStepDescription = description;
     }
-    emit progress(m_id, progress, description);
+    emit progress(m_id, progressValue, description);
 }
 
 void AsyncTask::updateStep(int current, int total, const QString& description) {
@@ -360,6 +360,12 @@ void AsyncTask::updateStep(int current, int total, const QString& description) {
         m_progress.currentStepDescription = description;
     }
     emit stepChanged(m_id, current, total, description);
+}
+
+void AsyncTask::markRunning() {
+    m_progress.status = OperationStatus::Running;
+    m_progress.startTime = QDateTime::currentDateTime();
+    emit statusChanged(m_id, OperationStatus::Running);
 }
 
 void AsyncTask::reportSuccess(const QString& result, const QMap<QString, QVariant>& metadata) {
@@ -462,10 +468,11 @@ OperationId BiopolymerAsyncOperations::startImport(const QString& format,
     ImportTask* task = new ImportTask(id, m_workspace, format, seqType, data);
     
     // Connect signals
-    connect(task, &AsyncTask::started, this, [this, id]() {
+    connect(task, &AsyncTask::started, this, [this, id, task]() {
         emit operationStarted(id, task->type());
     });
-    connect(task, &AsyncTask::progress, this, &BiopolymerAsyncOperations::operationProgress);
+    connect(task, static_cast<void (AsyncTask::*)(OperationId, int, const QString&)>(&AsyncTask::progress),
+            this, &BiopolymerAsyncOperations::operationProgress);
     connect(task, &AsyncTask::stepChanged, this, &BiopolymerAsyncOperations::operationStepChanged);
     connect(task, &AsyncTask::statusChanged, this, &BiopolymerAsyncOperations::onStatusChanged);
     connect(task, &AsyncTask::finished, this, &BiopolymerAsyncOperations::onTaskFinished);
@@ -485,10 +492,11 @@ OperationId BiopolymerAsyncOperations::startExport(const QString& format,
     
     ExportTask* task = new ExportTask(id, m_workspace, format, state);
     
-    connect(task, &AsyncTask::started, this, [this, id]() {
+    connect(task, &AsyncTask::started, this, [this, id, task]() {
         emit operationStarted(id, task->type());
     });
-    connect(task, &AsyncTask::progress, this, &BiopolymerAsyncOperations::operationProgress);
+    connect(task, static_cast<void (AsyncTask::*)(OperationId, int, const QString&)>(&AsyncTask::progress),
+            this, &BiopolymerAsyncOperations::operationProgress);
     connect(task, &AsyncTask::stepChanged, this, &BiopolymerAsyncOperations::operationStepChanged);
     connect(task, &AsyncTask::statusChanged, this, &BiopolymerAsyncOperations::onStatusChanged);
     connect(task, &AsyncTask::finished, this, &BiopolymerAsyncOperations::onTaskFinished);
@@ -510,10 +518,11 @@ OperationId BiopolymerAsyncOperations::startVectorExport(
     
     VectorExportTask* task = new VectorExportTask(id, m_workspace, format, state, options);
     
-    connect(task, &AsyncTask::started, this, [this, id]() {
+    connect(task, &AsyncTask::started, this, [this, id, task]() {
         emit operationStarted(id, task->type());
     });
-    connect(task, &AsyncTask::progress, this, &BiopolymerAsyncOperations::operationProgress);
+    connect(task, static_cast<void (AsyncTask::*)(OperationId, int, const QString&)>(&AsyncTask::progress),
+            this, &BiopolymerAsyncOperations::operationProgress);
     connect(task, &AsyncTask::stepChanged, this, &BiopolymerAsyncOperations::operationStepChanged);
     connect(task, &AsyncTask::statusChanged, this, &BiopolymerAsyncOperations::onStatusChanged);
     connect(task, &AsyncTask::finished, this, &BiopolymerAsyncOperations::onTaskFinished);
@@ -532,10 +541,11 @@ OperationId BiopolymerAsyncOperations::startValidation(const BiopolymerState& st
     
     ValidationTask* task = new ValidationTask(id, m_workspace, state);
     
-    connect(task, &AsyncTask::started, this, [this, id]() {
+    connect(task, &AsyncTask::started, this, [this, id, task]() {
         emit operationStarted(id, task->type());
     });
-    connect(task, &AsyncTask::progress, this, &BiopolymerAsyncOperations::operationProgress);
+    connect(task, static_cast<void (AsyncTask::*)(OperationId, int, const QString&)>(&AsyncTask::progress),
+            this, &BiopolymerAsyncOperations::operationProgress);
     connect(task, &AsyncTask::stepChanged, this, &BiopolymerAsyncOperations::operationStepChanged);
     connect(task, &AsyncTask::statusChanged, this, &BiopolymerAsyncOperations::onStatusChanged);
     connect(task, &AsyncTask::finished, this, &BiopolymerAsyncOperations::onTaskFinished);
@@ -743,40 +753,46 @@ ImportTask::ImportTask(OperationId id, const BiopolymerWorkspace& workspace,
 void ImportTask::execute() {
     emit started(id());
     
-    m_progress.status = OperationStatus::Running;
-    m_progress.startTime = QDateTime::currentDateTime();
-    emit statusChanged(id(), OperationStatus::Running);
+    markRunning();
     
     try {
-        // Create import session
-        BiopolymerImportSession importSession(workspace());
+        // Create import session with the source text
+        ImportOptions options;
+        BiopolymerImportSession importSession(m_data, options);
         
         // Set progress
-        updateStep(1, 3, "Initializing import");
+        updateStep(1, 3, "Parsing input");
         
-        // Import based on format
-        BiopolymerState state;
-        if (m_format.toUpper() == "SEQUENCE" || m_format.toUpper() == "FASTA") {
-            state = importSession.loadSequence(m_seqType, m_data);
-        } else {
-            // For other formats, use generic import
-            state = importSession.importFromText(m_format, m_data);
+        // Parse the input
+        ParseResult parseResult = importSession.parse();
+        if (!parseResult.success) {
+            reportError(QString("Parse failed: %1").arg(parseResult.errorMessage));
+            return;
         }
         
         updateStep(2, 3, "Validating structure");
         
-        // Validate the imported structure
-        importSession.validate(state);
+        // Validate the parsed draft
+        QList<ImportIssue> issues = importSession.validate();
+        for (const ImportIssue& issue : issues) {
+            if (issue.blocksCommit()) {
+                reportError(QString("Validation failed: %1").arg(issue.toString()));
+                return;
+            }
+        }
         
-        updateStep(3, 3, "Finalizing");
+        updateStep(3, 3, "Committing to document");
         
-        // Serialize to JSON for result
-        QString result = importSession.serialize(state, "JSON");
+        // Commit to the workspace's document state
+        BiopolymerWorkspace& ws = const_cast<BiopolymerWorkspace&>(workspace());
+        if (!importSession.commitToState(ws.biopolymerState(), ws.molecule())) {
+            reportError("Failed to commit import to document");
+            return;
+        }
         
-        m_progress.endTime = QDateTime::currentDateTime();
-        m_progress.elapsedMilliseconds = m_progress.startTime.msecsTo(m_progress.endTime);
-        
-        reportSuccess(result);
+        reportSuccess(QString("Imported %1 chains, %2 residues")
+                          .arg(ws.biopolymerState().chainCount())
+                          .arg(ws.biopolymerState().allResidueIds().size()));
         
     } catch (const std::exception& e) {
         reportError(QString("Import failed: %1").arg(e.what()));
@@ -798,9 +814,7 @@ ExportTask::ExportTask(OperationId id, const BiopolymerWorkspace& workspace,
 void ExportTask::execute() {
     emit started(id());
     
-    m_progress.status = OperationStatus::Running;
-    m_progress.startTime = QDateTime::currentDateTime();
-    emit statusChanged(id(), OperationStatus::Running);
+    markRunning();
     
     try {
         // Create export session
@@ -818,9 +832,6 @@ void ExportTask::execute() {
         updateStep(2, 2, "Finalizing");
         
         if (result.isSuccess()) {
-            m_progress.endTime = QDateTime::currentDateTime();
-            m_progress.elapsedMilliseconds = m_progress.startTime.msecsTo(m_progress.endTime);
-            
             reportSuccess(result.outputText);
         } else {
             reportError(result.errorMessage);
@@ -848,9 +859,7 @@ VectorExportTask::VectorExportTask(OperationId id, const BiopolymerWorkspace& wo
 void VectorExportTask::execute() {
     emit started(id());
     
-    m_progress.status = OperationStatus::Running;
-    m_progress.startTime = QDateTime::currentDateTime();
-    emit statusChanged(id(), OperationStatus::Running);
+    markRunning();
     
     try {
         // Note: This is a placeholder implementation
@@ -864,13 +873,14 @@ void VectorExportTask::execute() {
                 return;
             }
             
-            const BiopolymerChain& chain = m_state.chain(chainId);
-            for (int residueId : chain.residueIds()) {
+            const BiopolymerChain* chain = m_state.chain(chainId);
+            if (!chain) continue;
+            for (int residueId : chain->residueIds) {
                 if (shouldStop()) {
                     return;
                 }
                 
-                const BiopolymerResidue& residue = m_state.residue(residueId);
+                const BiopolymerResidue* residue = m_state.residue(residueId);
                 Q_UNUSED(residue);
             }
         }
@@ -888,9 +898,6 @@ void VectorExportTask::execute() {
                              "  <rect x=\"50\" y=\"50\" width=\"700\" height=\"500\" fill=\"white\" stroke=\"black\"/>\n"
                              "  <text x=\"400\" y=\"300\" text-anchor=\"middle\">Vector Export Placeholder</text>\n"
                              "</svg>");
-        
-        m_progress.endTime = QDateTime::currentDateTime();
-        m_progress.elapsedMilliseconds = m_progress.startTime.msecsTo(m_progress.endTime);
         
         reportSuccess(svg);
         
@@ -912,9 +919,7 @@ ValidationTask::ValidationTask(OperationId id, const BiopolymerWorkspace& worksp
 void ValidationTask::execute() {
     emit started(id());
     
-    m_progress.status = OperationStatus::Running;
-    m_progress.startTime = QDateTime::currentDateTime();
-    emit statusChanged(id(), OperationStatus::Running);
+    markRunning();
     
     try {
         // Validate the state
@@ -929,16 +934,17 @@ void ValidationTask::execute() {
                 return;
             }
             
-            const BiopolymerChain& chain = m_state.chain(chainId);
+            const BiopolymerChain* chain = m_state.chain(chainId);
+            if (!chain) continue;
             
             // Check residues
-            for (int residueId : chain.residueIds()) {
+            for (int residueId : chain->residueIds) {
                 if (shouldStop()) {
                     return;
                 }
                 
-                const BiopolymerResidue& residue = m_state.residue(residueId);
-                if (!residue.isValid()) {
+                const BiopolymerResidue* residue = m_state.residue(residueId);
+                if (residue && !residue->isValid) {
                     allValid = false;
                     errors << QString("Invalid residue %1 in chain %2").arg(residueId).arg(chainId);
                 }
@@ -948,15 +954,15 @@ void ValidationTask::execute() {
         updateStep(2, 3, "Checking connections");
         
         // Check connections
-        for (const BiopolymerConnection& conn : m_state.connections()) {
+        for (const BiopolymerConnection& conn : m_state.allConnections()) {
             if (shouldStop()) {
                 return;
             }
             
-            if (!m_state.hasResidue(conn.fromResidueId()) || 
-                !m_state.hasResidue(conn.toResidueId())) {
+            if (m_state.residue(conn.fromResidueId) == nullptr || 
+                m_state.residue(conn.toResidueId) == nullptr) {
                 allValid = false;
-                errors << QString("Invalid connection %1: missing residue").arg(conn.id());
+                errors << QString("Invalid connection %1: missing residue").arg(conn.id);
             }
         }
         
@@ -971,9 +977,6 @@ void ValidationTask::execute() {
                 result += QString("\n  - %1").arg(error);
             }
         }
-        
-        m_progress.endTime = QDateTime::currentDateTime();
-        m_progress.elapsedMilliseconds = m_progress.startTime.msecsTo(m_progress.endTime);
         
         reportSuccess(result);
         

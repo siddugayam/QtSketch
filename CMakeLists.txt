@@ -500,6 +500,8 @@ add_library(molecule_model STATIC
     src/app/molecule/BiopolymerPerformanceBenchmark.cpp
     src/app/molecule/BiopolymerAsyncOperations.h
     src/app/molecule/BiopolymerAsyncOperations.cpp
+    src/app/molecule/IndigoMonomerAdapter.h
+    src/app/molecule/IndigoMonomerAdapter.cpp
     src/app/render/RenderScene.h
     src/app/render/RenderScene.cpp
     src/app/render/Exporter.h

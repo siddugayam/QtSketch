@@ -929,7 +929,8 @@ bool ExtendedConnectionManager::areChainsConnected(int chainId1, int chainId2) c
 
 BiopolymerInterchainConnection* ExtendedConnectionManager::findInterchainConnection(int residueId1, int residueId2) {
     for (auto& ic : m_interchainConnections) {
-        if (ic.connects(residueId1, residueId2)) {
+        if ((ic.residueId1 == residueId1 && ic.residueId2 == residueId2) ||
+            (ic.residueId1 == residueId2 && ic.residueId2 == residueId1)) {
             return &ic;
         }
     }
@@ -938,7 +939,8 @@ BiopolymerInterchainConnection* ExtendedConnectionManager::findInterchainConnect
 
 const BiopolymerInterchainConnection* ExtendedConnectionManager::findInterchainConnection(int residueId1, int residueId2) const {
     for (const auto& ic : m_interchainConnections) {
-        if (ic.connects(residueId1, residueId2)) {
+        if ((ic.residueId1 == residueId1 && ic.residueId2 == residueId2) ||
+            (ic.residueId1 == residueId2 && ic.residueId2 == residueId1)) {
             return &ic;
         }
     }

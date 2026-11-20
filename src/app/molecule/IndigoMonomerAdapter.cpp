@@ -5,7 +5,7 @@
 // ========== Static Template Data ==========
 
 // Standard 20 amino acids (L-form)
-const QList<IndigoMonomerAdapter::MonomerTemplate> IndigoMonomerAdapter::s_peptideTemplates = []() {
+const QList<MonomerTemplate> IndigoMonomerAdapter::s_peptideTemplates = []() {
     QList<MonomerTemplate> templates;
     
     // Glycine - no chiral center
@@ -292,7 +292,7 @@ const QList<IndigoMonomerAdapter::MonomerTemplate> IndigoMonomerAdapter::s_pepti
 }();
 
 // DNA bases
-const QList<IndigoMonomerAdapter::MonomerTemplate> IndigoMonomerAdapter::s_dnaTemplates = []() {
+const QList<MonomerTemplate> IndigoMonomerAdapter::s_dnaTemplates = []() {
     QList<MonomerTemplate> templates;
     
     // Adenine (DNA)
@@ -355,7 +355,7 @@ const QList<IndigoMonomerAdapter::MonomerTemplate> IndigoMonomerAdapter::s_dnaTe
 }();
 
 // RNA bases
-const QList<IndigoMonomerAdapter::MonomerTemplate> IndigoMonomerAdapter::s_rnaTemplates = []() {
+const QList<MonomerTemplate> IndigoMonomerAdapter::s_rnaTemplates = []() {
     QList<MonomerTemplate> templates;
     
     // Adenine (RNA) - note ribose has 2' OH
@@ -418,75 +418,75 @@ const QList<IndigoMonomerAdapter::MonomerTemplate> IndigoMonomerAdapter::s_rnaTe
 }();
 
 // Ambiguous amino acids
-const QList<IndigoMonomerAdapter::MonomerTemplate> IndigoMonomerAdapter::s_ambiguousPeptideTemplates = []() {
+const QList<MonomerTemplate> IndigoMonomerAdapter::s_ambiguousPeptideTemplates = []() {
     QList<MonomerTemplate> templates;
     
-    templates.append({"B", "Asx", "AminoAcid", true, "", {0, 1}, {}, {}, {}, "", {}, {}, {}, {}});
-    templates.append({"Z", "Glx", "AminoAcid", true, "", {0, 1}, {}, {}, {}, "", {}, {}, {}, {}});
-    templates.append({"J", "Xle", "AminoAcid", true, "", {0, 1}, {}, {}, {}, "", {}, {}, {}, {}});
-    templates.append({"X", "Xaa", "AminoAcid", true, "", {0, 1}, {}, {}, {}, "", {}, {}, {}, {}});
+    templates.append(MonomerTemplate{"B", "Asx", "AminoAcid", true, "", {0, 1}, {}, {}, {}, "", {}, {}, {}, {}});
+    templates.append(MonomerTemplate{"Z", "Glx", "AminoAcid", true, "", {0, 1}, {}, {}, {}, "", {}, {}, {}, {}});
+    templates.append(MonomerTemplate{"J", "Xle", "AminoAcid", true, "", {0, 1}, {}, {}, {}, "", {}, {}, {}, {}});
+    templates.append(MonomerTemplate{"X", "Xaa", "AminoAcid", true, "", {0, 1}, {}, {}, {}, "", {}, {}, {}, {}});
     
     return templates;
 }();
 
 // Ambiguous nucleotides
-const QList<IndigoMonomerAdapter::MonomerTemplate> IndigoMonomerAdapter::s_ambiguousNucleotideTemplates = []() {
+const QList<MonomerTemplate> IndigoMonomerAdapter::s_ambiguousNucleotideTemplates = []() {
     QList<MonomerTemplate> templates;
     
-    templates.append({"N", "N", "Base", true, "", {0, 1, 2}, {}, {}, {}, "", {}, {}, {}, {}});
-    templates.append({"B", "B", "Base", true, "", {0, 1, 2}, {}, {}, {}, "", {}, {}, {}, {}});
-    templates.append({"V", "V", "Base", true, "", {0, 1, 2}, {}, {}, {}, "", {}, {}, {}, {}});
-    templates.append({"D", "D", "Base", true, "", {0, 1, 2}, {}, {}, {}, "", {}, {}, {}, {}});
-    templates.append({"H", "H", "Base", true, "", {0, 1, 2}, {}, {}, {}, "", {}, {}, {}, {}});
-    templates.append({"K", "K", "Base", true, "", {0, 1, 2}, {}, {}, {}, "", {}, {}, {}, {}});
-    templates.append({"M", "M", "Base", true, "", {0, 1, 2}, {}, {}, {}, "", {}, {}, {}, {}});
-    templates.append({"W", "W", "Base", true, "", {0, 1, 2}, {}, {}, {}, "", {}, {}, {}, {}});
-    templates.append({"Y", "Y", "Base", true, "", {0, 1, 2}, {}, {}, {}, "", {}, {}, {}, {}});
-    templates.append({"R", "R", "Base", true, "", {0, 1, 2}, {}, {}, {}, "", {}, {}, {}, {}});
-    templates.append({"S", "S", "Base", true, "", {0, 1, 2}, {}, {}, {}, "", {}, {}, {}, {}});
+    templates.append(MonomerTemplate{"N", "N", "Base", true, "", {0, 1, 2}, {}, {}, {}, "", {}, {}, {}, {}});
+    templates.append(MonomerTemplate{"B", "B", "Base", true, "", {0, 1, 2}, {}, {}, {}, "", {}, {}, {}, {}});
+    templates.append(MonomerTemplate{"V", "V", "Base", true, "", {0, 1, 2}, {}, {}, {}, "", {}, {}, {}, {}});
+    templates.append(MonomerTemplate{"D", "D", "Base", true, "", {0, 1, 2}, {}, {}, {}, "", {}, {}, {}, {}});
+    templates.append(MonomerTemplate{"H", "H", "Base", true, "", {0, 1, 2}, {}, {}, {}, "", {}, {}, {}, {}});
+    templates.append(MonomerTemplate{"K", "K", "Base", true, "", {0, 1, 2}, {}, {}, {}, "", {}, {}, {}, {}});
+    templates.append(MonomerTemplate{"M", "M", "Base", true, "", {0, 1, 2}, {}, {}, {}, "", {}, {}, {}, {}});
+    templates.append(MonomerTemplate{"W", "W", "Base", true, "", {0, 1, 2}, {}, {}, {}, "", {}, {}, {}, {}});
+    templates.append(MonomerTemplate{"Y", "Y", "Base", true, "", {0, 1, 2}, {}, {}, {}, "", {}, {}, {}, {}});
+    templates.append(MonomerTemplate{"R", "R", "Base", true, "", {0, 1, 2}, {}, {}, {}, "", {}, {}, {}, {}});
+    templates.append(MonomerTemplate{"S", "S", "Base", true, "", {0, 1, 2}, {}, {}, {}, "", {}, {}, {}, {}});
     
     return templates;
 }();
 
 // Terminal group templates
-const QList<IndigoMonomerAdapter::TerminalGroupTemplate> IndigoMonomerAdapter::s_peptideTerminalGroups = []() {
+const QList<TerminalGroupTemplate> IndigoMonomerAdapter::s_peptideTerminalGroups = []() {
     QList<TerminalGroupTemplate> templates;
     
     // N-terminus: NH2 (default)
-    templates.append({"NH2", "N", {}, {}});
+    templates.append({"NH2", "N", {}});
     
     // N-terminus: NH3+ (protonated)
-    templates.append({"NH3+", "[NH3+]", {}, {}});
+    templates.append({"NH3+", "[NH3+]", {}});
     
     // N-terminus: Acetyl
-    templates.append({"Ac", "CC(=O)N", {1}, {}});  // Attaches at index 1 (the N)
+    templates.append({"Ac", "CC(=O)N", {1}});  // Attaches at index 1 (the N)
     
     // C-terminus: COOH (default)
-    templates.append({"COOH", "C(=O)O", {}, {}});
+    templates.append({"COOH", "C(=O)O", {}});
     
     // C-terminus: COO- (deprotonated)
-    templates.append({"COO-", "C(=O)[O-]", {}, {}});
+    templates.append({"COO-", "C(=O)[O-]", {}});
     
     // C-terminus: Amide (CONH2)
-    templates.append({"CONH2", "C(=O)N", {0}, {}});  // Attaches at index 0 (the C)
+    templates.append({"CONH2", "C(=O)N", {0}});  // Attaches at index 0 (the C)
     
     return templates;
 }();
 
-const QList<IndigoMonomerAdapter::TerminalGroupTemplate> IndigoMonomerAdapter::s_nucleotideTerminalGroups = []() {
+const QList<TerminalGroupTemplate> IndigoMonomerAdapter::s_nucleotideTerminalGroups = []() {
     QList<TerminalGroupTemplate> templates;
     
     // 5' phosphate
-    templates.append({"5'-PO4", "P(=O)(O)O", {0}, {}});
+    templates.append({"5'-PO4", "P(=O)(O)O", {0}});
     
     // 5' monophosphate
-    templates.append({"5'-P", "P(=O)(O)O", {0}, {}});
+    templates.append({"5'-P", "P(=O)(O)O", {0}});
     
     // 3' phosphate
-    templates.append({"3'-PO4", "OP(=O)(O)O", {0}, {}});
+    templates.append({"3'-PO4", "OP(=O)(O)O", {0}});
     
     // 3' hydroxyl (default for RNA)
-    templates.append({"3'-OH", "O", {}, {}});
+    templates.append({"3'-OH", "O", {}});
     
     return templates;
 }();
@@ -502,7 +502,7 @@ IndigoMonomerAdapter::IndigoMonomerAdapter() {
 
 IndigoMonomerAdapter::~IndigoMonomerAdapter() = default;
 
-const IndigoMonomerAdapter::MonomerTemplate* 
+const MonomerTemplate* 
 IndigoMonomerAdapter::templateForSymbol(const QString& symbol, PolymerType type) const {
     QString normSymbol = normalizeMonomerSymbol(symbol);
     const auto& map = getTemplateMap(type);
@@ -522,12 +522,12 @@ QList<QString> IndigoMonomerAdapter::validSymbols(PolymerType type) const {
     return symbols;
 }
 
-QList<IndigoMonomerAdapter::MonomerTemplate> 
+QList<MonomerTemplate> 
 IndigoMonomerAdapter::templates(PolymerType type) const {
     return templatesForType(type) + ambiguousTemplatesForType(type);
 }
 
-const QList<IndigoMonomerAdapter::MonomerTemplate>& 
+const QList<MonomerTemplate>& 
 IndigoMonomerAdapter::templatesForType(PolymerType type) const {
     switch (type) {
     case PolymerType::Peptide: return s_peptideTemplates;
@@ -537,7 +537,7 @@ IndigoMonomerAdapter::templatesForType(PolymerType type) const {
     }
 }
 
-const QList<IndigoMonomerAdapter::MonomerTemplate>& 
+const QList<MonomerTemplate>& 
 IndigoMonomerAdapter::ambiguousTemplatesForType(PolymerType type) const {
     switch (type) {
     case PolymerType::Peptide: return s_ambiguousPeptideTemplates;
@@ -555,7 +555,7 @@ ExpansionResult IndigoMonomerAdapter::expandMonomer(
     
     const MonomerTemplate* tpl = templateForSymbol(symbol, type);
     if (!tpl) {
-        return ExpansionResult{false, QString("Unknown monomer symbol: %1 for type %2").arg(symbol).arg(polymerTypeToString(type)), "", {}, {}, {}, {}};
+        return ExpansionResult{false, QString("Unknown monomer symbol: %1 for type %2").arg(symbol).arg(polymerTypeToString(type)), "", {}, {}, {}};
     }
     
     // For now, we use a simplified approach: load from SMILES
@@ -566,7 +566,7 @@ ExpansionResult IndigoMonomerAdapter::expandMonomer(
     QString smiles = tpl->smiles;
     if (smiles.isEmpty()) {
         // For ambiguous templates without SMILES, we can't expand
-        return ExpansionResult{false, QString("No SMILES for ambiguous monomer: %1").arg(symbol), "", {}, {}, {}, {}};
+        return ExpansionResult{false, QString("No SMILES for ambiguous monomer: %1").arg(symbol), "", {}, {}, {}};
     }
     
     // Check if we need to add explicit hydrogens
@@ -833,22 +833,43 @@ bool IndigoMonomerAdapter::supportsModification(PolymerType type, const QString&
 
 // ========== Private Methods ==========
 
-QHash<QString, IndigoMonomerAdapter::MonomerTemplate> 
+QHash<QString, MonomerTemplate> 
 IndigoMonomerAdapter::buildFullTemplateMap(PolymerType type) {
     QHash<QString, MonomerTemplate> map;
     
-    for (const auto& tpl : templatesForType(type)) {
+    const QList<MonomerTemplate>* templates = nullptr;
+    const QList<MonomerTemplate>* ambiguous = nullptr;
+    switch (type) {
+    case PolymerType::Peptide:
+        templates = &s_peptideTemplates;
+        ambiguous = &s_ambiguousPeptideTemplates;
+        break;
+    case PolymerType::DNA:
+        templates = &s_dnaTemplates;
+        ambiguous = &s_ambiguousNucleotideTemplates;
+        break;
+    case PolymerType::RNA:
+        templates = &s_rnaTemplates;
+        ambiguous = &s_ambiguousNucleotideTemplates;
+        break;
+    default:
+        templates = &s_peptideTemplates;
+        ambiguous = &s_ambiguousPeptideTemplates;
+        break;
+    }
+    
+    for (const auto& tpl : *templates) {
         map[tpl.symbol] = tpl;
     }
     
-    for (const auto& tpl : ambiguousTemplatesForType(type)) {
+    for (const auto& tpl : *ambiguous) {
         map[tpl.symbol] = tpl;
     }
     
     return map;
 }
 
-const QHash<QString, IndigoMonomerAdapter::MonomerTemplate>& 
+const QHash<QString, MonomerTemplate>& 
 IndigoMonomerAdapter::getTemplateMap(PolymerType type) const {
     switch (type) {
     case PolymerType::Peptide: return m_fullPeptideTemplateMap;
@@ -869,6 +890,25 @@ QMap<int, AtomId> IndigoMonomerAdapter::parseMolfileAtomMap(
 }
 
 // ========== Utility Functions ==========
+
+QString IndigoMonomerAdapter::monomerAlias(const QString& symbol, PolymerType type) {
+    // Select the appropriate static template list
+    const QList<MonomerTemplate>* templates = nullptr;
+    switch (type) {
+    case PolymerType::Peptide: templates = &s_peptideTemplates; break;
+    case PolymerType::DNA: templates = &s_dnaTemplates; break;
+    case PolymerType::RNA: templates = &s_rnaTemplates; break;
+    default: templates = &s_peptideTemplates; break;
+    }
+    
+    for (const MonomerTemplate& tmpl : *templates) {
+        if (tmpl.symbol == symbol.toUpper() || tmpl.symbol == symbol) {
+            return tmpl.alias;
+        }
+    }
+    
+    return QString();
+}
 
 QString polymerTypeToString(PolymerType type) {
     return IndigoMonomerAdapter::normalizePolymerTypeString(

@@ -87,6 +87,10 @@ struct BiopolymerSelectionEvent {
     
     // Get all selected chains
     QSet<int> allChains() const;
+
+    // Equality operators
+    bool operator==(const BiopolymerSelectionEvent& other) const;
+    bool operator!=(const BiopolymerSelectionEvent& other) const;
 };
 
 // ========== Visibility Types ==========

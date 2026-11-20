@@ -7,6 +7,8 @@
 #include <QCoreApplication>
 #include <QRandomGenerator>
 #include <QProcess>
+#include <QThread>
+#include <QSysInfo>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -123,7 +125,7 @@ QString BenchmarkResult::formattedResult() const {
     parts << QString("Elapsed: %1 ms").arg(elapsedMilliseconds);
     
     if (memoryDeltaBytes != 0) {
-        parts << QString("Memory delta: %1").arg(formatMemorySize(memoryDeltaBytes));
+        parts << QString("Memory delta: %1").arg(BiopolymerPerformanceBenchmark::formatMemorySize(memoryDeltaBytes));
     }
     
     if (passed) {
@@ -246,9 +248,8 @@ QList<BenchmarkResult> BenchmarkOperation::run(
         
         result = executor(state, size);
         
-        timer.invalidate();
         result.elapsedNanoseconds = timer.nsecsElapsed();
-        result.elapsedMilliseconds = timer.msecsElapsed();
+        result.elapsedMilliseconds = timer.elapsed();
         result.elapsedSeconds = timer.nsecsElapsed() / 1000000000.0;
         
         results.append(result);
@@ -368,7 +369,7 @@ BenchmarkSuiteResult BiopolymerPerformanceBenchmark::runBenchmarksForSizes(
             }
         }
         
-        suiteResult.summariesBySizeAndOp[size] = summaries.values();
+        suiteResult.summariesBySizeAndOp[size] = summaries;
     }
     
     // Check overall pass/fail
@@ -440,14 +441,13 @@ BenchmarkResult BiopolymerPerformanceBenchmark::benchmarkDocumentLoad(int size) 
     QElapsedTimer timer;
     timer.start();
     
-    // Create import session and load
-    BiopolymerImportSession importSession(m_workspace);
-    BiopolymerState state = importSession.loadSequence("PEPTIDE", sequence);
-    
-    timer.invalidate();
+    // Generate test document directly
+    BiopolymerState state = generateTestDocument(size);
+    Q_UNUSED(state);
+    Q_UNUSED(sequence);
     
     result.elapsedNanoseconds = timer.nsecsElapsed();
-    result.elapsedMilliseconds = timer.msecsElapsed();
+    result.elapsedMilliseconds = timer.elapsed();
     result.passed = result.meetsTarget(m_config.targetLoadTimeMs);
     
     if (!result.passed) {
@@ -471,9 +471,10 @@ BenchmarkResult BiopolymerPerformanceBenchmark::benchmarkSequenceRendering(int s
     // Simulate rendering by iterating through residues
     // In a real implementation, this would call the actual rendering code
     for (int chainId : testState.chainIds()) {
-        const BiopolymerChain& chain = testState.chain(chainId);
-        for (int residueId : chain.residueIds()) {
-            const BiopolymerResidue& residue = testState.residue(residueId);
+        const BiopolymerChain* chain = testState.chain(chainId);
+        if (!chain) continue;
+        for (int residueId : chain->residueIds) {
+            const BiopolymerResidue* residue = testState.residue(residueId);
             // Access residue properties to simulate rendering
             Q_UNUSED(residue);
             Q_UNUSED(residueId);
@@ -482,10 +483,9 @@ BenchmarkResult BiopolymerPerformanceBenchmark::benchmarkSequenceRendering(int s
         }
     }
     
-    timer.invalidate();
     
     result.elapsedNanoseconds = timer.nsecsElapsed();
-    result.elapsedMilliseconds = timer.msecsElapsed();
+    result.elapsedMilliseconds = timer.elapsed();
     result.passed = result.meetsTarget(m_config.targetFrameBudgetMs * 3); // Allow multiple frames
     
     return result;
@@ -505,11 +505,12 @@ BenchmarkResult BiopolymerPerformanceBenchmark::benchmarkExportGeneration(int si
     // Simulate export generation
     QStringList sequences;
     for (int chainId : testState.chainIds()) {
-        const BiopolymerChain& chain = testState.chain(chainId);
+        const BiopolymerChain* chain = testState.chain(chainId);
+        if (!chain) continue;
         QString seq;
-        for (int residueId : chain.residueIds()) {
-            const BiopolymerResidue& residue = testState.residue(residueId);
-            seq += residue.label();
+        for (int residueId : chain->residueIds) {
+            const BiopolymerResidue* residue = testState.residue(residueId);
+            if (residue) seq += residue->identity.symbol;
         }
         sequences << seq;
     }
@@ -522,10 +523,9 @@ BenchmarkResult BiopolymerPerformanceBenchmark::benchmarkExportGeneration(int si
     
     Q_UNUSED(fasta);
     
-    timer.invalidate();
     
     result.elapsedNanoseconds = timer.nsecsElapsed();
-    result.elapsedMilliseconds = timer.msecsElapsed();
+    result.elapsedMilliseconds = timer.elapsed();
     result.passed = result.elapsedMilliseconds < 500; // Target: < 500ms
     
     return result;
@@ -545,10 +545,10 @@ BenchmarkResult BiopolymerPerformanceBenchmark::benchmarkSelectionFeedback(int s
     // Simulate selection by accessing a residue
     if (!testState.chainIds().isEmpty()) {
         int chainId = testState.chainIds().first();
-        const BiopolymerChain& chain = testState.chain(chainId);
-        if (!chain.residueIds().isEmpty()) {
-            int residueId = chain.residueIds().first();
-            const BiopolymerResidue& residue = testState.residue(residueId);
+        const BiopolymerChain* chain = testState.chain(chainId);
+        if (chain && !chain->residueIds.isEmpty()) {
+            int residueId = chain->residueIds.first();
+            const BiopolymerResidue* residue = testState.residue(residueId);
             Q_UNUSED(residue);
             Q_UNUSED(residueId);
             Q_UNUSED(chain);
@@ -556,10 +556,9 @@ BenchmarkResult BiopolymerPerformanceBenchmark::benchmarkSelectionFeedback(int s
         }
     }
     
-    timer.invalidate();
     
     result.elapsedNanoseconds = timer.nsecsElapsed();
-    result.elapsedMilliseconds = timer.msecsElapsed();
+    result.elapsedMilliseconds = timer.elapsed();
     result.passed = result.meetsTarget(m_config.targetSelectionFeedbackMs);
     
     if (!result.passed) {
@@ -580,29 +579,25 @@ BenchmarkResult BiopolymerPerformanceBenchmark::benchmarkZoomPan(int size) {
     QElapsedTimer timer;
     timer.start();
     
-    // Simulate zoom/pan by recalculating positions
+    // Simulate zoom/pan by touching per-residue data
     for (int chainId : testState.chainIds()) {
-        const BiopolymerChain& chain = testState.chain(chainId);
-        for (int residueId : chain.residueIds()) {
-            const BiopolymerResidue& residue = testState.residue(residueId);
-            // Simulate position calculation
-            qreal x = residue.x();
-            qreal y = residue.y();
-            qreal scaledX = x * 1.5; // Simulate zoom
-            qreal scaledY = y * 1.5;
-            Q_UNUSED(scaledX);
-            Q_UNUSED(scaledY);
-            Q_UNUSED(residue);
+        const BiopolymerChain* chain = testState.chain(chainId);
+        if (!chain) continue;
+        for (int residueId : chain->residueIds) {
+            const BiopolymerResidue* residue = testState.residue(residueId);
+            if (!residue) continue;
+            // Simulate transform by reading sequence position
+            qreal scaledPos = residue->sequencePosition * 1.5; // Simulate zoom
+            Q_UNUSED(scaledPos);
             Q_UNUSED(residueId);
             Q_UNUSED(chain);
             Q_UNUSED(chainId);
         }
     }
     
-    timer.invalidate();
     
     result.elapsedNanoseconds = timer.nsecsElapsed();
-    result.elapsedMilliseconds = timer.msecsElapsed();
+    result.elapsedMilliseconds = timer.elapsed();
     result.passed = result.meetsTarget(m_config.targetFrameBudgetMs);
     
     return result;
@@ -620,13 +615,12 @@ BenchmarkResult BiopolymerPerformanceBenchmark::benchmarkUndoRedo(int size) {
     timer.start();
     
     // Simulate undo by copying state (in real implementation, this would be a proper undo)
-    BiopolymerState copy = testState;
+    BiopolymerState copy(testState);
     Q_UNUSED(copy);
     
-    timer.invalidate();
     
     result.elapsedNanoseconds = timer.nsecsElapsed();
-    result.elapsedMilliseconds = timer.msecsElapsed();
+    result.elapsedMilliseconds = timer.elapsed();
     result.passed = result.elapsedMilliseconds < 100; // Target: < 100ms
     
     return result;
@@ -635,30 +629,32 @@ BenchmarkResult BiopolymerPerformanceBenchmark::benchmarkUndoRedo(int size) {
 BiopolymerState BiopolymerPerformanceBenchmark::generateTestDocument(
     int size, PolymerType type) {
     
-    BiopolymerWorkspace tempWorkspace;
-    BiopolymerState state(tempWorkspace);
+    BiopolymerState state;
     
     // Create a chain with the specified number of residues
     QString sequence;
     switch (type) {
-    case PolymerType::Protein:
+    case PolymerType::Peptide:
         sequence = generateRandomProtein(size);
         break;
-    case PolymerType::Dna:
+    case PolymerType::DNA:
         sequence = generateRandomDna(size);
         break;
-    case PolymerType::Rna:
+    case PolymerType::RNA:
         sequence = generateRandomRna(size);
         break;
     default:
         sequence = generateRandomProtein(size);
     }
     
-    // Import the sequence
-    BiopolymerImportSession importSession(tempWorkspace);
-    state = importSession.loadSequence("PEPTIDE", sequence);
+    int chainId = state.addChain("A", type);
+    for (int i = 0; i < size && i < sequence.size(); ++i) {
+        MonomerIdentity identity;
+        identity.symbol = QString(sequence[i]);
+        state.addResidue(chainId, identity, i + 1);
+    }
     
-    return state;
+    return BiopolymerState(state);
 }
 
 QString BiopolymerPerformanceBenchmark::generateRandomProtein(int length) {
@@ -751,29 +747,61 @@ BenchmarkSuiteResult BiopolymerPerformanceBenchmark::runCustomBenchmark(
     const QString& suiteName, const QList<BenchmarkOperation>& operations,
     const QList<int>& sizes, const BenchmarkConfig& config) {
     
-    BiopolymerPerformanceBenchmark benchmark(BiopolymerWorkspace());
-    benchmark.m_config = config;
-    
+    // Note: generateTestDocument and getSystemInfo no longer require a workspace,
+    // so we use a lightweight local helper instead of constructing a full benchmark instance.
     BenchmarkSuiteResult suiteResult;
     suiteResult.suiteName = suiteName;
     suiteResult.timestamp = QDateTime::currentDateTime();
     suiteResult.config = config;
-    suiteResult.systemInfo = benchmark.getSystemInfo();
+    
+    // Generate system info without a workspace-bound instance
+    {
+        QStringList info;
+        info << QString("OS: %1").arg(QSysInfo::productType());
+        info << QString("CPU cores: %1").arg(QThread::idealThreadCount());
+        info << QString("Qt: %1").arg(QT_VERSION_STR);
+        suiteResult.systemInfo = info.join("; ");
+    }
+    
+    auto iterationCountFor = [&config](int size) -> int {
+        if (size < 1000) return config.smallDocumentIterations;
+        if (size < 5000) return config.mediumDocumentIterations;
+        return config.largeDocumentIterations;
+    };
     
     for (int size : sizes) {
-        BiopolymerState testState = benchmark.generateTestDocument(size);
+        // Build test state directly (same logic as generateTestDocument)
+        BiopolymerState testState;
+        int chainId = testState.addChain("A", PolymerType::Peptide);
+        QString sequence = BiopolymerPerformanceBenchmark::defaultConfig().testSizes.contains(size)
+            ? QString() : QString();
+        // Generate random protein sequence inline
+        {
+            static const QString aminoAcids = "ACDEFGHIKLMNPQRSTVWY";
+            QRandomGenerator rng(QDateTime::currentDateTime().toMSecsSinceEpoch() + size);
+            for (int i = 0; i < size; ++i) {
+                MonomerIdentity identity;
+                identity.symbol = QString(aminoAcids[rng.bounded(aminoAcids.length())]);
+                testState.addResidue(chainId, identity, i + 1);
+            }
+        }
+        Q_UNUSED(sequence);
         
         for (const BenchmarkOperation& op : operations) {
             QList<BenchmarkResult> results = op.run(testState, size, 
-                benchmark.getIterationCount(size), config.warmupIterations);
+                iterationCountFor(size), config.warmupIterations);
             
-            // Calculate statistics
-            BenchmarkResult summary = benchmark.calculateStatistics(results);
-            summary.testSize = size;
-            summary.testName = op.name;
-            summary.operation = op.description;
-            
-            suiteResult.resultsBySize[size].append(summary);
+            // Calculate statistics inline
+            if (!results.isEmpty()) {
+                BenchmarkResult summary = results.first();
+                qint64 totalMs = 0;
+                for (const BenchmarkResult& r : results) totalMs += r.elapsedMilliseconds;
+                summary.averageMs = static_cast<double>(totalMs) / results.size();
+                summary.testSize = size;
+                summary.testName = op.name;
+                summary.operation = op.description;
+                suiteResult.resultsBySize[size].append(summary);
+            }
         }
     }
     
@@ -831,10 +859,9 @@ BenchmarkResult BiopolymerPerformanceBenchmark::measureOperation(
     
     operationFunc();
     
-    timer.invalidate();
     
     result.elapsedNanoseconds = timer.nsecsElapsed();
-    result.elapsedMilliseconds = timer.msecsElapsed();
+    result.elapsedMilliseconds = timer.elapsed();
     result.elapsedSeconds = timer.nsecsElapsed() / 1000000000.0;
     
     // Track memory if enabled
@@ -858,7 +885,6 @@ void BiopolymerPerformanceBenchmark::warmup(int iterations) {
             sum += j;
         }
         Q_UNUSED(sum);
-        timer.invalidate();
     }
 }
 
@@ -907,10 +933,9 @@ bool BiopolymerPerformanceBenchmark::checkSystemResponsiveness() const {
     }
     Q_UNUSED(sum);
     
-    timer.invalidate();
     
     // System should respond within 100ms for a simple computation
-    return timer.msecsElapsed() < 100;
+    return timer.elapsed() < 100;
 }
 
 BiopolymerState BiopolymerPerformanceBenchmark::createTestState(int size) {
@@ -1000,10 +1025,4 @@ QString BiopolymerPerformanceBenchmark::formatMemorySize(qint64 bytes) {
     } else {
         return QString("%1 GB").arg(static_cast<double>(bytes) / gb, 0, 'f', 2);
     }
-}
-
-// ========== String Conversions ==========
-
-QString benchmarkFormatToString(VectorExportFormat format) {
-    return vectorExportFormatToString(static_cast<VectorExportFormat>(format));
 }

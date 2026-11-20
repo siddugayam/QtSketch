@@ -13,6 +13,7 @@
 #include <QSet>
 #include <QString>
 #include "EditCommand.h"
+#include "BiopolymerImportSession.h"
 
 using AtomId = int;
 using BondId = int;
@@ -25,18 +26,18 @@ class BiopolymerImportSession;
 // ========== Import Command Types ==========
 
 // Base class for biopolymer import commands
-class BiopolymerImportCommand : public EditCommand {
+class BiopolymerImportCommand {
 public:
     virtual ~BiopolymerImportCommand();
     
     // Execute the import
-    virtual void perform(EditableMolecule& molecule) override = 0;
+    virtual void perform(EditableMolecule& molecule, BiopolymerState& state) = 0;
     
     // Undo the import (restore previous state)
-    virtual void revert(EditableMolecule& molecule) override = 0;
+    virtual void revert(EditableMolecule& molecule, BiopolymerState& state) = 0;
     
     // Get description
-    virtual QString description() const override = 0;
+    virtual QString description() const = 0;
 };
 
 // ========== Open as New Document ==========
@@ -60,12 +61,12 @@ public:
     
     ~ImportAsNewDocumentCommand() override;
     
-    void perform(EditableMolecule& molecule) override;
-    void revert(EditableMolecule& molecule) override;
+    void perform(EditableMolecule& molecule, BiopolymerState& state) override;
+    void revert(EditableMolecule& molecule, BiopolymerState& state) override;
     QString description() const override;
     
 private:
-    void capturePreviousState(EditableMolecule& molecule);
+    void capturePreviousState(EditableMolecule& molecule, BiopolymerState& state);
 };
 
 // ========== Replace Current Document ==========
@@ -88,12 +89,12 @@ public:
     
     ~ReplaceDocumentCommand() override;
     
-    void perform(EditableMolecule& molecule) override;
-    void revert(EditableMolecule& molecule) override;
+    void perform(EditableMolecule& molecule, BiopolymerState& state) override;
+    void revert(EditableMolecule& molecule, BiopolymerState& state) override;
     QString description() const override;
     
 private:
-    void capturePreviousState(EditableMolecule& molecule);
+    void capturePreviousState(EditableMolecule& molecule, BiopolymerState& state);
 };
 
 // ========== Import Session Wrapper ==========
@@ -130,7 +131,7 @@ public:
     
     // Import biopolymer from text with options
     ImportResult importFromText(EditableMolecule& molecule, BiopolymerState& bioState,
-                                const QString& text, const BiopolymerImportSession::ImportOptions& options,
+                                const QString& text, const ImportOptions& options,
                                 const QString& format = QString(), ImportMode mode = ImportMode::OpenAsNew);
     
     // Create import command (for undoable import)
@@ -139,7 +140,7 @@ public:
                                                  ImportMode mode);
     
     // Validate input before import
-    static BiopolymerImportSession::ParseResult validateInput(const QString& text,
+    static ParseResult validateInput(const QString& text,
                                                              const QString& format = QString());
     
     // Check if input can be imported
@@ -155,7 +156,7 @@ public:
     
     // Start a new import session (for UI with preview)
     BiopolymerImportSession* startImportSession(const QString& text, 
-                                               const BiopolymerImportSession::ImportOptions& options = {});
+                                               const ImportOptions& options = {});
     
     // Continue an existing session
     BiopolymerImportSession* continueImportSession(BiopolymerImportSession* session);

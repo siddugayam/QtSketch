@@ -1,7 +1,7 @@
 // src/app/molecule/BiopolymerImportSession.cpp
 #include "BiopolymerImportSession.h"
 #include "IndigoMonomerAdapter.h"
-#include <QRegExp>
+#include <QRegularExpression>
 #include <QTextStream>
 #include <algorithm>
 
@@ -206,7 +206,7 @@ FormatDetection BiopolymerImportSession::detectFormatInternal() const {
     // Check if it looks like a sequence (only valid monomer symbols)
     bool looksLikeSequence = true;
     for (QChar c : text) {
-        if (c.isSpaceChar() || c == '-' || c == '_') continue;
+        if (c.isSpace() || c == '-' || c == '_') continue;
         QString symbol(1, c.toUpper());
         if (!isValidAminoAcid(symbol) && !isValidNucleotide(symbol) && 
             !isAmbiguousSymbol(symbol)) {
@@ -296,10 +296,10 @@ ParseResult BiopolymerImportSession::parseAs(ImportFormat format) {
         case ImportFormat::Simple:
             return parseSimpleInternal(m_sourceText);
         default:
-            return ParseResult{false, QString("Format '%1' not yet implemented").arg(formatName(format)),
+            return ParseResult{false, QString("Format '%1' not yet implemented").arg(ImportFormatRegistry::formatName(format)),
                               {}, 
                               {{ImportIssueSeverity::Error, "UNSUPPORTED_FORMAT", 
-                                QString("Format not supported: %1").arg(formatName(format)), 
+                                QString("Format not supported: %1").arg(ImportFormatRegistry::formatName(format)), 
                                 {}, QString("Use FASTA, Sequence, or Simple format")}}, 
                               {}, false, false};
     }
@@ -360,7 +360,7 @@ ParseResult BiopolymerImportSession::parseFastaInternal(const QString& text) {
             QString header = trimmed.mid(1).trimmed();
             
             // Split header: first word is ID, rest is description
-            QStringList headerParts = header.split(QRegExp("\\s+"), Qt::SkipEmptyParts);
+            QStringList headerParts = header.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
             QString recordId = headerParts.isEmpty() ? QString("record_%1").arg(recordIndex) : headerParts[0];
             QString description = headerParts.size() > 1 ? header.split(' ').mid(1).join(' ') : "";
             
@@ -773,7 +773,7 @@ QList<ImportIssue> BiopolymerImportSession::validateChain(const ParsedChain& cha
         if (positions.contains(monomer.position)) {
             issues.append({
                 ImportIssueSeverity::Error, "DUPLICATE_POSITION",
-                QString("Duplicate position %1 in chain '%2'").arg(monomer.position, chain.name),
+                QString("Duplicate position %1 in chain '%2'").arg(monomer.position).arg(chain.name),
                 monomer.location,
                 "Each monomer must have a unique position"
             });
@@ -1147,8 +1147,8 @@ ImportPreview BiopolymerImportSession::generatePreview() const {
     
     // Check for blocking issues
     preview.commitBlocked = !canCommit();
-    preview.blockingIssues = blockingIssues();
-    preview.warnings = warnings();
+    preview.blockingIssues = this->blockingIssues();
+    preview.warnings = this->warnings();
     
     return preview;
 }
@@ -1214,7 +1214,7 @@ bool BiopolymerImportSession::commitToState(BiopolymerState& state,
     
     // Set import provenance
     ImportProvenance provenance;
-    provenance.sourceFormat = formatName(m_format);
+    provenance.sourceFormat = ImportFormatRegistry::formatName(m_format);
     provenance.sourceText = m_sourceText;
     provenance.importTime = QDateTime::currentDateTime();
     provenance.unsupportedFeatures = m_unsupportedFeatures;
@@ -1459,7 +1459,7 @@ QSet<QString> BiopolymerImportSession::validNucleotideSymbols() {
     return {"A", "G", "C", "T", "U"};
 }
 
-QSet<QString> BiopolymerImportSession::ambiguousSymbols() {
+QSet<QString> BiopolymerImportSession::ambiguousSymbolNames() {
     return {"B", "Z", "X", "N", "J", "O", "U"};
 }
 
@@ -1487,7 +1487,7 @@ QString BiopolymerImportSession::resolveAmbiguousSymbol(const QString& symbol,
 QString BiopolymerImportSession::normalizeSequence(const QString& sequence) {
     QString result;
     for (QChar c : sequence) {
-        if (!c.isSpaceChar() && c != '-' && c != '_' && c != '.' && c != ',') {
+        if (!c.isSpace() && c != '-' && c != '_' && c != '.' && c != ',') {
             result.append(c.toUpper());
         }
     }
@@ -1553,12 +1553,6 @@ ImportFormat ImportFormatRegistry::formatByName(const QString& name) {
         }
     }
     return ImportFormat::Unknown;
-}
-
-// ========== Format Name Helper ==========
-
-QString formatName(ImportFormat format) {
-    return ImportFormatRegistry::formatName(format);
 }
 
 // ========== Serialization Support ==========

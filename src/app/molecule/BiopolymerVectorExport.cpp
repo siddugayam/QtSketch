@@ -1,7 +1,24 @@
 // src/app/molecule/BiopolymerVectorExport.cpp
 #include "BiopolymerVectorExport.h"
 #include "BiopolymerState.h"
+#include "BiopolymerModification.h"
 #include <QDebug>
+#include <QtMath>
+
+namespace {
+
+bool isDisulfideConnection(const BiopolymerConnection& conn) {
+    return conn.type.compare("disulfide", Qt::CaseInsensitive) == 0;
+}
+
+bool isInterChainConnection(const BiopolymerState& state, const BiopolymerConnection& conn) {
+    const BiopolymerResidue* from = state.residue(conn.fromResidueId);
+    const BiopolymerResidue* to = state.residue(conn.toResidueId);
+    if (!from || !to) return false;
+    return from->chainId != to->chainId;
+}
+
+} // namespace
 
 // ========== Format Conversions ==========
 
@@ -154,11 +171,18 @@ int BiopolymerVectorExport::chainCount() const {
 }
 
 int BiopolymerVectorExport::totalResidueCount() const {
-    return m_state.totalResidueCount();
+    return m_state.allResidueIds().size();
 }
 
 QList<PolymerType> BiopolymerVectorExport::polymerTypes() const {
-    return m_state.polymerTypes();
+    QList<PolymerType> types;
+    for (int chainId : m_state.chainIds()) {
+        const BiopolymerChain* chain = m_state.chain(chainId);
+        if (chain && !types.contains(chain->polymerType)) {
+            types.append(chain->polymerType);
+        }
+    }
+    return types;
 }
 
 VectorExportResult BiopolymerVectorExport::generateExport(
@@ -291,20 +315,22 @@ QMap<int, VectorResidue> BiopolymerVectorExport::calculateResidueLayout(
     
     // Layout residues in each chain
     for (int chainId : m_state.chainIds()) {
-        const BiopolymerChain& chain = m_state.chain(chainId);
+        const BiopolymerChain* chain = m_state.chain(chainId);
+        if (!chain) continue;
         int col = chainCol[chainId];
         const int row = chainRow[chainId];
-        
-        for (int residueId : chain.residueIds()) {
-            const BiopolymerResidue& residue = m_state.residue(residueId);
-            
+
+        for (int residueId : chain->residueIds) {
+            const BiopolymerResidue* residue = m_state.residue(residueId);
+            if (!residue) continue;
+
             VectorResidue vecRes;
             vecRes.id = residueId;
             vecRes.chainId = chainId;
-            vecRes.position = m_state.residuePositionInChain(chainId, residueId);
-            vecRes.label = residue.label();
-            vecRes.monomerClass = residue.monomerClass();
-            
+            vecRes.position = residue->sequencePosition;
+            vecRes.label = residue->identity.symbol;
+            vecRes.monomerClass = residue->identity.monomerClass;
+
             // Calculate position
             vecRes.center = QPointF(
                 col * (cellWidth + spacing) + boxSize / 2,
@@ -315,21 +341,28 @@ QMap<int, VectorResidue> BiopolymerVectorExport::calculateResidueLayout(
                 row * (cellHeight + spacing),
                 boxSize, boxSize
             );
-            
+
             // Get colors
-            vecRes.fillColor = getResidueColor(residue, chainId, options);
-            vecRes.strokeColor = Qt::black;
+            vecRes.fillColor = getResidueColor(*residue, chainId, options);
+            vecRes.strokeColor = "#000000";
             vecRes.strokeWidth = 1;
-            
+
             // Check modifications
-            vecRes.isModified = residue.hasModifications();
-            vecRes.modifications = residue.modificationNames();
-            
+            vecRes.isModified = m_state.hasModifications(residueId);
+            for (const BiopolymerModification& mod : m_state.modificationsForResidue(residueId)) {
+                vecRes.modifications.append(mod.name);
+            }
+
             // Check terminals
-            vecRes.isNTerminal = m_state.isNTerminal(chainId, residueId);
-            vecRes.isCTerminal = m_state.isCTerminal(chainId, residueId);
-            vecRes.terminalGroup = residue.terminalGroup();
-            
+            vecRes.isNTerminal = !chain->residueIds.isEmpty() && chain->residueIds.first() == residueId;
+            vecRes.isCTerminal = !chain->residueIds.isEmpty() && chain->residueIds.last() == residueId;
+            const bool isPeptideChain = chain->polymerType == PolymerType::Peptide;
+            if (vecRes.isNTerminal) {
+                vecRes.terminalGroup = isPeptideChain ? chain->nTerminus.name : chain->phosphate5Prime.name;
+            } else if (vecRes.isCTerminal) {
+                vecRes.terminalGroup = isPeptideChain ? chain->cTerminus.name : chain->phosphate3Prime.name;
+            }
+
             residues[residueId] = vecRes;
             col++;
         }
@@ -344,32 +377,32 @@ QList<VectorConnection> BiopolymerVectorExport::calculateConnectionLayout(
     
     QList<VectorConnection> connections;
     
-    for (const BiopolymerConnection& conn : m_state.connections()) {
+    for (const BiopolymerConnection& conn : m_state.allConnections()) {
         VectorConnection vecConn;
-        vecConn.id = conn.id();
-        vecConn.fromId = conn.fromResidueId();
-        vecConn.toId = conn.toResidueId();
-        vecConn.type = conn.typeString();
-        
+        vecConn.id = conn.id;
+        vecConn.fromId = conn.fromResidueId;
+        vecConn.toId = conn.toResidueId;
+        vecConn.type = conn.type;
+
         // Get positions from residues
-        if (residues.contains(conn.fromResidueId()) && residues.contains(conn.toResidueId())) {
-            const VectorResidue& fromRes = residues.value(conn.fromResidueId());
-            const VectorResidue& toRes = residues.value(conn.toResidueId());
-            
+        if (residues.contains(conn.fromResidueId) && residues.contains(conn.toResidueId)) {
+            const VectorResidue& fromRes = residues.value(conn.fromResidueId);
+            const VectorResidue& toRes = residues.value(conn.toResidueId);
+
             // Simple straight line for now
             vecConn.path.append(fromRes.center);
             vecConn.path.append(toRes.center);
         }
-        
+
         vecConn.strokeColor = getConnectionColor(conn, options);
         vecConn.strokeWidth = 2;
         vecConn.lineStyle = "solid";
-        
+
         // Special styling for certain connection types
-        if (conn.isDisulfide()) {
+        if (isDisulfideConnection(conn)) {
             vecConn.lineStyle = "wavy";
             vecConn.strokeWidth = 3;
-        } else if (conn.isInterChain()) {
+        } else if (isInterChainConnection(m_state, conn)) {
             vecConn.isDashed = true;
         }
         
@@ -496,7 +529,8 @@ QString BiopolymerVectorExport::generateSvgXml(
     // Add direction indicators
     if (options.includeDirection) {
         for (int chainId : m_state.chainIds()) {
-            const QList<int> chainResidues = m_state.chain(chainId).residueIds();
+            const BiopolymerChain* chainPtr = m_state.chain(chainId);
+            const QList<int> chainResidues = chainPtr ? chainPtr->residueIds : QList<int>();
             QList<VectorResidue> vecResidues;
             for (int resId : chainResidues) {
                 if (residues.contains(resId)) {
@@ -574,7 +608,7 @@ QString BiopolymerVectorExport::generateSvgResidue(const VectorResidue& residue,
     // Numbering
     if (options.includeNumbering && residue.position > 0) {
         const QString numberText = QString::number(residue.position);
-        const int numFontSize = fontSize - 2;
+        const int numFontSize = (options.fontSize > 0 ? options.fontSize : 12) - 2;
         
         parts << QString("<text x=\"%1\" y=\"%2\" "
                          "font-family=\"%3\" font-size=\"%4\" "
@@ -742,8 +776,8 @@ QString BiopolymerVectorExport::generateDirectionIndicator(
     const VectorResidue& last = chainResidues.last();
     
     // Determine direction based on chain type
-    const BiopolymerChain& chain = m_state.chain(chainId);
-    const QString directionText = (chain.polymerType() == PolymerType::Protein) ? 
+    const BiopolymerChain* chain = m_state.chain(chainId);
+    const QString directionText = (chain && chain->polymerType == PolymerType::Peptide) ?
         "N→C" : "5'→3'";
     
     // Position arrow at the start of the chain
@@ -827,7 +861,7 @@ QString BiopolymerVectorExport::generateSvgArrowhead(const QPointF& start, const
     
     const qreal angle = qAtan2(dy, dx);
     const qreal arrowLength = width * 2;
-    const qreal arrowAngle = qPi / 6; // 30 degrees
+    const qreal arrowAngle = qDegreesToRadians(30.0); // 30 degrees
     
     const QPointF arrow1 = QPointF(
         end.x() - arrowLength * qCos(angle - arrowAngle),
@@ -861,25 +895,26 @@ QString BiopolymerVectorExport::getResidueColor(const BiopolymerResidue& residue
     
     // Color by type
     if (options.colorByType) {
-        const PolymerType type = m_state.chain(chainId).polymerType();
+        const BiopolymerChain* chain = m_state.chain(chainId);
+        const PolymerType type = chain ? chain->polymerType : PolymerType::Unknown;
         switch (type) {
-        case PolymerType::Protein:
+        case PolymerType::Peptide:
             return "#4CAF50"; // Green
-        case PolymerType::Dna:
-        case PolymerType::Rna:
+        case PolymerType::DNA:
+        case PolymerType::RNA:
             return "#2196F3"; // Blue
         default:
             return "#9E9E9E"; // Gray
         }
     }
-    
+
     // Color by modification
-    if (options.colorByModification && residue.hasModifications()) {
+    if (options.colorByModification && m_state.hasModifications(residue.id)) {
         return "#FF9800"; // Orange for modified
     }
-    
+
     // Default color based on monomer class
-    if (residue.monomerClass() == "Base") {
+    if (residue.identity.monomerClass == "Base") {
         return "#8764B8"; // Purple
     }
     
@@ -893,11 +928,11 @@ QString BiopolymerVectorExport::getConnectionColor(const BiopolymerConnection& c
         return "#000000";
     }
     
-    if (connection.isDisulfide()) {
+    if (isDisulfideConnection(connection)) {
         return "#FFC107"; // Amber for disulfide
     }
-    
-    if (connection.isInterChain()) {
+
+    if (isInterChainConnection(m_state, connection)) {
         return "#607D8B"; // Blue-gray for inter-chain
     }
     
@@ -938,19 +973,24 @@ QString BiopolymerVectorExport::getMonochromeColor(int index, int total) const {
 }
 
 int BiopolymerVectorExport::getResiduePositionInChain(int chainId, int residueId) const {
-    return m_state.residuePositionInChain(chainId, residueId);
+    Q_UNUSED(chainId);
+    const BiopolymerResidue* residue = m_state.residue(residueId);
+    return residue ? residue->sequencePosition : -1;
 }
 
 bool BiopolymerVectorExport::isResidueAtNTerminal(int chainId, int residueId) const {
-    return m_state.isNTerminal(chainId, residueId);
+    const BiopolymerChain* chain = m_state.chain(chainId);
+    return chain && !chain->residueIds.isEmpty() && chain->residueIds.first() == residueId;
 }
 
 bool BiopolymerVectorExport::isResidueAtCTerminal(int chainId, int residueId) const {
-    return m_state.isCTerminal(chainId, residueId);
+    const BiopolymerChain* chain = m_state.chain(chainId);
+    return chain && !chain->residueIds.isEmpty() && chain->residueIds.last() == residueId;
 }
 
 QList<int> BiopolymerVectorExport::getChainResiduesInOrder(int chainId) const {
-    return m_state.chain(chainId).residueIds();
+    const BiopolymerChain* chain = m_state.chain(chainId);
+    return chain ? chain->residueIds : QList<int>();
 }
 
 // ========== Static Helpers ==========

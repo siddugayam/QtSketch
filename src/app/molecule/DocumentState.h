@@ -17,6 +17,7 @@
 #include "EditableMolecule.h"
 #include "BiopolymerSequenceView.h"
 #include "BiopolymerState.h"
+#include "BiopolymerImportSession.h"
 #include "TemplateLibrary.h"
 #include "EditCommand.h"
 #include "SelectionState.h"
@@ -245,18 +246,18 @@ public:
     bool importBiopolymerReplace(const QString& sourceText, const QString& format = QString());
     
     // Import biopolymer from text with options
-    bool importBiopolymerAsNew(const QString& sourceText, const BiopolymerImportSession::ImportOptions& options,
+    bool importBiopolymerAsNew(const QString& sourceText, const ImportOptions& options,
                                 const QString& format = QString());
-    bool importBiopolymerReplace(const QString& sourceText, const BiopolymerImportSession::ImportOptions& options,
+    bool importBiopolymerReplace(const QString& sourceText, const ImportOptions& options,
                                  const QString& format = QString());
     
     // Import biopolymer from an import session
     bool importBiopolymerFromSession(BiopolymerImportSession& session,
-                                    BiopolymerImportSession::ImportMode mode = BiopolymerImportSession::ImportMode::OpenAsNew);
+                                    BiopolymerImportMode::Type mode = BiopolymerImportMode::OpenAsNew);
     
     // Validate biopolymer input without importing
     // Returns parse result with issues and warnings
-    BiopolymerImportSession::ParseResult validateBiopolymerInput(const QString& text,
+    ParseResult validateBiopolymerInput(const QString& text,
                                                                const QString& format = QString());
     
     // Check if input can be imported

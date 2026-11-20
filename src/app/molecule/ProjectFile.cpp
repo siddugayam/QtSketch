@@ -90,7 +90,6 @@ namespace {
     const QString kFromResidueId = QStringLiteral("fromResidueId");
     const QString kToResidueId = QStringLiteral("toResidueId");
     const QString kBondId = QStringLiteral("bondId");
-    const QString kType = QStringLiteral("type");
     const QString kNextResidueId = QStringLiteral("residue");
     const QString kNextChainId = QStringLiteral("chain");
     const QString kNextConnectionId = QStringLiteral("connection");

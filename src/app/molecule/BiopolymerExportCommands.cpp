@@ -25,7 +25,7 @@ ExportSequenceCommand::~ExportSequenceCommand() {
 }
 
 ExportResult ExportSequenceCommand::execute(DocumentState& document) const {
-    BiopolymerExportSession session(document.biopolymerState(), document.bioWorkspace());
+    BiopolymerExportSession session(document.biopolymerState(), *document.bioWorkspace());
     session.initialize(-1, document.editRevision(), "Document");
     return session.generateSequenceExport(m_options);
 }
@@ -47,7 +47,7 @@ bool ExportSequenceCommand::canExecute(const DocumentState& document) const {
 }
 
 ExportValidation ExportSequenceCommand::validate(const DocumentState& document) const {
-    BiopolymerExportSession session(document.biopolymerState(), document.bioWorkspace());
+    BiopolymerExportSession session(document.biopolymerState(), *document.bioWorkspace());
     return session.validateForExport(ExportFormat::Sequence);
 }
 
@@ -76,7 +76,7 @@ ExportFastaCommand::~ExportFastaCommand() {
 }
 
 ExportResult ExportFastaCommand::execute(DocumentState& document) const {
-    BiopolymerExportSession session(document.biopolymerState(), document.bioWorkspace());
+    BiopolymerExportSession session(document.biopolymerState(), *document.bioWorkspace());
     session.initialize(-1, document.editRevision(), "Document");
     return session.generateFastaExport(m_options);
 }
@@ -98,7 +98,7 @@ bool ExportFastaCommand::canExecute(const DocumentState& document) const {
 }
 
 ExportValidation ExportFastaCommand::validate(const DocumentState& document) const {
-    BiopolymerExportSession session(document.biopolymerState(), document.bioWorkspace());
+    BiopolymerExportSession session(document.biopolymerState(), *document.bioWorkspace());
     return session.validateForExport(ExportFormat::Fasta);
 }
 
@@ -127,7 +127,7 @@ ExportHelmCommand::~ExportHelmCommand() {
 }
 
 ExportResult ExportHelmCommand::execute(DocumentState& document) const {
-    BiopolymerExportSession session(document.biopolymerState(), document.bioWorkspace());
+    BiopolymerExportSession session(document.biopolymerState(), *document.bioWorkspace());
     session.initialize(-1, document.editRevision(), "Document");
     return session.generateHelmExport(m_options);
 }
@@ -149,7 +149,7 @@ bool ExportHelmCommand::canExecute(const DocumentState& document) const {
 }
 
 ExportValidation ExportHelmCommand::validate(const DocumentState& document) const {
-    BiopolymerExportSession session(document.biopolymerState(), document.bioWorkspace());
+    BiopolymerExportSession session(document.biopolymerState(), *document.bioWorkspace());
     return session.validateForExport(ExportFormat::Helm);
 }
 
@@ -178,7 +178,7 @@ ExportIdtCommand::~ExportIdtCommand() {
 }
 
 ExportResult ExportIdtCommand::execute(DocumentState& document) const {
-    BiopolymerExportSession session(document.biopolymerState(), document.bioWorkspace());
+    BiopolymerExportSession session(document.biopolymerState(), *document.bioWorkspace());
     session.initialize(-1, document.editRevision(), "Document");
     return session.generateIdtExport(m_options);
 }
@@ -214,7 +214,7 @@ bool ExportIdtCommand::canExecute(const DocumentState& document) const {
 }
 
 ExportValidation ExportIdtCommand::validate(const DocumentState& document) const {
-    BiopolymerExportSession session(document.biopolymerState(), document.bioWorkspace());
+    BiopolymerExportSession session(document.biopolymerState(), *document.bioWorkspace());
     return session.validateForExport(ExportFormat::Idt);
 }
 
@@ -243,7 +243,7 @@ ExportAxoLabsCommand::~ExportAxoLabsCommand() {
 }
 
 ExportResult ExportAxoLabsCommand::execute(DocumentState& document) const {
-    BiopolymerExportSession session(document.biopolymerState(), document.bioWorkspace());
+    BiopolymerExportSession session(document.biopolymerState(), *document.bioWorkspace());
     session.initialize(-1, document.editRevision(), "Document");
     return session.generateAxoLabsExport(m_options);
 }
@@ -279,7 +279,7 @@ bool ExportAxoLabsCommand::canExecute(const DocumentState& document) const {
 }
 
 ExportValidation ExportAxoLabsCommand::validate(const DocumentState& document) const {
-    BiopolymerExportSession session(document.biopolymerState(), document.bioWorkspace());
+    BiopolymerExportSession session(document.biopolymerState(), *document.bioWorkspace());
     return session.validateForExport(ExportFormat::AxoLabs);
 }
 
@@ -407,5 +407,5 @@ ExportOptions BiopolymerExportManager::defaultOptions(ExportFormat format) {
 }
 
 BiopolymerExportSession BiopolymerExportManager::createSession() const {
-    return BiopolymerExportSession(m_document.biopolymerState(), m_document.bioWorkspace());
+    return BiopolymerExportSession(m_document.biopolymerState(), *m_document.bioWorkspace());
 }

@@ -191,7 +191,7 @@ public:
     // ========== Benchmark Generation ==========
     
     // Generate a biopolymer of specific size for benchmarking
-    BiopolymerState generateTestDocument(int size, PolymerType type = PolymerType::Protein);
+    BiopolymerState generateTestDocument(int size, PolymerType type = PolymerType::Peptide);
     
     // Generate a random protein sequence
     QString generateRandomProtein(int length);
@@ -279,6 +279,9 @@ private:
     
     // Calculate statistics from multiple results
     BenchmarkResult calculateStatistics(const QList<BenchmarkResult>& results) const;
+    
+    // Get iteration count based on document size
+    int getIterationCount(int size) const;
     
     // Check if system is responsive
     bool checkSystemResponsiveness() const;

@@ -957,3 +957,89 @@ void BiopolymerState::rebuildAtomToResidueMap() {
 void BiopolymerState::invalidateValidationCache() const {
     m_validationCache.clear();
 }
+
+// ========== Glue Methods for Export/Validation ==========
+
+bool BiopolymerState::hasValidMappings() const {
+    return validateAllMappings().isValid;
+}
+
+bool BiopolymerState::hasInvalidMappings() const {
+    MappingValidity result = validateAllMappings();
+    return !result.isValid && !result.issues.isEmpty();
+}
+
+bool BiopolymerState::hasUnsupportedModifications() const {
+    for (const auto& mod : m_modifications) {
+        if (!mod.isSupported) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool BiopolymerState::hasUnsupportedConnections() const {
+    for (const auto& conn : m_connections) {
+        if (conn.type != "peptide" && conn.type != "phosphodiester") {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool BiopolymerState::hasTerminalGroups() const {
+    return !m_terminals.isEmpty();
+}
+
+bool BiopolymerState::hasBranchedTopology() const {
+    for (const auto& mod : m_modifications) {
+        if (mod.type == ModificationType::BranchPoint) {
+            return true;
+        }
+    }
+    return false;
+}
+
+int BiopolymerState::totalResidueCount() const {
+    return m_residues.size();
+}
+
+QList<PolymerType> BiopolymerState::polymerTypes() const {
+    QSet<PolymerType> types;
+    for (const auto& chain : m_chains) {
+        types.insert(chain.polymerType);
+    }
+    return types.values();
+}
+
+int BiopolymerState::residuePositionInChain(int chainId, int residueId) const {
+    const BiopolymerChain* chain = this->chain(chainId);
+    if (!chain) return -1;
+    
+    const BiopolymerResidue* residue = this->residue(residueId);
+    if (!residue) return -1;
+    
+    return residue->sequencePosition;
+}
+
+bool BiopolymerState::isNTerminal(int chainId, int residueId) const {
+    const BiopolymerChain* chain = this->chain(chainId);
+    if (!chain) return false;
+    if (chain->residueIds.isEmpty()) return false;
+    
+    return chain->residueIds.first() == residueId;
+}
+
+bool BiopolymerState::isCTerminal(int chainId, int residueId) const {
+    const BiopolymerChain* chain = this->chain(chainId);
+    if (!chain) return false;
+    if (chain->residueIds.isEmpty()) return false;
+    
+    return chain->residueIds.last() == residueId;
+}
+
+int BiopolymerState::chainResidueCount(int chainId) const {
+    const BiopolymerChain* chain = this->chain(chainId);
+    if (!chain) return 0;
+    return chain->residueIds.size();
+}

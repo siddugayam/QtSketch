@@ -123,6 +123,21 @@ using AtomId = int;
 using BondId = int;
 using SGroupId = int;
 
+// Atom role enumeration for biopolymer modifications
+enum class AtomRole {
+    None,       // No specific role
+    Backbone,   // Backbone atom
+    SideChain,  // Side chain atom
+    AlphaCarbon, // Alpha carbon
+    Carbonyl,    // Carbonyl carbon/oxygen
+    Amine,       // Amine nitrogen
+    RGroup,      // R-group attachment point
+    Phosphorus,  // Phosphorus (in nucleotides)
+    Sugar,       // Sugar atom (in nucleotides)
+    Base,        // Base atom (in nucleotides)
+    Custom       // Custom role
+};
+
 struct StringResult {
     bool success = false;
     QString value;

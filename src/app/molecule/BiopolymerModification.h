@@ -2,11 +2,15 @@
 #ifndef BIOPOLYMERMODIFICATION_H
 #define BIOPOLYMERMODIFICATION_H
 
-#include "BiopolymerState.h"
+#include "EditableMolecule.h"  // For AtomRole
 #include <QString>
 #include <QList>
 #include <QMap>
 #include <QSet>
+
+// Forward declarations to break circular dependencies
+enum class PolymerType;
+class BiopolymerState;
 
 // ========== Modification Type ==========
 

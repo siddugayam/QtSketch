@@ -26,6 +26,7 @@
 #include <QHash>
 #include <QMap>
 #include <QSet>
+#include <QDateTime>
 #include "EditableMolecule.h"
 #include "BiopolymerModification.h"
 #include "BiopolymerTerminal.h"
@@ -349,6 +350,44 @@ public:
     
     // Check if a chain is fully mapped
     bool isChainFullyMapped(int chainId) const;
+    
+    // ========== Glue Methods for Export/Validation ==========
+    
+    // Check if all mappings are valid
+    bool hasValidMappings() const;
+    
+    // Check if any mappings are invalid
+    bool hasInvalidMappings() const;
+    
+    // Check if there are unsupported modifications
+    bool hasUnsupportedModifications() const;
+    
+    // Check if there are unsupported connections
+    bool hasUnsupportedConnections() const;
+    
+    // Check if there are terminal groups
+    bool hasTerminalGroups() const;
+    
+    // Check if there is branched topology
+    bool hasBranchedTopology() const;
+    
+    // Get total residue count
+    int totalResidueCount() const;
+    
+    // Get polymer types present in the state
+    QList<PolymerType> polymerTypes() const;
+    
+    // Get residue position in chain
+    int residuePositionInChain(int chainId, int residueId) const;
+    
+    // Check if residue is N-terminal
+    bool isNTerminal(int chainId, int residueId) const;
+    
+    // Check if residue is C-terminal
+    bool isCTerminal(int chainId, int residueId) const;
+    
+    // Get chain residue count
+    int chainResidueCount(int chainId) const;
     
     // ========== ID Management ==========
     

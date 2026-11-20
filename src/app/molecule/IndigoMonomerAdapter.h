@@ -19,16 +19,11 @@
 using AtomId = int;
 using BondId = int;
 
-// Forward declaration
+// Forward declarations
 class EditableMolecule;
 
-// Polymer type (matches BiopolymerState)
-enum class PolymerType {
-    Peptide,
-    DNA,
-    RNA,
-    Unknown
-};
+// Include for PolymerType enum
+#include "BiopolymerState.h"
 
 // Monomer template definition
 struct MonomerTemplate {
@@ -206,6 +201,9 @@ public:
     // Normalize monomer symbol
     static QString normalizeMonomerSymbol(const QString& symbol);
     
+    // Get monomer alias (full name) for a symbol
+    static QString monomerAlias(const QString& symbol, PolymerType type = PolymerType::Peptide);
+    
     // Check if a polymer type supports a modification
     static bool supportsModification(PolymerType type, const QString& modification);
 
@@ -267,7 +265,7 @@ private:
                                          const QMap<int, AtomId>& existingMap) const;
     
     // Get the template map for a polymer type
-    QHash<QString, MonomerTemplate> getTemplateMap(PolymerType type) const;
+    const QHash<QString, MonomerTemplate>& getTemplateMap(PolymerType type) const;
     
     // Member variables
     QHash<QString, MonomerTemplate> m_peptideTemplateMap;

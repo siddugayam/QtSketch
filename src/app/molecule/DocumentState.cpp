@@ -3351,17 +3351,17 @@ void DocumentState::setMoleculeName(const QString& name) {
 // ========== Biopolymer Import Methods (M1) ==========
 
 bool DocumentState::importBiopolymerAsNew(const QString& sourceText, const QString& format) {
-    BiopolymerImportSession::ImportOptions options;
+    ImportOptions options;
     return importBiopolymerAsNew(sourceText, options, format);
 }
 
 bool DocumentState::importBiopolymerReplace(const QString& sourceText, const QString& format) {
-    BiopolymerImportSession::ImportOptions options;
+    ImportOptions options;
     return importBiopolymerReplace(sourceText, options, format);
 }
 
 bool DocumentState::importBiopolymerAsNew(const QString& sourceText, 
-                                          const BiopolymerImportSession::ImportOptions& options,
+                                          const ImportOptions& options,
                                           const QString& format) {
     BiopolymerImportSession session(sourceText, options);
     
@@ -3372,11 +3372,11 @@ bool DocumentState::importBiopolymerAsNew(const QString& sourceText,
         }
     }
     
-    return importBiopolymerFromSession(session, BiopolymerImportSession::ImportMode::OpenAsNew);
+    return importBiopolymerFromSession(session, BiopolymerImportMode::OpenAsNew);
 }
 
 bool DocumentState::importBiopolymerReplace(const QString& sourceText,
-                                           const BiopolymerImportSession::ImportOptions& options,
+                                           const ImportOptions& options,
                                            const QString& format) {
     BiopolymerImportSession session(sourceText, options);
     
@@ -3387,11 +3387,11 @@ bool DocumentState::importBiopolymerReplace(const QString& sourceText,
         }
     }
     
-    return importBiopolymerFromSession(session, BiopolymerImportSession::ImportMode::Replace);
+    return importBiopolymerFromSession(session, BiopolymerImportMode::Replace);
 }
 
 bool DocumentState::importBiopolymerFromSession(BiopolymerImportSession& session,
-                                                BiopolymerImportSession::ImportMode mode) {
+                                                BiopolymerImportMode::Type mode) {
     // Validate
     if (!session.isParsed()) {
         session.parse();
@@ -3401,15 +3401,15 @@ bool DocumentState::importBiopolymerFromSession(BiopolymerImportSession& session
         return false;
     }
     
-    // Save current state for undo
+    // Save current state for undo (molecule content as molfile string)
     BiopolymerState* previousBiopolymerState = new BiopolymerState(m_biopolymerState);
-    EditableMolecule* previousMolecule = new EditableMolecule(m_molecule);
+    QString previousMolfile = m_molecule.toMolfile().value;
     
     // Clear current document if replacing or opening as new
-    if (mode == BiopolymerImportSession::ImportMode::OpenAsNew ||
-        mode == BiopolymerImportSession::ImportMode::Replace) {
+    if (mode == BiopolymerImportMode::OpenAsNew ||
+        mode == BiopolymerImportMode::Replace) {
         
-        m_molecule.clear();
+        m_molecule.loadFrom("");
         m_biopolymerState = BiopolymerState();
         m_selection.clear();
     }
@@ -3419,10 +3419,9 @@ bool DocumentState::importBiopolymerFromSession(BiopolymerImportSession& session
     
     if (!success) {
         // Restore previous state on failure
-        m_molecule = *previousMolecule;
+        m_molecule.loadFrom(previousMolfile);
         m_biopolymerState = *previousBiopolymerState;
         
-        delete previousMolecule;
         delete previousBiopolymerState;
         return false;
     }
@@ -3432,13 +3431,12 @@ bool DocumentState::importBiopolymerFromSession(BiopolymerImportSession& session
     m_editRevision++;
     
     // Delete previous state (no longer needed)
-    delete previousMolecule;
     delete previousBiopolymerState;
     
     return true;
 }
 
-BiopolymerImportSession::ParseResult DocumentState::validateBiopolymerInput(const QString& text,
+ParseResult DocumentState::validateBiopolymerInput(const QString& text,
                                                                           const QString& format) {
     BiopolymerImportSession session;
     session.setSourceText(text);

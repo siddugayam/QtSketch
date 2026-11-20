@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Dialogs
 import Sketch.App
 
 // Read-only "snake view" of a biopolymer as connected monomer boxes, instead of the
@@ -18,9 +19,25 @@ TaskDialog {
     property var snapshot: null
     property int selectedMonomerId: -1
     property var sketch: null
-    
-    // Clipboard access
-    property var clipboard: Qt.inputMethod ? Qt.inputMethod.clipboard : null
+
+    FileIO { id: svgFileIO }
+
+    FileDialog {
+        id: svgSaveDialog
+        title: "Save SVG"
+        fileMode: FileDialog.SaveFile
+        nameFilters: ["SVG image (*.svg)", "All files (*)"]
+        onAccepted: {
+            const svg = root.exportAsSvg()
+            if (svg && svgFileIO.write(selectedFile, svg)) {
+                statusLabel.text = "SVG saved to " + selectedFile
+                statusLabel.color = Theme.success
+            } else {
+                statusLabel.text = "Save failed"
+                statusLabel.color = Theme.error
+            }
+        }
+    }
 
     function openSnapshot(dataJson) {
         try {
@@ -125,37 +142,17 @@ TaskDialog {
     // Copy SVG to clipboard
     function copySvgToClipboard() {
         const svg = root.exportAsSvg()
-        if (svg) {
-            clipboard.text = svg
+        if (svg && root.sketch) {
+            root.sketch.setOsClipboardText(svg)
             statusLabel.text = "SVG copied to clipboard"
             statusLabel.color = Theme.success
         }
     }
 
-    // Download SVG file
+    // Save SVG to a file, via a real native save dialog
     function downloadSvgFile() {
-        const svg = root.exportAsSvg()
-        if (!svg) return
-        
-        // Create download link approach (works in QML WebEngine)
-        // For Qt Quick, we need to use a different approach
-        // For now, just copy to clipboard as fallback
-        root.copySvgToClipboard()
-        
-        // In a real implementation, use Qt.file to save
-        if (typeof Qt !== 'undefined' && Qt.file) {
-            try {
-                const filePath = Qt.file.saveDialog("Save SVG", "SVG Files (*.svg)", ".svg")
-                if (filePath) {
-                    Qt.file.write(filePath, svg)
-                    statusLabel.text = "SVG saved to " + filePath
-                    statusLabel.color = Theme.success
-                }
-            } catch (e) {
-                statusLabel.text = "Save failed: " + e
-                statusLabel.color = Theme.error
-            }
-        }
+        if (!root.exportAsSvg()) return
+        svgSaveDialog.open()
     }
 
     ColumnLayout {

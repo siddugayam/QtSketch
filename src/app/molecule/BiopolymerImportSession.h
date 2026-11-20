@@ -71,6 +71,11 @@ struct ImportIssue {
     QString toString() const;
 };
 
+// Forward declarations for types used before their definition
+struct ParsedChain;
+struct ParsedMonomer;
+struct PreviewChain;
+
 // ========== Parse Result ==========
 
 // Result of parsing a biopolymer input
@@ -295,6 +300,12 @@ public:
     // Check if draft can be committed
     bool canCommit() const;
     
+    // Get all blocking issues
+    QList<ImportIssue> blockingIssues() const;
+    
+    // Get all warnings
+    QList<ImportIssue> warnings() const;
+    
     // Get all issues
     QList<ImportIssue> allIssues() const;
     
@@ -393,8 +404,8 @@ public:
     // Get all valid nucleotide symbols
     static QSet<QString> validNucleotideSymbols();
     
-    // Get all ambiguous symbols
-    static QSet<QString> ambiguousSymbols();
+    // Get all ambiguous symbol names
+    static QSet<QString> ambiguousSymbolNames();
     
     // Resolve ambiguous symbol with default rules
     static QString resolveAmbiguousSymbol(const QString& symbol, PolymerType polymerType);
@@ -461,6 +472,9 @@ private:
     // Connect two residues
     void connectResidues(int fromResidueId, int toResidueId, BondId bondId,
                          BiopolymerState& state, EditableMolecule& molecule) const;
+    
+    // Detect unsupported features in parsed chains
+    void detectUnsupportedFeaturesInChains(ParseResult& result) const;
     
     // Calculate position for a new monomer
     QPointF calculateMonomerPosition(int chainIndex, int monomerIndex, 

@@ -804,7 +804,7 @@ QString BiopolymerExportSession::buildFastaRecord(int chainId, const QString& ti
     lines.append(header);
     
     for (int i = 0; i < sequence.size(); i += lineWrap) {
-        int end = std::min(i + lineWrap, sequence.size());
+        int end = qMin(i + lineWrap, static_cast<int>(sequence.size()));
         lines.append(sequence.mid(i, end - i));
     }
     
@@ -860,10 +860,10 @@ QString BiopolymerExportSession::buildHelmNotation() const {
         for (int residueId : chain->residueIds) {
             const BiopolymerResidue* residue = m_state.residue(residueId);
             if (residue) {
-                // Use HELM monomer name
-                QString helmSymbol = residue->identity.helmNotation;
+                // Use symbol
+                QString helmSymbol = residue->identity.symbol;
                 if (helmSymbol.isEmpty()) {
-                    helmSymbol = residue->identity.symbol;
+                    helmSymbol = residue->identity.alias;
                 }
                 residueSymbols.append(helmSymbol);
             }
@@ -881,16 +881,26 @@ QString BiopolymerExportSession::buildHelmNotation() const {
     
     // Build connections (simplified for now)
     QStringList connectionSections;
-    for (const BiopolymerConnection& conn : m_state.connections()) {
-        // HELM connection format: chain1.residue1:atom1-chain2.residue2:atom2
-        QString connStr = QString("%1.%2:%3-%4.%5:%6")
-            .arg(chainNames[conn.fromChainIndex])
-            .arg(conn.fromResidueId)
-            .arg(BiopolymerState::atomRoleToString(conn.fromRole))
-            .arg(chainNames[conn.toChainIndex])
-            .arg(conn.toResidueId)
-            .arg(BiopolymerState::atomRoleToString(conn.toRole));
-        connectionSections.append(connStr);
+    for (const BiopolymerConnection& conn : m_state.allConnections()) {
+        // Get residues for the connection
+        const BiopolymerResidue* fromResidue = m_state.residue(conn.fromResidueId);
+        const BiopolymerResidue* toResidue = m_state.residue(conn.toResidueId);
+        if (fromResidue && toResidue) {
+            // Get chain names for the residues
+            int fromChainId = fromResidue->chainId;
+            int toChainId = toResidue->chainId;
+            QString fromChainName = chainNames.value(fromChainId, "");
+            QString toChainName = chainNames.value(toChainId, "");
+            
+            // HELM connection format: chain1.residue1-atom1:chain2.residue2-atom2
+            // For now, use a simplified format without atom roles
+            QString connStr = QString("%1.%2-%3.%4")
+                .arg(fromChainName)
+                .arg(conn.fromResidueId)
+                .arg(toChainName)
+                .arg(conn.toResidueId);
+            connectionSections.append(connStr);
+        }
     }
     
     // Build the full HELM notation
@@ -991,10 +1001,10 @@ bool BiopolymerExportSession::hasMultipleChains() const {
 }
 
 bool BiopolymerExportSession::supportsPolymerType(PolymerType type) const {
-    return type == PolymerType::PEPTIDE || 
+    return type == PolymerType::Peptide || 
            type == PolymerType::DNA || 
            type == PolymerType::RNA ||
-           type == PolymerType::UNKNOWN;
+           type == PolymerType::Unknown;
 }
 
 bool BiopolymerExportSession::allResiduesStandard(int chainId) const {
@@ -1003,7 +1013,7 @@ bool BiopolymerExportSession::allResiduesStandard(int chainId) const {
     
     for (int residueId : chain->residueIds) {
         const BiopolymerResidue* residue = m_state.residue(residueId);
-        if (residue && !residue->identity.isStandard) {
+        if (residue && (residue->identity.symbol.isEmpty() || residue->identity.ambiguous)) {
             return false;
         }
     }
@@ -1015,12 +1025,12 @@ QList<QString> BiopolymerExportSession::unsupportedModifications() const {
     
     for (int residueId : m_state.allResidueIds()) {
         const BiopolymerResidue* residue = m_state.residue(residueId);
-        if (residue && !residue->identity.modifications.isEmpty()) {
-            for (const auto& mod : residue->identity.modifications) {
-                if (!mod.isSupported) {
-                    modifications.append(QString("%1 at position %2")
-                        .arg(mod.name).arg(residue->sequencePosition));
-                }
+        if (residue) {
+            QList<BiopolymerModification> mods = m_state.modificationsForResidue(residueId);
+            for (const BiopolymerModification& mod : mods) {
+                // Since BiopolymerModification doesn't have isSupported, report all
+                modifications.append(QString("%1 at position %2")
+                    .arg(mod.name).arg(residue->sequencePosition));
             }
         }
     }
@@ -1031,11 +1041,21 @@ QList<QString> BiopolymerExportSession::unsupportedModifications() const {
 QList<QString> BiopolymerExportSession::unsupportedConnections() const {
     QList<QString> connections;
     
-    for (const BiopolymerConnection& conn : m_state.connections()) {
-        if (!conn.isSupported) {
-            connections.append(QString("Connection from %1:%2 to %3:%4")
-                .arg(conn.fromChainIndex).arg(conn.fromResidueId)
-                .arg(conn.toChainIndex).arg(conn.toResidueId));
+    for (const BiopolymerConnection& conn : m_state.allConnections()) {
+        // For now, check if connection type is unsupported
+        // BiopolymerConnection has no isSupported field, so we check the type
+        const BiopolymerResidue* fromResidue = m_state.residue(conn.fromResidueId);
+        const BiopolymerResidue* toResidue = m_state.residue(conn.toResidueId);
+        
+        if (fromResidue && toResidue) {
+            // Check if this is an unsupported connection type
+            // For now, consider non-standard bond types as unsupported
+            if (conn.type != "peptide" && conn.type != "phosphodiester" && conn.type != "disulfide") {
+                connections.append(QString("Connection from %1:%2 to %3:%4 (type: %5)")
+                    .arg(fromResidue->chainId).arg(conn.fromResidueId)
+                    .arg(toResidue->chainId).arg(conn.toResidueId)
+                    .arg(conn.type));
+            }
         }
     }
     
@@ -1061,7 +1081,7 @@ bool BiopolymerExportSession::formatSupportsPolymerType(ExportFormat format, Pol
     switch (format) {
         case ExportFormat::Sequence:
         case ExportFormat::Fasta:
-            return polymerType == PolymerType::PEPTIDE || 
+            return polymerType == PolymerType::Peptide || 
                    polymerType == PolymerType::DNA || 
                    polymerType == PolymerType::RNA;
         case ExportFormat::Helm:

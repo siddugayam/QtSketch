@@ -12,6 +12,7 @@
 #include <QMutex>
 #include <QAtomicInt>
 #include <QObject>
+#include <QtConcurrent/QtConcurrent>
 #include <functional>
 
 class QThreadPool;
@@ -62,6 +63,7 @@ private:
 // ========== Operation Status ==========
 
 enum class OperationStatus {
+    Unknown,     // Operation not found / unknown state
     Pending,     // Operation has not started
     Running,     // Operation is running
     Completed,   // Operation completed successfully
@@ -289,6 +291,9 @@ protected:
     void updateProgress(int progress, const QString& description = QString());
     void updateStep(int current, int total, const QString& description = QString());
     
+    // Mark the task as running (sets status, startTime, emits statusChanged)
+    void markRunning();
+    
     // Report completion
     void reportSuccess(const QString& result, const QMap<QString, QVariant>& metadata = QMap<QString, QVariant>());
     void reportError(const QString& error);
@@ -442,7 +447,7 @@ private:
     const BiopolymerWorkspace& m_workspace;
     QThreadPool* m_threadPool;
     QMap<OperationId, AsyncTask*> m_operations;
-    QMutex m_mutex;
+    mutable QMutex m_mutex;
     QAtomicInt m_nextId;
     int m_maxConcurrentOperations;
     bool m_ownsThreadPool;
@@ -477,7 +482,7 @@ OperationId BiopolymerAsyncOperations::startOperation(Args&&... args) {
     Task* task = new Task(id, m_workspace, this);
     
     // Connect signals
-    connect(task, &AsyncTask::started, this, [this, id]() {
+    connect(task, &AsyncTask::started, this, [this, id, task]() {
         emit operationStarted(id, task->type());
     });
     connect(task, &AsyncTask::progress, this, [this](OperationId id, int progress, const QString& desc) {

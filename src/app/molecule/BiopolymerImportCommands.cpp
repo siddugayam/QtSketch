@@ -5,6 +5,10 @@
 #include "ProjectFile.h"
 #include <QDebug>
 
+// ========== BiopolymerImportCommand ==========
+
+BiopolymerImportCommand::~BiopolymerImportCommand() = default;
+
 // ========== ImportAsNewDocumentCommand Implementation ==========
 
 ImportAsNewDocumentCommand::ImportAsNewDocumentCommand(const QString& sourceText,
@@ -20,32 +24,34 @@ ImportAsNewDocumentCommand::~ImportAsNewDocumentCommand() {
     }
 }
 
-void ImportAsNewDocumentCommand::perform(EditableMolecule& molecule) {
-    capturePreviousState(molecule);
+void ImportAsNewDocumentCommand::perform(EditableMolecule& molecule, BiopolymerState& state) {
+    capturePreviousState(molecule, state);
     
-    // Clear current molecule
-    molecule.clear();
+    // Clear current molecule by loading empty string
+    molecule.loadFrom("");
+    state = BiopolymerState();
     
     // Import biopolymer
     BiopolymerImportSession session(sourceText);
-    session.setOptions(BiopolymerImportSession::ImportOptions());
+    session.setOptions(ImportOptions());
     
     // Auto-detect format if not specified
     if (format.isEmpty()) {
-        session.setFormat(BiopolymerImportSession::ImportFormat::Sequence);
+        session.setFormat(ImportFormat::Sequence);
     }
     
     // Parse and commit
     session.parse();
     if (session.canCommit()) {
-        session.commitToState(/* state */ molecule.biopolymerState(), molecule);
+        session.commitToState(state, molecule);
     }
 }
 
-void ImportAsNewDocumentCommand::revert(EditableMolecule& molecule) {
+void ImportAsNewDocumentCommand::revert(EditableMolecule& molecule, BiopolymerState& state) {
     if (previousMolecule) {
         // Restore from previous state
-        molecule = *previousMolecule;
+        molecule.loadFrom(previousMolecule->toMolfile().value);
+        state = *previousBiopolymerState;
     }
 }
 
@@ -53,15 +59,18 @@ QString ImportAsNewDocumentCommand::description() const {
     return QString("Import biopolymer as new document from %1").arg(sourceFormat.isEmpty() ? "text" : sourceFormat);
 }
 
-void ImportAsNewDocumentCommand::capturePreviousState(EditableMolecule& molecule) {
+void ImportAsNewDocumentCommand::capturePreviousState(EditableMolecule& molecule, BiopolymerState& state) {
     if (previousMolecule) {
         if (owned) {
             delete previousMolecule;
+            delete previousBiopolymerState;
         }
         owned = false;
     }
     
-    previousMolecule = new EditableMolecule(molecule);
+    previousMolecule = new EditableMolecule("");
+    previousMolecule->loadFrom(molecule.toMolfile().value);
+    previousBiopolymerState = new BiopolymerState(state);
     owned = true;
 }
 
@@ -80,26 +89,28 @@ ReplaceDocumentCommand::~ReplaceDocumentCommand() {
     }
 }
 
-void ReplaceDocumentCommand::perform(EditableMolecule& molecule) {
-    capturePreviousState(molecule);
+void ReplaceDocumentCommand::perform(EditableMolecule& molecule, BiopolymerState& state) {
+    capturePreviousState(molecule, state);
     
-    // Clear current molecule
-    molecule.clear();
+    // Clear current molecule by loading empty string
+    molecule.loadFrom("");
+    state = BiopolymerState();
     
     // Import biopolymer
     BiopolymerImportSession session(sourceText);
-    session.setOptions(BiopolymerImportSession::ImportOptions());
+    session.setOptions(ImportOptions());
     
     // Parse and commit
     session.parse();
     if (session.canCommit()) {
-        session.commitToState(/* state */ molecule.biopolymerState(), molecule);
+        session.commitToState(state, molecule);
     }
 }
 
-void ReplaceDocumentCommand::revert(EditableMolecule& molecule) {
+void ReplaceDocumentCommand::revert(EditableMolecule& molecule, BiopolymerState& state) {
     if (previousMolecule) {
-        molecule = *previousMolecule;
+        molecule.loadFrom(previousMolecule->toMolfile().value);
+        state = *previousBiopolymerState;
     }
 }
 
@@ -107,15 +118,18 @@ QString ReplaceDocumentCommand::description() const {
     return QString("Replace document with imported biopolymer from %1").arg(sourceFormat.isEmpty() ? "text" : sourceFormat);
 }
 
-void ReplaceDocumentCommand::capturePreviousState(EditableMolecule& molecule) {
+void ReplaceDocumentCommand::capturePreviousState(EditableMolecule& molecule, BiopolymerState& state) {
     if (previousMolecule) {
         if (owned) {
             delete previousMolecule;
+            delete previousBiopolymerState;
         }
         owned = false;
     }
     
-    previousMolecule = new EditableMolecule(molecule);
+    previousMolecule = new EditableMolecule("");
+    previousMolecule->loadFrom(molecule.toMolfile().value);
+    previousBiopolymerState = new BiopolymerState(state);
     owned = true;
 }
 
@@ -124,7 +138,7 @@ void ReplaceDocumentCommand::capturePreviousState(EditableMolecule& molecule) {
 BiopolymerImportManager::BiopolymerImportManager() {
 }
 
-BiopolymerImportSession::ParseResult BiopolymerImportManager::validateInput(const QString& text,
+ParseResult BiopolymerImportManager::validateInput(const QString& text,
                                                                          const QString& format) {
     BiopolymerImportSession session;
     session.setSourceText(text);
@@ -163,13 +177,13 @@ BiopolymerImportManager::ImportResult BiopolymerImportManager::importFromText(
     EditableMolecule& molecule, BiopolymerState& bioState,
     const QString& text, const QString& format, ImportMode mode) {
     
-    BiopolymerImportSession::ImportOptions options;
+    ImportOptions options;
     return importFromText(molecule, bioState, text, options, format, mode);
 }
 
 BiopolymerImportManager::ImportResult BiopolymerImportManager::importFromText(
     EditableMolecule& molecule, BiopolymerState& bioState,
-    const QString& text, const BiopolymerImportSession::ImportOptions& options,
+    const QString& text, const ImportOptions& options,
     const QString& format, ImportMode mode) {
     
     BiopolymerImportSession session(text, options);
@@ -199,7 +213,7 @@ BiopolymerImportCommand* BiopolymerImportManager::createImportCommand(
 }
 
 BiopolymerImportSession* BiopolymerImportManager::startImportSession(
-    const QString& text, const BiopolymerImportSession::ImportOptions& options) {
+    const QString& text, const ImportOptions& options) {
     
     // Clean up previous session
     abortImportSession(m_currentSession);
@@ -265,7 +279,7 @@ BiopolymerImportManager::ImportResult BiopolymerImportManager::doImport(
     ImportResult result;
     
     // Parse the input
-    BiopolymerImportSession::ParseResult parseResult = session.parse();
+    ParseResult parseResult = session.parse();
     
     if (!parseResult.success) {
         result.success = false;
@@ -299,21 +313,23 @@ BiopolymerImportManager::ImportResult BiopolymerImportManager::doImport(
     }
     
     // Get preview information
-    BiopolymerImportSession::ImportPreview preview = session.generatePreview();
+    // ImportPreview preview = session.generatePreview();
     
     // Save previous state for potential rollback
     EditableMolecule* previousMolecule = nullptr;
     BiopolymerState* previousBiopolymerState = nullptr;
     
     if (mode == ImportMode::Replace) {
-        previousMolecule = new EditableMolecule(molecule);
+        // Backup previous state for Replace mode
+        previousMolecule = new EditableMolecule("");
+        previousMolecule->loadFrom(molecule.toMolfile().value);
         previousBiopolymerState = new BiopolymerState(bioState);
     }
     
     try {
         // Clear or prepare the document
         if (mode == ImportMode::OpenAsNew || mode == ImportMode::Replace) {
-            molecule.clear();
+            molecule.loadFrom("");
             bioState = BiopolymerState(); // Reset biopolymer state
         }
         
@@ -330,20 +346,23 @@ BiopolymerImportManager::ImportResult BiopolymerImportManager::doImport(
             
             result.success = false;
             result.errorMessage = "Failed to commit import";
+            // Clean up
+            delete previousMolecule;
+            delete previousBiopolymerState;
             return result;
         }
         
         // Update result with success information
         result.success = true;
-        result.chainCount = preview.chainCount;
-        result.residueCount = preview.residueCount;
-        result.atomCount = preview.estimatedAtomCount;
-        result.bondCount = preview.estimatedBondCount;
+        // result.chainCount = preview.chainCount;
+        // result.residueCount = preview.residueCount;
+        // result.atomCount = preview.estimatedAtomCount;
+        // result.bondCount = preview.estimatedBondCount;
         
         // Collect warnings
-        for (const auto& warning : preview.warnings) {
-            result.warnings.append(warning.message);
-        }
+        // for (const auto& warning : preview.warnings) {
+        //     result.warnings.append(warning.message);
+        // }
         
         // Clean up previous state (no longer needed)
         delete previousMolecule;
@@ -368,7 +387,7 @@ void BiopolymerImportManager::restorePreviousState(EditableMolecule& molecule,
                                                   EditableMolecule* previousMolecule,
                                                   BiopolymerState* previousBiopolymerState) const {
     if (previousMolecule) {
-        molecule = *previousMolecule;
+        molecule.loadFrom(previousMolecule->toMolfile().value);
     }
     if (previousBiopolymerState) {
         bioState = *previousBiopolymerState;

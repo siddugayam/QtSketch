@@ -317,7 +317,7 @@ const TerminalDatabase::TerminalRecord TerminalDatabase::N_Terminal_Amine = {
     "NH2",
     16.0,
     TerminalPosition::First,
-    {PolymerType::PEPTIDE},
+    {PolymerType::Peptide},
     true,
     "Free amine group at N-terminus"
 };
@@ -329,7 +329,7 @@ const TerminalDatabase::TerminalRecord TerminalDatabase::N_Terminal_Acetyl = {
     "C2H3O",
     43.05,
     TerminalPosition::First,
-    {PolymerType::PEPTIDE},
+    {PolymerType::Peptide},
     true,
     "Acetylated N-terminus"
 };
@@ -341,7 +341,7 @@ const TerminalDatabase::TerminalRecord TerminalDatabase::N_Terminal_Methyl = {
     "CH3",
     15.04,
     TerminalPosition::First,
-    {PolymerType::PEPTIDE},
+    {PolymerType::Peptide},
     true,
     "Methylated N-terminus"
 };
@@ -353,7 +353,7 @@ const TerminalDatabase::TerminalRecord TerminalDatabase::N_Terminal_Formyl = {
     "CHO",
     29.02,
     TerminalPosition::First,
-    {PolymerType::PEPTIDE},
+    {PolymerType::Peptide},
     true,
     "Formylated N-terminus"
 };
@@ -366,7 +366,7 @@ const TerminalDatabase::TerminalRecord TerminalDatabase::C_Terminal_Carboxyl = {
     "CO2H",
     44.01,
     TerminalPosition::Last,
-    {PolymerType::PEPTIDE},
+    {PolymerType::Peptide},
     true,
     "Free carboxyl group at C-terminus"
 };
@@ -378,7 +378,7 @@ const TerminalDatabase::TerminalRecord TerminalDatabase::C_Terminal_Amide = {
     "CONH2",
     44.03,
     TerminalPosition::Last,
-    {PolymerType::PEPTIDE},
+    {PolymerType::Peptide},
     true,
     "Amide group at C-terminus"
 };
@@ -390,7 +390,7 @@ const TerminalDatabase::TerminalRecord TerminalDatabase::C_Terminal_MethylEster 
     "CO2CH3",
     59.04,
     TerminalPosition::Last,
-    {PolymerType::PEPTIDE},
+    {PolymerType::Peptide},
     true,
     "Methyl ester at C-terminus"
 };
@@ -939,7 +939,7 @@ bool TerminalManager::setCTerminal(int chainId, TerminalType type) {
 
 TerminalType TerminalManager::defaultNTerminal(PolymerType polymerType) const {
     switch (polymerType) {
-        case PolymerType::PEPTIDE:
+        case PolymerType::Peptide:
             return TerminalType::Amine;
         case PolymerType::DNA:
         case PolymerType::RNA:
@@ -951,7 +951,7 @@ TerminalType TerminalManager::defaultNTerminal(PolymerType polymerType) const {
 
 TerminalType TerminalManager::defaultCTerminal(PolymerType polymerType) const {
     switch (polymerType) {
-        case PolymerType::PEPTIDE:
+        case PolymerType::Peptide:
             return TerminalType::Carboxyl;
         case PolymerType::DNA:
         case PolymerType::RNA:
