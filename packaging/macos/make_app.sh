@@ -74,6 +74,15 @@ for _pass in 1 2 3; do
     while IFS= read -r f; do
         file "$f" | grep -q "Mach-O" || continue
         chmod u+w "$f"
+        case "$f" in
+            "$APP"/Contents/Frameworks/*.framework/Versions/*/*)
+                fw_rel="${f#"$APP/Contents/Frameworks/"}"
+                install_name_tool -id "@rpath/$fw_rel" "$f" 2>/dev/null || true
+                ;;
+            "$APP"/Contents/Frameworks/*.dylib)
+                install_name_tool -id "@rpath/$(basename "$f")" "$f" 2>/dev/null || true
+                ;;
+        esac
         while IFS= read -r dep; do
             [ -n "$dep" ] || continue
             case "$dep" in
@@ -108,7 +117,9 @@ done
 install_name_tool -add_rpath @executable_path/../Frameworks "$BIN" 2>/dev/null || true
 
 rm -f "$APP/Contents/PlugIns/imageformats/libqpdf.dylib"
-printf '[Paths]\nPlugins = PlugIns\nQmlImports = Resources/qml\n' > "$APP/Contents/Resources/qt.conf"
+# Prefix = .. sets the bundle root to QtSketch.app/Contents so PlugIns and
+# Resources/qml resolve properly when launched standalone without Homebrew Qt.
+printf '[Paths]\nPrefix = ..\nPlugins = PlugIns\nImports = Resources/qml\nQmlImports = Resources/qml\nQml2Imports = Resources/qml\n' > "$APP/Contents/Resources/qt.conf"
 
 MINOS=$(find "$APP/Contents" -type f \( -name "*.dylib" -o -path "*.framework/Versions/A/*" -o -path "*/MacOS/*" \) \
     -exec otool -l {} \; 2>/dev/null | awk '/minos/{print $2}' | sort -V | tail -1)

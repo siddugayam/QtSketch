@@ -27,8 +27,8 @@ packaging/macos/make_dmg.sh
 
 - `fetch_indigo.sh` downloads the EPAM Indigo 1.45.0 wheel from PyPI using Python 3's standard library, verifies its SHA-256 digest, and places the libraries, C headers, and licences in `indigo/` (gitignored).
 - `build_imago.sh` downloads pinned source archives for Imago, Indigo, and OpenCV, applies macOS SDK header fixes for bundled `zlib`/`libpng`, compiles only `opencv_core`, `opencv_imgproc`, `opencv_imgcodecs`, `indigo-static`, and `imago-c`, and installs `@rpath/libimago.dylib` into `imago/` (gitignored).
-- `make_app.sh` bundles Qt, Indigo, Imago (if built), `monomer_library.ket`, `templates/`, and third-party licences inside `dist/QtSketch.app/Contents/`, rewrites any Homebrew load paths, and signs the bundle ad hoc.
-- `make_dmg.sh` writes `dist/QtSketch-0.1-arm64.dmg` and its `.sha256` checksum.
+- `make_app.sh` bundles Qt, Indigo, Imago (if built), `monomer_library.ket`, `templates/`, and third-party licences inside `dist/QtSketch.app/Contents/`, configures `Contents/Resources/qt.conf` (`Prefix = ..`), rewrites any Homebrew load/ID paths, and signs the bundle ad hoc.
+- `make_dmg.sh` writes an LZMA-compressed (`ULMO`) `dist/QtSketch-0.1-arm64.dmg` and its `.sha256` checksum.
 
 ## Limits
 
