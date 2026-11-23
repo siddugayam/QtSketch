@@ -14,6 +14,8 @@ find_package(Qt6 6.6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Concu
 qt_standard_project_setup(REQUIRES 6.6)
 qt_policy(SET QTP0004 OLD)
 
+option(QTSKETCH_WITH_IMAGO "Link EPAM Imago for image-to-structure recognition when imago/ is present" ON)
+
 if (MSVC)
     # Official EPAM MSVC build (indigo-libs-windows-x86_64, v1.43.0) — the vendored
     # indigo/lib/indigo.dll is MinGW-built (Itanium-mangled exports) and cannot be
@@ -61,7 +63,23 @@ else()
     set(INDIGO_INCHI_LIB ${INDIGO_LIB_DIR}/indigo-inchi.dll)
     set(INDIGO_RENDERER_LIB ${INDIGO_LIB_DIR}/indigo-renderer.dll)
     set(IMAGO_LIB ${IMAGO_LIB_DIR}/imago.dll)
-    set(INDIGO_RUNTIME_FILES ${INDIGO_LIB} ${INDIGO_INCHI_LIB} ${INDIGO_RENDERER_LIB} ${IMAGO_LIB})
+    set(INDIGO_RUNTIME_FILES ${INDIGO_LIB} ${INDIGO_INCHI_LIB} ${INDIGO_RENDERER_LIB})
+endif()
+
+set(IMAGO_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/imago/include)
+if (NOT EXISTS "${IMAGO_INCLUDE_DIR}/imago_c.h" AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/packaging/imago_c.h")
+    set(IMAGO_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/packaging)
+endif()
+if (QTSKETCH_WITH_IMAGO AND IMAGO_LIB AND EXISTS "${IMAGO_LIB}")
+    set(QTSKETCH_HAS_IMAGO 1)
+    if (WIN32 AND NOT MSVC)
+        list(APPEND INDIGO_RUNTIME_FILES ${IMAGO_LIB})
+    endif()
+    message(STATUS "Imago enabled: ${IMAGO_LIB}")
+else()
+    set(QTSKETCH_HAS_IMAGO 0)
+    set(IMAGO_LIB "")
+    message(STATUS "Imago library not found or disabled; building stub ImagoService")
 endif()
 
 
@@ -265,6 +283,7 @@ target_precompile_headers(sketch PRIVATE
 
 
 # Indigo C++ integration
+target_compile_definitions(sketch PRIVATE QTSKETCH_HAS_IMAGO=${QTSKETCH_HAS_IMAGO})
 target_include_directories(sketch PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app
@@ -274,7 +293,7 @@ target_include_directories(sketch PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo
     ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo-inchi
     ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo-renderer
-    ${CMAKE_CURRENT_SOURCE_DIR}/imago/include
+    ${IMAGO_INCLUDE_DIR}
 )
 
 target_link_libraries(sketch PRIVATE ${INDIGO_LIB} ${INDIGO_INCHI_LIB} ${INDIGO_RENDERER_LIB} ${IMAGO_LIB})
@@ -372,11 +391,7 @@ target_include_directories(peripheral_numbering_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app
     ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo
 )
-if (MSVC)
-    target_link_libraries(peripheral_numbering_test PRIVATE Qt6::Core ${INDIGO_LIB_DIR}/indigo.lib)
-else()
-    target_link_libraries(peripheral_numbering_test PRIVATE Qt6::Core ${INDIGO_LIB_DIR}/indigo.dll)
-endif()
+target_link_libraries(peripheral_numbering_test PRIVATE Qt6::Core ${INDIGO_LIB})
 add_test(NAME peripheral_numbering_test COMMAND peripheral_numbering_test)
 
 qt_add_executable(naming_validation_test tests/naming_validation_test.cpp src/app/NamingValidation.h src/app/NamingValidation.cpp src/app/FusedRingOrientation.h src/app/FusedRingOrientation.cpp src/app/FusedSystemTopology.h src/app/FusedSystemTopology.cpp src/app/NamingTypes.h)
@@ -384,11 +399,7 @@ target_include_directories(naming_validation_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app
 )
-if (MSVC)
-    target_link_libraries(naming_validation_test PRIVATE Qt6::Core)
-else()
-    target_link_libraries(naming_validation_test PRIVATE Qt6::Core)
-endif()
+target_link_libraries(naming_validation_test PRIVATE Qt6::Core)
 add_test(NAME naming_validation_test COMMAND naming_validation_test)
 
 qt_add_executable(system_locant_test tests/system_locant_test.cpp src/app/SystemLocant.h)
@@ -406,11 +417,7 @@ target_include_directories(fusion_construction_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo
     ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo-inchi
 )
-if (MSVC)
-    target_link_libraries(fusion_construction_test PRIVATE Qt6::Core ${INDIGO_LIB_DIR}/indigo.lib ${INDIGO_LIB_DIR}/indigo-inchi.lib)
-else()
-    target_link_libraries(fusion_construction_test PRIVATE Qt6::Core ${INDIGO_LIB_DIR}/indigo.dll ${INDIGO_LIB_DIR}/indigo-inchi.dll)
-endif()
+target_link_libraries(fusion_construction_test PRIVATE Qt6::Core ${INDIGO_LIB} ${INDIGO_INCHI_LIB})
 add_test(NAME fusion_construction_test COMMAND fusion_construction_test)
 
 qt_add_executable(retained_ring_registry_test tests/retained_ring_registry_test.cpp ${IUPAC_NAMING_SOURCES} src/app/BondStereoPerception.h src/app/BondStereoPerception.cpp)
@@ -582,7 +589,7 @@ target_include_directories(export_manager_test PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app
 )
-target_link_libraries(export_manager_test PRIVATE Qt6::Core Qt6::Gui Qt6::Svg Qt6::Test molecule_model)
+target_link_libraries(export_manager_test PRIVATE Qt6::Core Qt6::Gui Qt6::Qml Qt6::Svg Qt6::Test molecule_model)
 add_test(NAME export_manager_test COMMAND export_manager_test)
 
 qt_add_executable(bond_angle_suggester_test tests/bond_angle_suggester_test.cpp src/app/BondAngleSuggester.h src/app/BondAngleSuggester.cpp)
@@ -621,6 +628,22 @@ add_test(NAME clipboard_preview_test COMMAND clipboard_preview_test)
 qt_add_executable(biopolymer_sequence_view_test tests/biopolymer_sequence_view_test.cpp)
 target_link_libraries(biopolymer_sequence_view_test PRIVATE molecule_model)
 add_test(NAME biopolymer_sequence_view_test COMMAND biopolymer_sequence_view_test)
+
+qt_add_executable(biopolymer_state_test tests/biopolymer_state_test.cpp)
+target_include_directories(biopolymer_state_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/app/molecule)
+target_link_libraries(biopolymer_state_test PRIVATE Qt6::Core Qt6::Gui Qt6::Test molecule_model)
+add_test(NAME biopolymer_state_test COMMAND biopolymer_state_test)
+
+qt_add_executable(imago_service_test tests/imago_service_test.cpp src/app/ImagoService.h src/app/ImagoService.cpp)
+target_compile_definitions(imago_service_test PRIVATE QTSKETCH_HAS_IMAGO=${QTSKETCH_HAS_IMAGO})
+target_include_directories(imago_service_test PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app
+    ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo
+    ${IMAGO_INCLUDE_DIR}
+)
+target_link_libraries(imago_service_test PRIVATE Qt6::Core Qt6::Gui Qt6::Qml Qt6::Concurrent ${INDIGO_LIB} ${IMAGO_LIB})
+add_test(NAME imago_service_test COMMAND imago_service_test)
 
 qt_add_executable(render_primitives_to_variant_test tests/render_primitives_to_variant_test.cpp)
 target_link_libraries(render_primitives_to_variant_test PRIVATE molecule_model)

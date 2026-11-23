@@ -1,33 +1,36 @@
 # macOS build
 
-Tested on an Apple silicon Mac with macOS 26, Xcode command line tools, Homebrew Qt 6.12 and CMake.
+Verified on Apple silicon (`arm64`) with Xcode Command Line Tools, CMake 4.x, and Homebrew Qt 6.
 
-## Steps
+## One-command setup & DMG build
+
+From the repository root:
 
 ```bash
-brew install qt cmake
+./install_and_build.sh
+```
+
+Pass `--skip-imago` to skip building Imago from source if you do not need Insert Image OCR.
+
+## Manual steps
+
+```bash
+brew install qt cmake ninja
 packaging/macos/fetch_indigo.sh
-packaging/macos/build_imago.sh
-cmake -S . -B build_mac -DCMAKE_PREFIX_PATH="$(brew --prefix qt)" -DCMAKE_BUILD_TYPE=Release
-cmake --build build_mac -j
-ctest --test-dir build_mac
+packaging/macos/build_imago.sh          # optional; omit or pass -DQTSKETCH_WITH_IMAGO=OFF to skip
+cmake -S . -B build_mac -G Ninja -DCMAKE_PREFIX_PATH="$(brew --prefix qt)" -DCMAKE_BUILD_TYPE=Release
+cmake --build build_mac
+QT_QPA_PLATFORM=offscreen ctest --test-dir build_mac --output-on-failure
 packaging/macos/make_app.sh build_mac
 packaging/macos/make_dmg.sh
 ```
 
-- `fetch_indigo.sh` puts the Indigo 1.45.0 libraries, headers and licence in `indigo/` (gitignored). The libraries come from the `epam.indigo` arm64 wheel on PyPI.
-- `build_imago.sh` builds Imago (image recognition, used by Insert Image) from source into
-  `imago/` (gitignored). EPAM publishes no prebuilt Imago binaries for any platform, and Imago's
-  own CMake build compiles its own vendored copies of Indigo and OpenCV from source too, so this
-  is a slow step (expect it to take much longer than building QtSketch itself) and needs Xcode
-  command line tools and git in addition to what's listed above. Imago's own upstream CI last
-  built this exact pinned commit clean on a macOS runner, but that was not confirmed here against
-  Apple silicon specifically -- build it once and confirm Insert Image works before relying on it.
-- `make_app.sh` copies the build to `dist/QtSketch.app` and bundles Qt, Indigo and Imago, so the app runs without Homebrew.
-- `make_dmg.sh` writes `dist/QtSketch-0.1-arm64.dmg` and its SHA-256.
+- `fetch_indigo.sh` downloads the EPAM Indigo 1.45.0 wheel from PyPI using Python 3's standard library, verifies its SHA-256 digest, and places the libraries, C headers, and licences in `indigo/` (gitignored).
+- `build_imago.sh` downloads pinned source archives for Imago, Indigo, and OpenCV, applies macOS SDK header fixes for bundled `zlib`/`libpng`, compiles only `opencv_core`, `opencv_imgproc`, `opencv_imgcodecs`, `indigo-static`, and `imago-c`, and installs `@rpath/libimago.dylib` into `imago/` (gitignored).
+- `make_app.sh` bundles Qt, Indigo, Imago (if built), `monomer_library.ket`, `templates/`, and third-party licences inside `dist/QtSketch.app/Contents/`, rewrites any Homebrew load paths, and signs the bundle ad hoc.
+- `make_dmg.sh` writes `dist/QtSketch-0.1-arm64.dmg` and its `.sha256` checksum.
 
 ## Limits
 
-- arm64 only. The minimum macOS is whatever the bundled Qt was built for; Homebrew Qt on macOS 26 gives 26.0.
-- The app is signed ad hoc, not notarised. Gatekeeper blocks it on first open; right-click the app and choose Open.
-- The UI uses Windows fonts (Segoe UI, Segoe Fluent Icons, Consolas). On macOS Qt substitutes other fonts and some icons may be blank.
+- The app is signed ad hoc, not notarised. Gatekeeper blocks it on first open; right-click the app and choose Open (or run `xattr -cr /Applications/QtSketch.app`).
+- Some UI text specifies Windows font names first (`Segoe UI`, `Consolas`); macOS substitutes system fonts automatically.

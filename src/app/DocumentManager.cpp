@@ -13,15 +13,21 @@ namespace {
 // unchanged. Returns the templates/ directory path, or an empty string if not found
 // within 5 levels (harmless either way -- see the comment at its call site below).
 QString findTemplatesDir() {
-    QString appDir = QCoreApplication::applicationDirPath();
+    const QString appDir = QCoreApplication::applicationDirPath();
+    const QStringList packagedDirs = {
+        QDir::cleanPath(appDir + QStringLiteral("/../Resources/templates")),
+        QDir::cleanPath(appDir + QStringLiteral("/../share/qtsketch/templates")),
+    };
+    for (const QString &cand : packagedDirs) {
+        if (QFile::exists(cand + QStringLiteral("/fg.sdf"))) return cand;
+    }
     QDir dir(appDir);
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 6; ++i) {
         QString candidate = dir.filePath(QStringLiteral("templates/fg.sdf"));
         if (QFile::exists(candidate)) return dir.filePath(QStringLiteral("templates"));
         if (!dir.cdUp()) break;
     }
-    // Not fatal, but the template library will be empty; say so.
-    qWarning() << "QtSketch: templates/fg.sdf not found within 5 folders above" << appDir
+    qWarning() << "QtSketch: templates/fg.sdf not found above" << appDir
                << "- the template library will be empty.";
     return QString();
 }

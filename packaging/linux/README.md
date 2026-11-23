@@ -1,57 +1,37 @@
 # Linux build
 
-The Linux package is an AppImage: one file that runs on most current distributions without
-installing anything. It is built inside Docker on Ubuntu 24.04 with Qt 6.8 LTS from qt.io, so it
-needs glibc 2.39 or newer (Ubuntu 24.04, Debian 13, Fedora 40 and later).
+The Linux package is a self-contained `.AppImage` (`x86_64` or `aarch64`) that runs on distributions with glibc 2.39 or newer (Ubuntu 24.04+, Debian 13+, Fedora 40+, Arch Linux).
 
-## AppImage with Docker (any host)
+## Option 1: One-command native setup & AppImage build
+
+From the repository root on Ubuntu/Debian, Fedora/RHEL, Arch, or openSUSE:
+
+```bash
+./install_and_build.sh
+```
+
+- Installs required system build, X11/Wayland/OpenGL, and AppImage packages automatically.
+- Uses the distribution's Qt 6 directly when it is 6.6 or newer, or automatically installs Qt 6.8.3 locally into `.qt/` via `aqtinstall` on older LTS releases (such as Ubuntu 22.04 and Ubuntu 24.04, which ship Qt 6.4 in `apt`).
+- Runs `packaging/linux/fetch_indigo.sh` and `packaging/linux/build_imago.sh` (pass `--skip-imago` for a fast build without OCR).
+- Builds `build_linux/QtSketch`, runs the 27 CTest suites headless (`QT_QPA_PLATFORM=offscreen`), and creates `dist/QtSketch-0.1-<arch>.AppImage` + `.sha256`.
+
+## Option 2: Reproducible AppImage via Docker (any host)
 
 ```bash
 packaging/linux/build_in_docker.sh amd64     # or arm64
 ```
 
-This builds the image in `packaging/linux/Dockerfile`, copies the repo into the container, fetches
-Indigo, builds Imago from source (slow -- see below), builds, runs the tests with the offscreen
-Qt platform, and writes `dist/QtSketch-0.1-x86_64.AppImage` (or `-aarch64`) with its SHA-256. The
-repo itself is mounted read-only.
+Pass `--skip-imago` if you want to skip building Imago inside the container. The repository is mounted read-only and the finished `.AppImage` + `.sha256` are written to `dist/`.
 
-To run it:
+To run the AppImage:
 
 ```bash
 chmod +x QtSketch-0.1-x86_64.AppImage
 ./QtSketch-0.1-x86_64.AppImage
 ```
 
-If the system has no FUSE 2 (`libfuse2`), run it with `--appimage-extract-and-run`.
+If FUSE 2 (`libfuse2` / `libfuse2t64`) is not installed, run with `--appimage-extract-and-run`.
 
-## Native build (for development)
+## Option 3: Automated GitHub Actions / Releases
 
-On a distribution with Qt 6.6 or newer. These package names have not been tested; the Docker
-route above is the tested one.
-
-```bash
-# Debian 13 / Ubuntu 25.04 or later
-sudo apt install build-essential cmake ninja-build python3-pip \
-    qt6-base-dev qt6-declarative-dev qt6-svg-dev qml6-module-qtquick-controls \
-    qml6-module-qtquick-layouts qml6-module-qtquick-dialogs qml6-module-qtquick-shapes
-packaging/linux/fetch_indigo.sh
-packaging/linux/build_imago.sh
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-QT_QPA_PLATFORM=offscreen ctest --test-dir build
-./build/QtSketch
-```
-
-- `fetch_indigo.sh` puts the Indigo 1.45.0 libraries, headers and licences in `indigo/`
-  (gitignored). The libraries come from the `epam.indigo` wheel on PyPI for x86_64 or aarch64.
-- `build_imago.sh` builds Imago (image recognition, used by Insert Image) from source into
-  `imago/` (gitignored). EPAM publishes no prebuilt Imago binaries for any platform, and Imago's
-  own CMake build compiles its own vendored copies of Indigo and OpenCV from source too, so this
-  is a slow build (expect it to take much longer than building QtSketch itself) and needs a
-  C++ toolchain and git in addition to what's listed above.
-- `make_appimage.sh <build-dir>` bundles a build into an AppImage with linuxdeploy and its Qt
-  plugin, which it downloads into `dist/linux-tools/`.
-
-## Limits
-
-- The AppImage is not signed.
+[`.github/workflows/release.yml`](../../.github/workflows/release.yml) builds macOS `arm64` `.dmg` and Linux `x86_64` + `aarch64` `.AppImage` packages in CI (caching Imago and Qt 6.8.3), uploads workflow artifacts on `workflow_dispatch`, and attaches all packages + SHA-256 files to a GitHub Release when a `v*` tag is pushed.

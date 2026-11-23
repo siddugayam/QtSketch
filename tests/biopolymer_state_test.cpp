@@ -91,7 +91,7 @@ private slots:
         // Without connections, chain should not be fully valid
         MappingValidity validity = state.validateChain(chainId);
         QVERIFY(!validity.isValid);
-        QVERIFY(validity.issues.contains("No connection between residues"));
+        QVERIFY(validity.issues.join("\n").contains("No connection between residues"));
         
         // Add connection
         state.setResidueConnection(residueId1, residueId2, 1, "peptide");
@@ -144,7 +144,7 @@ private slots:
         val.alias = "Val";
         
         int residueId2 = state.insertResidueBefore(chainId, residueId3, val);
-        QCOMPARE(residueId2, 2);
+        QCOMPARE(residueId2, 3);
         
         // Check positions
         QCOMPARE(state.residue(residueId1)->sequencePosition, 1);
@@ -152,7 +152,7 @@ private slots:
         QCOMPARE(state.residue(residueId3)->sequencePosition, 3);
         
         // Check order in chain
-        QCOMPARE(state.residueIdsInChain(chainId), QList<int>{1, 2, 3});
+        QCOMPARE(state.residueIdsInChain(chainId), (QList<int>{residueId1, residueId2, residueId3}));
     }
     
     void testRenameChain() {

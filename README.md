@@ -23,8 +23,8 @@ from scratch.
 |---|---|---|---|---|
 | Windows x64 | Qt 6.6+ MinGW kit | MinGW build in `indigo/` | yes | Main development platform |
 | Windows x64 | Qt 6.6+ MSVC kit | EPAM `indigo-libs-windows-x86_64` | no | CMake branch present |
-| macOS arm64 | Homebrew Qt 6.12, Xcode CLT | EPAM `epam.indigo` 1.45.0 wheel | yes, built from source (`packaging/macos/build_imago.sh`) | Builds, 22/22 tests pass; Imago build untested on Apple silicon specifically |
-| Linux x86_64, arm64 | Qt 6.8 (aqtinstall), Ubuntu 24.04 in Docker | EPAM `epam.indigo` 1.45.0 wheel | yes, built from source (`packaging/linux/build_imago.sh`) | AppImage scripts in `packaging/linux/`, not yet built end to end |
+| macOS arm64 | Homebrew Qt 6, Xcode CLT | EPAM `epam.indigo` 1.45.0 wheel | yes (`packaging/macos/build_imago.sh`) | Builds `.app` and `.dmg`, 27/27 tests pass (including Apple silicon Imago OCR) |
+| Linux x86_64, arm64 | System Qt 6.6+ or Qt 6.8 (`aqtinstall`), native or Docker | EPAM `epam.indigo` 1.45.0 wheel | yes (`packaging/linux/build_imago.sh`) | One-step `./install_and_build.sh`, Docker AppImage, and GitHub Actions release workflow |
 
 ## Requirements
 
@@ -103,29 +103,70 @@ start "" "%~dp0build\sketch.exe"
 If you change generator or toolchain, delete `build\CMakeCache.txt` and `build\CMakeFiles`
 before configuring again.
 
-## Building on macOS
+## Quick setup and build (macOS and Linux)
+
+[`install_and_build.sh`](install_and_build.sh) installs missing OS dependencies, fetches Indigo,
+builds Imago from source, compiles QtSketch, runs the test suite, and packages a self-contained
+`dist/QtSketch-0.1-<arch>.dmg` (macOS) or `dist/QtSketch-0.1-<arch>.AppImage` (Linux):
 
 ```bash
-brew install qt cmake
+./install_and_build.sh
+```
+
+Useful flags:
+
+```bash
+./install_and_build.sh --skip-imago     # fast build without Imago OCR (~30 s)
+./install_and_build.sh --skip-package   # build binary/app only, skip .dmg/.AppImage
+./install_and_build.sh --no-deps        # skip brew / apt / dnf / pacman / zypper install
+./install_and_build.sh --run            # launch QtSketch when finished
+```
+
+On Linux distributions whose system Qt is older than 6.6 (such as Ubuntu 22.04 LTS and Ubuntu
+24.04 LTS), `install_and_build.sh` automatically installs Qt 6.8.3 locally into `.qt/` through
+`aqtinstall` without modifying system packages.
+
+Prebuilt macOS `.dmg` and Linux `x86_64` / `aarch64` `.AppImage` packages are also produced by
+[`.github/workflows/release.yml`](.github/workflows/release.yml) on `workflow_dispatch` and
+published automatically to GitHub Releases whenever a `v*` tag is pushed.
+
+## Building on macOS (manual steps)
+
+```bash
+brew install qt cmake ninja
 packaging/macos/fetch_indigo.sh
-packaging/macos/build_imago.sh
-cmake -S . -B build_mac -DCMAKE_PREFIX_PATH="$(brew --prefix qt)" -DCMAKE_BUILD_TYPE=Release
-cmake --build build_mac -j
-ctest --test-dir build_mac
+packaging/macos/build_imago.sh          # optional; omit for a faster build without OCR
+cmake -S . -B build_mac -G Ninja -DCMAKE_PREFIX_PATH="$(brew --prefix qt)" -DCMAKE_BUILD_TYPE=Release
+cmake --build build_mac
+QT_QPA_PLATFORM=offscreen ctest --test-dir build_mac --output-on-failure
 packaging/macos/make_app.sh build_mac
 packaging/macos/make_dmg.sh
 ```
-
-`build_imago.sh` builds Imago from source (EPAM publishes no prebuilt binaries for any platform)
-and is slow -- expect it to take much longer than building QtSketch itself.
 
 This produces `dist/QtSketch.app` and `dist/QtSketch-0.1-arm64.dmg`. See
 [packaging/macos/README.md](packaging/macos/README.md) for details and current limits
 (ad hoc signature, Windows fonts).
 
+## Building on Linux (manual or Docker)
+
+With Docker on any host:
+
+```bash
+packaging/linux/build_in_docker.sh amd64     # or arm64
+```
+
+Or natively on Linux:
+
+```bash
+./install_and_build.sh
+```
+
+See [packaging/linux/README.md](packaging/linux/README.md) for distribution package lists and
+AppImage details.
+
 ## Tests
 
-22 test programs are registered with CTest and built with the app:
+27 test programs are registered with CTest and built with the app:
 
 ```
 ctest --test-dir build --output-on-failure
@@ -133,11 +174,11 @@ ctest --test-dir build --output-on-failure
 
 | Area | Tests |
 |---|---|
-| IUPAC naming | `iupac_namer_test`, `iupac_golden_test`, `naming_validation_test`, `fused_ring_orientation_test`, `fused_ring_direction_detector_test`, `fused_system_topology_test`, `retained_ring_registry_test`, `retained_ring_matcher_test` |
-| Document model | `editable_molecule_test`, `document_state_test`, `placement_engines_test`, `bond_angle_suggester_test`, `clipboard_preview_test` |
+| IUPAC naming | `iupac_namer_test`, `iupac_golden_test`, `naming_validation_test`, `fused_ring_orientation_test`, `fused_ring_direction_detector_test`, `fused_system_topology_test`, `peripheral_numbering_test`, `system_locant_test`, `fusion_construction_test`, `retained_ring_registry_test`, `retained_ring_matcher_test` |
+| Document model | `editable_molecule_test`, `document_state_test`, `biopolymer_state_test`, `placement_engines_test`, `bond_angle_suggester_test`, `clipboard_preview_test` |
 | Files and settings | `project_file_test`, `settings_service_test`, `sdf_batch_test` |
 | Rendering and export | `render_scene_test`, `export_manager_test`, `render_primitives_test`, `render_primitives_to_variant_test`, `biopolymer_sequence_view_test` |
-| Input checks | `bio_input_guards_test` |
+| Input checks and OCR | `bio_input_guards_test`, `imago_service_test` |
 
 ## Project layout
 
@@ -151,8 +192,10 @@ js/                 Small QML helper scripts
 tests/              Test programs and IUPAC golden data
 templates/          Structure template library
 assets/, icons/, fonts/        Monomer library, toolbar icons, icon font
-packaging/macos/    macOS build and packaging scripts
-packaging/linux/    Linux AppImage build scripts (Docker)
+install_and_build.sh   One-command dependency setup, build, test and packaging (macOS/Linux)
+packaging/macos/       macOS build, Imago source build, .app and .dmg packaging scripts
+packaging/linux/       Linux native/Docker build and AppImage packaging scripts
+.github/workflows/     Automated macOS .dmg and Linux .AppImage CI & GitHub Release workflow
 docs/iupac/         Notes on the IUPAC namer
 ```
 

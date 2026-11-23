@@ -1,4 +1,9 @@
 #include "ImagoService.h"
+#if !defined(QTSKETCH_HAS_IMAGO)
+#define QTSKETCH_HAS_IMAGO 1
+#endif
+
+#if QTSKETCH_HAS_IMAGO
 #include "imago_c.h"
 #include <QtConcurrent>
 #include <QPointer>
@@ -12,6 +17,7 @@
 #include <QBuffer>
 
 static void emitOnGuiThread(QPointer<ImagoService> self, std::function<void(ImagoService *)> fn) {
+    if (!qApp) return;
     QMetaObject::invokeMethod(qApp, [self, fn]() {
         if (self) fn(self.data());
     }, Qt::QueuedConnection);
@@ -127,3 +133,12 @@ void ImagoService::recognizeImage(const QUrl &fileUrl) {
         });
     });
 }
+#else
+ImagoService::ImagoService(QObject *parent) : QObject(parent) {}
+ImagoService::~ImagoService() {}
+
+void ImagoService::recognizeImage(const QUrl &) {
+    emit imageRecognized(QString(), 0,
+        QStringLiteral("Image recognition (Imago) is not included in this build."));
+}
+#endif
