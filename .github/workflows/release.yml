@@ -6,11 +6,6 @@ on:
     tags:
       - 'v*'
   pull_request:
-    paths:
-      - 'CMakeLists.txt'
-      - 'install_and_build.sh'
-      - 'packaging/**'
-      - '.github/workflows/**'
 
 permissions:
   contents: read
@@ -24,16 +19,16 @@ jobs:
     name: macOS arm64 (.dmg)
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install Qt & Ninja via Homebrew
         run: brew install qt ninja
 
       - name: Cache built Imago (macOS arm64)
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: imago
-          key: imago-macos-arm64-${{ env.IMAGO_CACHE_REV }}
+          key: imago-macos-arm64-${{ env.IMAGO_CACHE_REV }}-${{ hashFiles('packaging/macos/build_imago.sh', 'packaging/imago_c.h') }}
 
       - name: Fetch Indigo & build Imago
         run: |
@@ -48,13 +43,17 @@ jobs:
           cmake --build build_mac
           QT_QPA_PLATFORM=offscreen ctest --test-dir build_mac --output-on-failure -j "$(sysctl -n hw.logicalcpu)"
 
-      - name: Package .app & .dmg
+      - name: Package & verify .app and .dmg
         run: |
           packaging/macos/make_app.sh build_mac
+          ! (find dist/QtSketch.app/Contents -type f \( -name "*.dylib" -o -path "*.framework/Versions/*/*" -o -path "*/MacOS/*" \) -exec otool -l {} \; 2>/dev/null | awk '/LC_LOAD_DYLIB/{getline; getline; print $2}' | grep -E "^(/opt/homebrew|/usr/local|/tmp|/private/tmp)")
+          test -s dist/QtSketch.app/Contents/Resources/indigo/data/molecules/basic/monomer_library.ket
+          test -s dist/QtSketch.app/Contents/Resources/templates/fg.sdf
+          test -s dist/QtSketch.app/Contents/Resources/licenses/LGPL-3.0-only.txt
           packaging/macos/make_dmg.sh
 
       - name: Upload macOS DMG artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: QtSketch-macos-arm64
           path: |
@@ -77,7 +76,7 @@ jobs:
             aqt_arch: linux_gcc_arm64
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install system packages
         run: |
@@ -97,7 +96,7 @@ jobs:
 
       - name: Cache Qt ${{ env.QT_VER }} (Linux ${{ matrix.arch }})
         id: cache-qt
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .qt
           key: qt-${{ env.QT_VER }}-linux-${{ matrix.arch }}-v1
@@ -110,10 +109,10 @@ jobs:
           .aqt-venv/bin/aqt install-qt -O .qt "${{ matrix.aqt_host }}" desktop "${{ env.QT_VER }}" "${{ matrix.aqt_arch }}" -m qtshadertools
 
       - name: Cache built Imago (Linux ${{ matrix.arch }})
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: imago
-          key: imago-linux-${{ matrix.arch }}-${{ env.IMAGO_CACHE_REV }}
+          key: imago-linux-${{ matrix.arch }}-${{ env.IMAGO_CACHE_REV }}-${{ hashFiles('packaging/linux/build_imago.sh', 'packaging/imago_c.h') }}
 
       - name: Fetch Indigo & build Imago
         run: |
@@ -122,7 +121,11 @@ jobs:
 
       - name: Configure, build, test & package AppImage
         run: |
-          QT_DIR="$(echo "$PWD/.qt/${QT_VER}"/gcc_*)"
+          QT_DIR=""
+          for d in "$PWD/.qt/${QT_VER}"/gcc_*; do
+            [ -d "$d" ] && { QT_DIR="$d"; break; }
+          done
+          test -n "$QT_DIR"
           export PATH="$QT_DIR/bin:$PATH"
           export QMAKE="$QT_DIR/bin/qmake"
           cmake -S . -B build_linux -G Ninja \
@@ -131,9 +134,12 @@ jobs:
           cmake --build build_linux
           QT_QPA_PLATFORM=offscreen ctest --test-dir build_linux --output-on-failure -j "$(nproc)"
           packaging/linux/make_appimage.sh build_linux
+          test -s dist/AppDir/usr/share/qtsketch/monomer_library.ket
+          test -s dist/AppDir/usr/share/qtsketch/templates/fg.sdf
+          test -s dist/AppDir/usr/share/licenses/qtsketch/LGPL-3.0-only.txt
 
       - name: Upload Linux AppImage artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: QtSketch-linux-${{ matrix.arch }}
           path: |
@@ -148,17 +154,29 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: release-assets
           merge-multiple: true
 
       - name: Publish Release Assets
-        uses: softprops/action-gh-release@v2
-        with:
-          generate_release_notes: true
-          files: |
-            release-assets/QtSketch-*.dmg
-            release-assets/QtSketch-*.dmg.sha256
-            release-assets/QtSketch-*.AppImage
-            release-assets/QtSketch-*.AppImage.sha256
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              release-assets/QtSketch-*.dmg \
+              release-assets/QtSketch-*.dmg.sha256 \
+              release-assets/QtSketch-*.AppImage \
+              release-assets/QtSketch-*.AppImage.sha256 \
+              --clobber
+          else
+            gh release create "$TAG" \
+              release-assets/QtSketch-*.dmg \
+              release-assets/QtSketch-*.dmg.sha256 \
+              release-assets/QtSketch-*.AppImage \
+              release-assets/QtSketch-*.AppImage.sha256 \
+              --title "$TAG" \
+              --generate-notes
+          fi

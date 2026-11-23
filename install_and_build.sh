@@ -133,7 +133,7 @@ if [ "$OS" = "Darwin" ]; then
     fi
 
     if [ "$RUN_AFTER" -eq 1 ]; then
-        if [ -d "$ROOT/dist/QtSketch.app" ]; then
+        if [ "$SKIP_PACKAGE" -eq 0 ] && [ -d "$ROOT/dist/QtSketch.app" ]; then
             open "$ROOT/dist/QtSketch.app"
         else
             open "$ROOT/build_mac/QtSketch.app"
@@ -177,7 +177,7 @@ elif [ "$OS" = "Linux" ]; then
                 qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtsvg-devel qt6-qtwayland
         elif command -v pacman >/dev/null 2>&1; then
             echo "==> Installing system dependencies via pacman..."
-            run_privileged pacman -Sy --needed --noconfirm \
+            run_privileged pacman -Syu --needed --noconfirm \
                 base-devel cmake ninja git curl ca-certificates file patchelf \
                 desktop-file-utils squashfs-tools fuse2 python python-pip \
                 qt6-base qt6-declarative qt6-svg qt6-wayland
@@ -190,6 +190,18 @@ elif [ "$OS" = "Linux" ]; then
         else
             echo "Unrecognised Linux package manager; ensure CMake >= 3.24, C++20 compiler, Python 3, and Qt >= 6.6 are installed."
         fi
+    fi
+
+    # Ensure CMake >= 3.24 (e.g. Ubuntu 22.04 apt ships CMake 3.22, below CMakeLists.txt's 3.24 minimum).
+    CMAKE_VER="$(cmake --version 2>/dev/null | awk 'NR==1{print $3}' || true)"
+    if [ -z "$CMAKE_VER" ] || ! version_ge "$CMAKE_VER" "3.24.0"; then
+        echo "==> System CMake is '${CMAKE_VER:-missing}' (< 3.24); installing CMake and Ninja into .aqt-venv..."
+        if [ ! -d "$ROOT/.aqt-venv" ]; then
+            python3 -m venv "$ROOT/.aqt-venv"
+        fi
+        "$ROOT/.aqt-venv/bin/pip" install -q --upgrade pip cmake ninja
+        export PATH="$ROOT/.aqt-venv/bin:$PATH"
+        echo "==> Using $(cmake --version | head -n 1)"
     fi
 
     # Detect Qt >= 6.6; if distro Qt is missing or older (e.g. Ubuntu 22.04 / 24.04 ships Qt 6.4),
@@ -208,7 +220,10 @@ elif [ "$OS" = "Linux" ]; then
     fi
 
     if [ -n "$SYS_QT_VER" ] && version_ge "$SYS_QT_VER" "6.6.0"; then
-        echo "==> Using Qt $SYS_QT_VER ($QMAKE_BIN)"
+        if [ -z "$QT_PREFIX" ]; then
+            QT_PREFIX="$("$QMAKE_BIN" -query QT_INSTALL_PREFIX 2>/dev/null || true)"
+        fi
+        echo "==> Using Qt $SYS_QT_VER ($QMAKE_BIN, prefix=${QT_PREFIX:-system})"
         export QMAKE="$QMAKE_BIN"
     else
         QT_VER="${QT_VERSION:-6.8.3}"

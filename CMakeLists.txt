@@ -645,6 +645,16 @@ target_include_directories(imago_service_test PRIVATE
 target_link_libraries(imago_service_test PRIVATE Qt6::Core Qt6::Gui Qt6::Qml Qt6::Concurrent ${INDIGO_LIB} ${IMAGO_LIB})
 add_test(NAME imago_service_test COMMAND imago_service_test)
 
+qt_add_executable(imago_service_stub_test tests/imago_service_test.cpp src/app/ImagoService.h src/app/ImagoService.cpp)
+target_compile_definitions(imago_service_stub_test PRIVATE QTSKETCH_HAS_IMAGO=0)
+target_include_directories(imago_service_stub_test PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app
+    ${CMAKE_CURRENT_SOURCE_DIR}/indigo/api/c/indigo
+)
+target_link_libraries(imago_service_stub_test PRIVATE Qt6::Core Qt6::Gui Qt6::Qml Qt6::Concurrent ${INDIGO_LIB})
+add_test(NAME imago_service_stub_test COMMAND imago_service_stub_test)
+
 qt_add_executable(render_primitives_to_variant_test tests/render_primitives_to_variant_test.cpp)
 target_link_libraries(render_primitives_to_variant_test PRIVATE molecule_model)
 add_test(NAME render_primitives_to_variant_test COMMAND render_primitives_to_variant_test)

@@ -154,6 +154,44 @@ private slots:
         // Check order in chain
         QCOMPARE(state.residueIdsInChain(chainId), (QList<int>{residueId1, residueId2, residueId3}));
     }
+
+    void testAddResidueBoundaryClamping() {
+        BiopolymerState state;
+        int chainId = state.addChain("A", PolymerType::Peptide);
+
+        MonomerIdentity ala;
+        ala.symbol = "A";
+        ala.alias = "Ala";
+
+        MonomerIdentity gly;
+        gly.symbol = "G";
+        gly.alias = "Gly";
+
+        MonomerIdentity val;
+        val.symbol = "V";
+        val.alias = "Val";
+
+        MonomerIdentity leu;
+        leu.symbol = "L";
+        leu.alias = "Leu";
+
+        // Seed initial residue [r1]
+        int r1 = state.addResidue(chainId, ala);
+        // Position 0 clamps to front -> [rZero, r1]
+        int rZero = state.addResidue(chainId, gly, 0);
+        // Negative position clamps to front -> [rNeg, rZero, r1]
+        int rNeg = state.addResidue(chainId, val, -5);
+        // Out-of-range high position clamps to end -> [rNeg, rZero, r1, rBeyond]
+        int rBeyond = state.addResidue(chainId, leu, 999);
+
+        const QList<int> expectedOrder{rNeg, rZero, r1, rBeyond};
+        QCOMPARE(state.residueIdsInChain(chainId), expectedOrder);
+        for (int i = 0; i < expectedOrder.size(); ++i) {
+            const BiopolymerResidue *res = state.residue(expectedOrder[i]);
+            QVERIFY(res != nullptr);
+            QCOMPARE(res->sequencePosition, i + 1);
+        }
+    }
     
     void testRenameChain() {
         BiopolymerState state;

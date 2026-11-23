@@ -47,17 +47,20 @@ cp -R "$ROOT/templates" "$APP/Contents/Resources/templates"
 
 LIC="$APP/Contents/Resources/licenses"
 mkdir -p "$LIC"
-for f in LICENSE NOTICE THIRD-PARTY-NOTICES.md; do
-    [ -f "$ROOT/$f" ] && cp "$ROOT/$f" "$LIC/"
-done
-[ -f "$ROOT/indigo/LICENSE" ] && cp "$ROOT/indigo/LICENSE" "$LIC/Indigo-Apache-2.0.txt"
-[ -f "$ROOT/indigo/LICENCE-InChI" ] && cp "$ROOT/indigo/LICENCE-InChI" "$LIC/InChI-Licence-1.0.txt"
-[ -f "$ROOT/imago/LICENSE" ] && cp "$ROOT/imago/LICENSE" "$LIC/Imago-Apache-2.0.txt"
-[ -f "$ROOT/imago/LICENSE-OpenCV" ] && cp "$ROOT/imago/LICENSE-OpenCV" "$LIC/OpenCV-Apache-2.0.txt"
+cp "$ROOT/LICENSE" "$ROOT/NOTICE" "$ROOT/THIRD-PARTY-NOTICES.md" "$LIC/"
+cp "$ROOT/indigo/LICENSE" "$LIC/Indigo-Apache-2.0.txt"
+cp "$ROOT/indigo/LICENCE-InChI" "$LIC/InChI-Licence-1.0.txt"
+if compgen -G "$ROOT/imago/lib/libimago*.dylib" >/dev/null; then
+    cp "$ROOT/imago/LICENSE" "$LIC/Imago-Apache-2.0.txt"
+    cp "$ROOT/imago/LICENSE-OpenCV" "$LIC/OpenCV-Apache-2.0.txt"
+fi
 for l in LGPL-3.0-only GPL-3.0-only LGPL-2.1-only; do
-    [ -f "$LIC/$l.txt" ] || curl -fsSL --max-time 20 \
-        "https://raw.githubusercontent.com/spdx/license-list-data/main/text/$l.txt" \
-        -o "$LIC/$l.txt" 2>/dev/null || true
+    if [ ! -s "$LIC/$l.txt" ]; then
+        curl -fsSL --retry 3 --max-time 60 \
+            "https://raw.githubusercontent.com/spdx/license-list-data/main/text/$l.txt" \
+            -o "$LIC/$l.txt"
+    fi
+    [ -s "$LIC/$l.txt" ] || { echo "Missing required license file: $l.txt"; exit 1; }
 done
 
 # macdeployqt can return non-zero on harmless warnings; verify bundled frameworks explicitly.

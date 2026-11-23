@@ -13,7 +13,7 @@ From the repository root on Ubuntu/Debian, Fedora/RHEL, Arch, or openSUSE:
 - Installs required system build, X11/Wayland/OpenGL, and AppImage packages automatically.
 - Uses the distribution's Qt 6 directly when it is 6.6 or newer, or automatically installs Qt 6.8.3 locally into `.qt/` via `aqtinstall` on older LTS releases (such as Ubuntu 22.04 and Ubuntu 24.04, which ship Qt 6.4 in `apt`).
 - Runs `packaging/linux/fetch_indigo.sh` and `packaging/linux/build_imago.sh` (pass `--skip-imago` for a fast build without OCR).
-- Builds `build_linux/QtSketch`, runs the 27 CTest suites headless (`QT_QPA_PLATFORM=offscreen`), and creates `dist/QtSketch-0.1-<arch>.AppImage` + `.sha256`.
+- Builds `build_linux/QtSketch`, runs the 28 CTest suites headless (`QT_QPA_PLATFORM=offscreen`), and creates `dist/QtSketch-0.1-<arch>.AppImage` + `.sha256`.
 
 ## Option 2: Reproducible AppImage via Docker (any host)
 

@@ -23,7 +23,7 @@ from scratch.
 |---|---|---|---|---|
 | Windows x64 | Qt 6.6+ MinGW kit | MinGW build in `indigo/` | yes | Main development platform |
 | Windows x64 | Qt 6.6+ MSVC kit | EPAM `indigo-libs-windows-x86_64` | no | CMake branch present |
-| macOS arm64 | Homebrew Qt 6, Xcode CLT | EPAM `epam.indigo` 1.45.0 wheel | yes (`packaging/macos/build_imago.sh`) | Builds `.app` and `.dmg`, 27/27 tests pass (including Apple silicon Imago OCR) |
+| macOS arm64 | Homebrew Qt 6, Xcode CLT | EPAM `epam.indigo` 1.45.0 wheel | yes (`packaging/macos/build_imago.sh`) | Builds `.app` and `.dmg`, 28/28 tests pass (including Apple silicon Imago OCR) |
 | Linux x86_64, arm64 | System Qt 6.6+ or Qt 6.8 (`aqtinstall`), native or Docker | EPAM `epam.indigo` 1.45.0 wheel | yes (`packaging/linux/build_imago.sh`) | One-step `./install_and_build.sh`, Docker AppImage, and GitHub Actions release workflow |
 
 ## Requirements
@@ -166,7 +166,7 @@ AppImage details.
 
 ## Tests
 
-27 test programs are registered with CTest and built with the app:
+28 test programs are registered with CTest and built with the app:
 
 ```
 ctest --test-dir build --output-on-failure
@@ -178,7 +178,7 @@ ctest --test-dir build --output-on-failure
 | Document model | `editable_molecule_test`, `document_state_test`, `biopolymer_state_test`, `placement_engines_test`, `bond_angle_suggester_test`, `clipboard_preview_test` |
 | Files and settings | `project_file_test`, `settings_service_test`, `sdf_batch_test` |
 | Rendering and export | `render_scene_test`, `export_manager_test`, `render_primitives_test`, `render_primitives_to_variant_test`, `biopolymer_sequence_view_test` |
-| Input checks and OCR | `bio_input_guards_test`, `imago_service_test` |
+| Input checks and OCR | `bio_input_guards_test`, `imago_service_test`, `imago_service_stub_test` |
 
 ## Project layout
 
