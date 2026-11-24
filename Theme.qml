@@ -62,12 +62,18 @@ QtObject {
     // Segoe and Consolas ship only on Windows; other platforms use the system UI
     // face, a system monospace face and the bundled Material Design Icons font.
     readonly property bool isWindows: Qt.platform.os === "windows"
+    readonly property bool isMac: Qt.platform.os === "osx"
     readonly property string fontFamily: isWindows ? "Segoe UI Variable Text" : Qt.application.font.family
     readonly property string fontDisplay: isWindows ? "Segoe UI Variable Display" : Qt.application.font.family
     // Consolas rather than Fluent's Cascadia Mono: it ships on every Windows
     // back to Vista, and the monospace face carries no Fluent identity the way
     // Segoe UI Variable does — reliability is worth more here.
-    readonly property string fontMono: isWindows ? "Consolas" : (Qt.platform.os === "osx" ? "Menlo" : "Monospace")
+    readonly property string fontMono: isWindows ? "Consolas" : (isMac ? "Menlo" : "Monospace")
+
+    function formatShortcut(seq) {
+        if (!isMac || !seq) return seq
+        return seq.replace(/Ctrl\+Shift\+/g, "\u21E7\u2318").replace(/Ctrl\+/g, "\u2318")
+    }
     // Segoe Fluent Icons is the Windows 11 system icon font. All codepoints
     // used here are shared with Segoe MDL2 Assets (Windows 10), so the glyphs
     // survive on older Windows even though the family name differs.

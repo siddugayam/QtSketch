@@ -32,15 +32,27 @@ static const QByteArray& monomerLibraryContent() {
     static QByteArray content;
     static std::once_flag flag;
     std::call_once(flag, []() {
-        const QString rel = "/indigo/data/molecules/basic/monomer_library.ket";
+        const QString rel = QStringLiteral("/indigo/data/molecules/basic/monomer_library.ket");
+        const QString assetRel = QStringLiteral("/assets/monomer_library.ket");
         const QString appDir = QCoreApplication::applicationDirPath();
         const QString cwd    = QDir::currentPath();
         QStringList candidates = {
-            QDir::cleanPath(appDir + "/../.." + rel),   // build/<config>/ → project root
-            QDir::cleanPath(appDir + "/.."    + rel),   // build/ → project root
-            QDir::cleanPath(cwd              + rel),    // CWD is project root
-            QDir::cleanPath(cwd   + "/.."    + rel),    // CWD is build/
+            QDir::cleanPath(appDir + QStringLiteral("/../Resources") + rel),
+            QDir::cleanPath(appDir + QStringLiteral("/../Resources/monomer_library.ket")),
+            QDir::cleanPath(appDir + QStringLiteral("/../share/qtsketch/monomer_library.ket")),
+            QDir::cleanPath(appDir + QStringLiteral("/../share/qtsketch") + rel),
         };
+        QDir walk(appDir);
+        for (int i = 0; i < 6; ++i) {
+            const QString base = walk.absolutePath();
+            candidates << QDir::cleanPath(base + assetRel)
+                       << QDir::cleanPath(base + rel);
+            if (!walk.cdUp()) break;
+        }
+        candidates << QDir::cleanPath(cwd + assetRel)
+                   << QDir::cleanPath(cwd + rel)
+                   << QDir::cleanPath(cwd + QStringLiteral("/..") + assetRel)
+                   << QDir::cleanPath(cwd + QStringLiteral("/..") + rel);
         for (const QString& path : candidates) {
             QFile f(path);
             if (f.open(QIODevice::ReadOnly)) {

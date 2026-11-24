@@ -1,0 +1,182 @@
+name: Build & Package (macOS & Linux)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  IMAGO_CACHE_REV: cd44e67-v1
+  QT_VER: '6.8.3'
+
+jobs:
+  macos-arm64:
+    name: macOS arm64 (.dmg)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Qt & Ninja via Homebrew
+        run: brew install qt ninja
+
+      - name: Cache built Imago (macOS arm64)
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: imago
+          key: imago-macos-arm64-${{ env.IMAGO_CACHE_REV }}-${{ hashFiles('packaging/macos/build_imago.sh', 'packaging/imago_c.h') }}
+
+      - name: Fetch Indigo & build Imago
+        run: |
+          packaging/macos/fetch_indigo.sh
+          packaging/macos/build_imago.sh
+
+      - name: Configure, build & test
+        run: |
+          cmake -S . -B build_mac -G Ninja \
+            -DCMAKE_PREFIX_PATH="$(brew --prefix qt)" \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build_mac
+          QT_QPA_PLATFORM=offscreen ctest --test-dir build_mac --output-on-failure -j "$(sysctl -n hw.logicalcpu)"
+
+      - name: Package & verify .app and .dmg
+        run: |
+          packaging/macos/make_app.sh build_mac
+          ! (find dist/QtSketch.app/Contents -type f \( -name "*.dylib" -o -path "*.framework/Versions/*/*" -o -path "*/MacOS/*" \) -exec otool -l {} \; 2>/dev/null | awk '/LC_LOAD_DYLIB/{getline; getline; print $2}' | grep -E "^(/opt/homebrew|/usr/local|/tmp|/private/tmp)")
+          test -s dist/QtSketch.app/Contents/Resources/indigo/data/molecules/basic/monomer_library.ket
+          test -s dist/QtSketch.app/Contents/Resources/templates/fg.sdf
+          test -s dist/QtSketch.app/Contents/Resources/licenses/LGPL-3.0-only.txt
+          packaging/macos/make_dmg.sh
+
+      - name: Upload macOS DMG artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: QtSketch-macos-arm64
+          path: |
+            dist/QtSketch-*.dmg
+            dist/QtSketch-*.dmg.sha256
+
+  linux-appimage:
+    name: Linux ${{ matrix.arch }} (.AppImage)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+            aqt_host: linux
+            aqt_arch: linux_gcc_64
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            aqt_host: linux_arm64
+            aqt_arch: linux_gcc_arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build curl ca-certificates file patchelf \
+            desktop-file-utils squashfs-tools zsync libfuse2t64 \
+            python3 python3-pip python3-venv \
+            libgl1-mesa-dev libopengl0 libglx0 libegl1 \
+            libxkbcommon0 libxkbcommon-x11-0 libfontconfig1 libfreetype6 \
+            libdbus-1-3 libglib2.0-0 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-shm0 \
+            libxcb-sync1 libxcb-xfixes0 libxcb-xinerama0 libxcb-xkb1 \
+            libx11-xcb1 libxrender1 libxi6 libsm6 libice6 \
+            libwayland-client0 libwayland-cursor0 libwayland-egl1
+
+      - name: Cache Qt ${{ env.QT_VER }} (Linux ${{ matrix.arch }})
+        id: cache-qt
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .qt
+          key: qt-${{ env.QT_VER }}-linux-${{ matrix.arch }}-v1
+
+      - name: Install Qt ${{ env.QT_VER }} via aqtinstall
+        if: steps.cache-qt.outputs.cache-hit != 'true'
+        run: |
+          python3 -m venv .aqt-venv
+          .aqt-venv/bin/pip install --no-cache-dir aqtinstall
+          .aqt-venv/bin/aqt install-qt -O .qt "${{ matrix.aqt_host }}" desktop "${{ env.QT_VER }}" "${{ matrix.aqt_arch }}" -m qtshadertools
+
+      - name: Cache built Imago (Linux ${{ matrix.arch }})
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: imago
+          key: imago-linux-${{ matrix.arch }}-${{ env.IMAGO_CACHE_REV }}-${{ hashFiles('packaging/linux/build_imago.sh', 'packaging/imago_c.h') }}
+
+      - name: Fetch Indigo & build Imago
+        run: |
+          packaging/linux/fetch_indigo.sh
+          packaging/linux/build_imago.sh
+
+      - name: Configure, build, test & package AppImage
+        run: |
+          QT_DIR=""
+          for d in "$PWD/.qt/${QT_VER}"/gcc_*; do
+            [ -d "$d" ] && { QT_DIR="$d"; break; }
+          done
+          test -n "$QT_DIR"
+          export PATH="$QT_DIR/bin:$PATH"
+          export QMAKE="$QT_DIR/bin/qmake"
+          cmake -S . -B build_linux -G Ninja \
+            -DCMAKE_PREFIX_PATH="$QT_DIR" \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build_linux
+          QT_QPA_PLATFORM=offscreen ctest --test-dir build_linux --output-on-failure -j "$(nproc)"
+          packaging/linux/make_appimage.sh build_linux
+          test -s dist/AppDir/usr/share/qtsketch/monomer_library.ket
+          test -s dist/AppDir/usr/share/qtsketch/templates/fg.sdf
+          test -s dist/AppDir/usr/share/licenses/qtsketch/LGPL-3.0-only.txt
+
+      - name: Upload Linux AppImage artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: QtSketch-linux-${{ matrix.arch }}
+          path: |
+            dist/QtSketch-*.AppImage
+            dist/QtSketch-*.AppImage.sha256
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos-arm64, linux-appimage]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish Release Assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              release-assets/QtSketch-*.dmg \
+              release-assets/QtSketch-*.dmg.sha256 \
+              release-assets/QtSketch-*.AppImage \
+              release-assets/QtSketch-*.AppImage.sha256 \
+              --clobber
+          else
+            gh release create "$TAG" \
+              release-assets/QtSketch-*.dmg \
+              release-assets/QtSketch-*.dmg.sha256 \
+              release-assets/QtSketch-*.AppImage \
+              release-assets/QtSketch-*.AppImage.sha256 \
+              --title "$TAG" \
+              --generate-notes
+          fi

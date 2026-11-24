@@ -125,18 +125,15 @@ int BiopolymerState::addResidue(int chainId, const MonomerIdentity& identity, in
     residue.identity = identity;
     
     if (position == -1) {
-        // Append at end
         residue.sequencePosition = chain->residueIds.size() + 1;
         chain->residueIds.append(residueId);
     } else {
-        // Insert at specific position (1-indexed)
-        residue.sequencePosition = position;
-        // Adjust positions of existing residues
-        for (int i = position - 1; i < chain->residueIds.size(); ++i) {
-            int existingId = chain->residueIds[i];
-            m_residues[existingId].sequencePosition++;
+        int idx = qBound(0, position - 1, static_cast<int>(chain->residueIds.size()));
+        chain->residueIds.insert(idx, residueId);
+        residue.sequencePosition = idx + 1;
+        for (int i = idx + 1; i < chain->residueIds.size(); ++i) {
+            m_residues[chain->residueIds[i]].sequencePosition = i + 1;
         }
-        chain->residueIds.insert(position - 1, residueId);
     }
     
     m_residues[residueId] = residue;
@@ -196,14 +193,10 @@ bool BiopolymerState::deleteResidue(int residueId) {
         return false;
     }
     
-    // Remove from chain
-    int position = it->sequencePosition;
+    // Remove from chain and renumber 1-based sequence positions
     chain->residueIds.removeAll(residueId);
-    
-    // Adjust positions of subsequent residues
-    for (int i = position; i < chain->residueIds.size(); ++i) {
-        int existingId = chain->residueIds[i];
-        m_residues[existingId].sequencePosition--;
+    for (int i = 0; i < chain->residueIds.size(); ++i) {
+        m_residues[chain->residueIds[i]].sequencePosition = i + 1;
     }
     
     // Remove residue

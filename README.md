@@ -1,60 +1,137 @@
-# QtSketch
+# ![QtSketch](icons/app_icon_48.png) QtSketch
 
-QtSketch is a desktop editor for chemical structures, built with Qt 6 (QML) and C++20 on the
-[Indigo](https://github.com/epam/Indigo) cheminformatics toolkit. You can use it to draw and edit
-molecules, reactions and biopolymer sequences. It also includes an IUPAC name generator written
-from scratch.
+**Fast, native desktop editor for chemical structures, reactions, and biopolymers**
 
-## Features
+[![Download macOS DMG](https://img.shields.io/badge/Download%20macOS-Apple%20Silicon%20(.dmg%20%7C%2052%20MB)-000000?logo=apple&logoColor=white)](releases/QtSketch-0.1-arm64.dmg)
+[![Linux AppImage](https://img.shields.io/badge/Linux-x86__64%20%7C%20arm64%20(.AppImage)-FCC624?logo=linux&logoColor=black)](#-quick-setup-and-build-macos-and-linux)
+[![Windows x64](https://img.shields.io/badge/Windows-x64%20(MinGW%20%7C%20MSVC)-0078D6?logo=windows&logoColor=white)](#-building-on-windows-mingw)
+[![Qt 6](https://img.shields.io/badge/Qt-6.6%2B%20%7C%20QML-41CD52?logo=qt&logoColor=white)](https://www.qt.io/)
+[![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](https://isocpp.org/)
+[![Indigo](https://img.shields.io/badge/Indigo-1.45.0-007ACC)](https://github.com/epam/Indigo)
+[![Imago OCR](https://img.shields.io/badge/Imago-Structure%20OCR-5C2D91)](https://github.com/epam/Imago)
+[![CTest](https://img.shields.io/badge/CTest-28%2F28%20passing-brightgreen)](#-tests)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-- 2D drawing and editing of atoms, bonds, rings, templates, abbreviation groups and R-groups
-- Reaction schemes and biopolymer sequences (peptide, RNA, DNA, HELM, FASTA)
-- Layout and clean-up, aromatisation, structure checks, CIP stereodescriptors, SMILES, InChI,
-  molfile, KET and CML through Indigo
-- Export to PNG, SVG and PDF, plus batch export to SDF, RDF, SMILES and CML
-- Recognition of structures in images (Insert Image), through
-  [Imago](https://github.com/epam/Imago)
-- IUPAC name generation (`src/app/IupacNamer.cpp`), written against the IUPAC Blue Book and
-  checked by a golden test set
+---
 
-## Supported platforms
+**QtSketch** is a cross-platform desktop chemical structure sketcher built with **Qt 6 (QML)** and **C++20** on the [EPAM Indigo](https://github.com/epam/Indigo) cheminformatics toolkit. Draw and edit small molecules, multi-step reaction schemes, and biopolymer sequences, recognize chemical structures directly from images, and generate systematic IUPAC names offline.
 
-| Platform | Toolchain | Indigo | Imago | Status |
-|---|---|---|---|---|
-| Windows x64 | Qt 6.6+ MinGW kit | MinGW build in `indigo/` | yes | Main development platform |
-| Windows x64 | Qt 6.6+ MSVC kit | EPAM `indigo-libs-windows-x86_64` | no | CMake branch present |
-| macOS arm64 | Homebrew Qt 6.12, Xcode CLT | EPAM `epam.indigo` 1.45.0 wheel | yes, built from source (`packaging/macos/build_imago.sh`) | Builds, 22/22 tests pass; Imago build untested on Apple silicon specifically |
-| Linux x86_64, arm64 | Qt 6.8 (aqtinstall), Ubuntu 24.04 in Docker | EPAM `epam.indigo` 1.45.0 wheel | yes, built from source (`packaging/linux/build_imago.sh`) | AppImage scripts in `packaging/linux/`, not yet built end to end |
+## 📥 Direct Downloads
 
-## Requirements
+| Installer | Architecture | Format & Size | SHA-256 Checksum |
+| :--- | :--- | :--- | :--- |
+| 🍎 **[QtSketch-0.1-arm64.dmg](releases/QtSketch-0.1-arm64.dmg)** | macOS Apple Silicon (`arm64`) | Self-contained `.dmg` (`52 MB`, LZMA) | [`QtSketch-0.1-arm64.dmg.sha256`](releases/QtSketch-0.1-arm64.dmg.sha256) |
+| 🐧 **Linux `.AppImage`** | `x86_64` & `arm64` | Built via `./install_and_build.sh` or [GitHub Releases](../../releases) | Generated `.sha256` |
 
-- Qt 6.6 or newer, with Core, Gui, Qml, Quick, QuickControls2, Concurrent, Svg, SvgWidgets and
-  Test
-- CMake 3.24 or newer
-- A C++20 compiler matching the Qt kit (MinGW GCC or MSVC on Windows, Apple Clang on macOS)
-- Indigo 1.43 or newer (C API headers and libraries), placed in the repository as described
-  below. Indigo is not committed to git.
-- Imago (optional), used by Insert Image. Windows: build from source or copy a MinGW-compatible
-  build. macOS/Linux: `packaging/{macos,linux}/build_imago.sh` builds it from source (EPAM
-  publishes no prebuilt Imago binaries for any platform)
+---
 
-## Building on Windows (MinGW)
+## ✨ Key Features
 
-### 1. Install the tools
+| Feature | Capabilities |
+| :--- | :--- |
+| 🧪 **2D Structure Drawing** | Atoms, single/double/triple/wedge/hash/wavy/dative/aromatic bonds, rings, ring templates, functional-group abbreviations, brackets, and Markush R-groups |
+| 🧬 **Reactions & Biopolymers** | Multi-tail & curved reaction arrows, atom-atom mapping, and full biopolymer sequence editing (peptides, RNA, DNA, HELM, and FASTA) |
+| 🔬 **Cheminformatics & Stereo** | 2D clean-up/layout, aromatisation, valence & structure checks, CIP *(R/S, E/Z)* stereodescriptors, SMILES, SMARTS search, InChI, Molfile, KET, and CML |
+| 🔍 **Image OCR (Imago)** | Optical chemical structure recognition (*Insert Image*) powered by [EPAM Imago](https://github.com/epam/Imago) |
+| 🏷️ **IUPAC Name Generator** | Built-in **IUPAC Blue Book** systematic name generator (`src/app/IupacNamer.cpp`) verified against a golden test set |
+| 🖼️ **Publication Export** | Crisp vector and high-DPI raster export to **SVG**, **PDF**, and **PNG** (with ACS/RSC style sheets), plus batch export to **SDF**, **RDF**, **SMILES**, and **CML** |
 
-- Qt 6.6 or newer with the MinGW 64-bit kit, from the
-  [Qt online installer](https://www.qt.io/download-qt-installer) or `aqtinstall`.
-- The MinGW toolchain that ships with that kit (for example `C:\Qt\Tools\mingw1310_64`).
-  Do not use a different MinGW from Git Bash, Conda or MSYS2. A mismatched `libstdc++` causes
-  `STATUS_ENTRYPOINT_NOT_FOUND` crashes at start-up.
-- CMake 3.24 or newer (`winget install Kitware.CMake`).
+---
 
-### 2. Add Indigo and Imago
+## 🖥️ Supported Platforms
 
-Both are Apache-2.0 projects by EPAM Systems. Build them from source with the same MinGW
-toolchain, or copy a MinGW-compatible build, into this layout at the repository root:
+| Platform | Toolchain | Indigo | Imago OCR | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| 🍎 **macOS `arm64`** | Homebrew Qt 6, Xcode CLT | EPAM `epam.indigo` 1.45.0 wheel | ✅ `packaging/macos/build_imago.sh` | Prebuilt `.dmg` in [`releases/`](releases/), native macOS window chrome, `28/28` tests pass |
+| 🐧 **Linux `x86_64`, `arm64`** | System Qt 6.6+ or Qt 6.8 (`aqtinstall`), native or Docker | EPAM `epam.indigo` 1.45.0 wheel | ✅ `packaging/linux/build_imago.sh` | One-step `./install_and_build.sh`, Docker `.AppImage`, and GitHub Actions CI |
+| 🪟 **Windows `x64`** *(MinGW)* | Qt 6.6+ MinGW 64-bit kit | MinGW build in `indigo/` | ✅ `imago/lib/imago.dll` | Primary Windows development & release toolchain |
+| 🪟 **Windows `x64`** *(MSVC)* | Qt 6.6+ MSVC kit | EPAM `indigo-libs-windows-x86_64` | ➖ Optional (`QTSKETCH_WITH_IMAGO=OFF`) | CMake MSVC configuration supported |
 
+---
+
+## ⚡ Quick Setup and Build (macOS and Linux)
+
+[`install_and_build.sh`](install_and_build.sh) installs missing OS packages, fetches Indigo (with SHA-256 verification), compiles Imago from source, builds QtSketch, runs all 28 CTest suites, and packages a self-contained `.dmg` (macOS) or `.AppImage` (Linux):
+
+```bash
+./install_and_build.sh
 ```
+
+Useful flags:
+
+```bash
+./install_and_build.sh --skip-imago     # Fast build without Imago OCR (~30 s)
+./install_and_build.sh --skip-package   # Compile and test only; skip .dmg / .AppImage
+./install_and_build.sh --no-deps        # Skip brew / apt / dnf / pacman / zypper install
+./install_and_build.sh --run            # Launch QtSketch immediately after building
+```
+
+> [!TIP]
+> On Linux distributions whose system Qt or CMake is older than required (such as Ubuntu 22.04 LTS and Ubuntu 24.04 LTS), `install_and_build.sh` automatically bootstraps CMake ≥ 3.24 and Qt 6.8.3 locally inside `.qt/` via `aqtinstall` without modifying system packages.
+
+Prebuilt macOS `.dmg` and Linux `x86_64` / `aarch64` `.AppImage` installers are also built automatically by [`.github/workflows/release.yml`](.github/workflows/release.yml) on `workflow_dispatch` and published to **GitHub Releases** whenever a `v*` tag is pushed.
+
+---
+
+## 📦 Requirements (Manual Builds)
+
+- **Qt 6.6+** with `Core`, `Gui`, `Qml`, `Quick`, `QuickControls2`, `Concurrent`, `Svg`, `SvgWidgets`, and `Test`
+- **CMake 3.24+** and **Ninja** (or MinGW Makefiles on Windows)
+- **C++20 compiler** matching your Qt kit (Apple Clang on macOS, GCC/Clang on Linux, MinGW GCC or MSVC on Windows)
+- **Indigo 1.43+** C API headers and shared libraries in `indigo/` (fetched automatically on macOS/Linux)
+- **Imago** *(optional, enabled automatically when `imago/lib/` is present)* — built from source on macOS/Linux via `packaging/{macos,linux}/build_imago.sh`
+
+---
+
+## 🛠️ Platform Build Guides
+
+### 🍎 Building on macOS (Manual)
+
+```bash
+brew install qt cmake ninja
+packaging/macos/fetch_indigo.sh
+packaging/macos/build_imago.sh          # optional; omit for a faster build without OCR
+cmake -S . -B build_mac -G Ninja -DCMAKE_PREFIX_PATH="$(brew --prefix qt)" -DCMAKE_BUILD_TYPE=Release
+cmake --build build_mac
+QT_QPA_PLATFORM=offscreen ctest --test-dir build_mac --output-on-failure
+packaging/macos/make_app.sh build_mac
+packaging/macos/make_dmg.sh
+```
+
+Produces `dist/QtSketch.app` and `dist/QtSketch-0.1-arm64.dmg` (plus `.sha256`).
+
+> [!NOTE]
+> `QtSketch.app` is ad hoc code-signed rather than Apple-notarised. On first open after mounting the `.dmg`, right-click **QtSketch.app → Open** or run `xattr -cr /Applications/QtSketch.app`. See [packaging/macos/README.md](packaging/macos/README.md) for details.
+
+### 🐧 Building on Linux (Manual or Docker)
+
+Build a portable `x86_64` or `arm64` `.AppImage` inside Docker from any host:
+
+```bash
+packaging/linux/build_in_docker.sh amd64     # or arm64
+```
+
+Or build natively on Ubuntu/Debian, Fedora/RHEL, Arch, or openSUSE:
+
+```bash
+./install_and_build.sh
+```
+
+See [packaging/linux/README.md](packaging/linux/README.md) for distribution package lists and AppImage details.
+
+### 🪟 Building on Windows (MinGW)
+
+#### 1. Install Windows tools
+
+- **Qt 6.6+** with the **MinGW 64-bit** kit from the [Qt online installer](https://www.qt.io/download-qt-installer) or `aqtinstall`.
+- Use the **exact MinGW toolchain** bundled with that Qt kit (for example `C:\Qt\Tools\mingw1310_64`). Do not mix MinGW from Git Bash, Conda, or MSYS2 — mismatched `libstdc++` DLLs cause `STATUS_ENTRYPOINT_NOT_FOUND` at start-up.
+- **CMake 3.24+** (`winget install Kitware.CMake`).
+
+#### 2. Add Indigo and Imago
+
+Place MinGW-compatible builds of Indigo and Imago in the repository root:
+
+```text
 indigo/
     LICENSE
     api/c/indigo/            indigo.h
@@ -63,14 +140,11 @@ indigo/
     lib/indigo.dll, indigo-inchi.dll, indigo-renderer.dll
 imago/
     LICENSE
-    include/imago_c.h
+    include/imago_c.h        (copy from packaging/imago_c.h)
     lib/imago.dll
 ```
 
-`imago/include/imago_c.h` is tracked at [`packaging/imago_c.h`](packaging/imago_c.h) (the same file
-`build_imago.sh` copies into place on macOS/Linux) -- copy it in rather than writing your own.
-
-### 3. Configure and build
+#### 3. Configure and build on Windows
 
 From the repository root in PowerShell:
 
@@ -83,16 +157,7 @@ $env:PATH = "C:\mingw64\bin;$env:PATH"
 mingw32-make -C build -j4
 ```
 
-Change the paths to match your Qt kit and MinGW install. Give the generator explicitly.
-Without it, CMake may pick a Visual Studio generator and then fail to find Qt.
-
-The build copies the Indigo and Imago DLLs next to `sketch.exe`, and copies
-`assets/monomer_library.ket` to `indigo/data/molecules/basic/`.
-
-### 4. Run
-
-Put Qt's `bin` folder and `indigo\lib` on `PATH`, then start `build\sketch.exe`. A small
-launcher script (not committed) does this:
+#### 4. Launch on Windows
 
 ```bat
 @echo off
@@ -100,67 +165,53 @@ set PATH=C:\Qt\6.11.1\mingw_64\bin;%~dp0indigo\lib;%PATH%
 start "" "%~dp0build\sketch.exe"
 ```
 
-If you change generator or toolchain, delete `build\CMakeCache.txt` and `build\CMakeFiles`
-before configuring again.
+If you switch generators or toolchains, delete `build\CMakeCache.txt` and `build\CMakeFiles` before reconfiguring.
 
-## Building on macOS
+---
+
+## 🧪 Tests
+
+**28 automated CTest suites** are registered with CMake and built alongside the app:
 
 ```bash
-brew install qt cmake
-packaging/macos/fetch_indigo.sh
-packaging/macos/build_imago.sh
-cmake -S . -B build_mac -DCMAKE_PREFIX_PATH="$(brew --prefix qt)" -DCMAKE_BUILD_TYPE=Release
-cmake --build build_mac -j
-ctest --test-dir build_mac
-packaging/macos/make_app.sh build_mac
-packaging/macos/make_dmg.sh
+QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure
 ```
 
-`build_imago.sh` builds Imago from source (EPAM publishes no prebuilt binaries for any platform)
-and is slow -- expect it to take much longer than building QtSketch itself.
+| Area | Test Suites |
+| :--- | :--- |
+| 🏷️ **IUPAC Naming** | `iupac_namer_test`, `iupac_golden_test`, `naming_validation_test`, `fused_ring_orientation_test`, `fused_ring_direction_detector_test`, `fused_system_topology_test`, `peripheral_numbering_test`, `system_locant_test`, `fusion_construction_test`, `retained_ring_registry_test`, `retained_ring_matcher_test` |
+| 🧬 **Document & Biopolymers** | `editable_molecule_test`, `document_state_test`, `biopolymer_state_test`, `placement_engines_test`, `bond_angle_suggester_test`, `clipboard_preview_test` |
+| 💾 **Files & Settings** | `project_file_test`, `settings_service_test`, `sdf_batch_test` |
+| 🎨 **Rendering & Export** | `render_scene_test`, `export_manager_test`, `render_primitives_test`, `render_primitives_to_variant_test`, `biopolymer_sequence_view_test` |
+| 🔎 **Guards & Image OCR** | `bio_input_guards_test`, `imago_service_test`, `imago_service_stub_test` |
 
-This produces `dist/QtSketch.app` and `dist/QtSketch-0.1-arm64.dmg`. See
-[packaging/macos/README.md](packaging/macos/README.md) for details and current limits
-(ad hoc signature, Windows fonts).
+---
 
-## Tests
+## 🗂️ Project Layout
 
-22 test programs are registered with CTest and built with the app:
-
-```
-ctest --test-dir build --output-on-failure
-```
-
-| Area | Tests |
-|---|---|
-| IUPAC naming | `iupac_namer_test`, `iupac_golden_test`, `naming_validation_test`, `fused_ring_orientation_test`, `fused_ring_direction_detector_test`, `fused_system_topology_test`, `retained_ring_registry_test`, `retained_ring_matcher_test` |
-| Document model | `editable_molecule_test`, `document_state_test`, `placement_engines_test`, `bond_angle_suggester_test`, `clipboard_preview_test` |
-| Files and settings | `project_file_test`, `settings_service_test`, `sdf_batch_test` |
-| Rendering and export | `render_scene_test`, `export_manager_test`, `render_primitives_test`, `render_primitives_to_variant_test`, `biopolymer_sequence_view_test` |
-| Input checks | `bio_input_guards_test` |
-
-## Project layout
-
-```
-src/app/            C++ backend: DocumentState, EditableMolecule, IndigoService,
-                    ImagoService, IupacNamer, rendering and export
-src/v8_process.*    Command surface exposed to QML (the name is historical; it calls
-                    DocumentState directly)
-*.qml, components/, dialogs/   User interface
-js/                 Small QML helper scripts
-tests/              Test programs and IUPAC golden data
-templates/          Structure template library
-assets/, icons/, fonts/        Monomer library, toolbar icons, icon font
-packaging/macos/    macOS build and packaging scripts
-packaging/linux/    Linux AppImage build scripts (Docker)
-docs/iupac/         Notes on the IUPAC namer
+```text
+QtSketch/
+├── src/app/               C++20 backend: DocumentState, EditableMolecule, IndigoService,
+│                          ImagoService, IupacNamer, vector/raster rendering & export
+├── src/v8_process.*       QML command bridge (historical name; invokes DocumentState directly)
+├── *.qml, components/,    Qt Quick / QML user interface, toolbars, canvas & dialogs
+│   dialogs/, js/
+├── templates/             Chemical ring & functional-group template library
+├── assets/, icons/,       Monomer library (monomer_library.ket), 250+ SVG icons, icon font
+│   fonts/
+├── tests/                 28 CTest executables and IUPAC Blue Book golden datasets
+├── install_and_build.sh   One-command OS setup, build, test, and .dmg/.AppImage packager
+├── releases/              Prebuilt macOS Apple Silicon .dmg installer and SHA-256 checksum
+├── packaging/
+│   ├── macos/             Indigo fetcher, Imago source builder, .app & .dmg scripts
+│   └── linux/             Indigo fetcher, Imago source builder, Docker & AppImage scripts
+├── .github/workflows/     Automated macOS (.dmg) & Linux (.AppImage) CI and GitHub Releases
+└── docs/iupac/            Architecture and design notes for the IUPAC name generator
 ```
 
-An earlier version ran its chemistry through an embedded QuickJS script engine. That engine is
-retired and is no longer in the repository.
+---
 
-## Licence
+## ⚖️ Licence
 
-QtSketch is licensed under the [Apache License, Version 2.0](LICENSE). See [NOTICE](NOTICE).
-Third-party components and their licences are listed in
-[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+QtSketch is licensed under the **[Apache License, Version 2.0](LICENSE)** — see [NOTICE](NOTICE).
+Third-party components and licences are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

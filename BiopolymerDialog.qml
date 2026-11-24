@@ -114,7 +114,7 @@ TaskDialog {
 
                 TextArea {
                     id: bioText
-                    font { family: "Courier New, monospace"; pixelSize: 12 }
+                    font { family: Theme.fontMono; pixelSize: 12 }
                     wrapMode: TextArea.Wrap
                     selectByMouse: true
                     background: null

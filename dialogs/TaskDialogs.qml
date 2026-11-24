@@ -351,7 +351,7 @@ Item {
                         ]
                         const arr = []
                         for (let i = 0; i < shortcuts.length; i++) {
-                            arr.push({ isKey: true, val: shortcuts[i][0] })
+                            arr.push({ isKey: true, val: Theme.formatShortcut(shortcuts[i][0]) })
                             arr.push({ isKey: false, val: shortcuts[i][1] })
                         }
                         return arr

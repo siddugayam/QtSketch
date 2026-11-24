@@ -59,7 +59,7 @@ T.AbstractButton {
 
             Text {
                 visible: control.shortcutHint !== ""
-                text: control.shortcutHint
+                text: Theme.formatShortcut(control.shortcutHint)
                 color: Theme.textSecondary
                 font { pixelSize: Theme.fontSizeBody; family: Theme.fontFamily }
                 horizontalAlignment: Text.AlignRight
