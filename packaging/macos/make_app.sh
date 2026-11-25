@@ -54,12 +54,15 @@ if compgen -G "$ROOT/imago/lib/libimago*.dylib" >/dev/null; then
     cp "$ROOT/imago/LICENSE" "$LIC/Imago-Apache-2.0.txt"
     cp "$ROOT/imago/LICENSE-OpenCV" "$LIC/OpenCV-Apache-2.0.txt"
 fi
+SPDX_CACHE="$ROOT/dist/.spdx-cache"
+mkdir -p "$SPDX_CACHE"
 for l in LGPL-3.0-only GPL-3.0-only LGPL-2.1-only; do
-    if [ ! -s "$LIC/$l.txt" ]; then
+    if [ ! -s "$SPDX_CACHE/$l.txt" ]; then
         curl -fsSL --retry 3 --max-time 60 \
             "https://raw.githubusercontent.com/spdx/license-list-data/main/text/$l.txt" \
-            -o "$LIC/$l.txt"
+            -o "$SPDX_CACHE/$l.txt"
     fi
+    cp "$SPDX_CACHE/$l.txt" "$LIC/$l.txt"
     [ -s "$LIC/$l.txt" ] || { echo "Missing required license file: $l.txt"; exit 1; }
 done
 

@@ -156,7 +156,7 @@ elif [ "$OS" = "Linux" ]; then
                 desktop-file-utils squashfs-tools "$FUSE_PKG" \
                 python3 python3-pip python3-venv \
                 libgl1-mesa-dev libopengl0 libglx0 libegl1 \
-                libxkbcommon0 libxkbcommon-x11-0 libfontconfig1 libfreetype6 \
+                libxkbcommon0 libxkbcommon-x11-0 libfontconfig1 libfreetype6 libfreetype-dev \
                 libdbus-1-3 libglib2.0-0 \
                 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
                 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-shm0 \
@@ -173,7 +173,7 @@ elif [ "$OS" = "Linux" ]; then
             run_privileged dnf install -y \
                 gcc gcc-c++ make cmake ninja-build git curl ca-certificates file patchelf \
                 desktop-file-utils squashfs-tools fuse-libs python3 python3-pip \
-                mesa-libGL-devel libxkbcommon-x11 fontconfig freetype dbus-libs glib2 \
+                mesa-libGL-devel libxkbcommon-x11 fontconfig freetype freetype-devel dbus-libs glib2 \
                 qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtsvg-devel qt6-qtwayland
         elif command -v pacman >/dev/null 2>&1; then
             echo "==> Installing system dependencies via pacman..."

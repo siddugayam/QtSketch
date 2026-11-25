@@ -45,6 +45,35 @@ namespace {
     // length-adaptive the way the live canvas's is.
     const double kWedgeTaperRatio = 0.139;
     const int kHashCount = 6;
+
+    // Mirrors LabelLayer.qml / MoleculeLayer.qml skeletal-formula convention:
+    // plain uncharged/unlabelled skeletal carbons ("C") omit their element text
+    // so C-C bonds meet cleanly at vertices instead of being hidden under "C",
+    // and left-facing heteroatom groups (e.g. -OH, -NH2) place hydrogens on the left.
+    QString effectiveAtomLabel(const AtomPrim& atom) {
+        if (atom.isSgroup) return {};
+        if (atom.element == QStringLiteral("C")
+            && atom.label == QStringLiteral("C")
+            && atom.charge == 0
+            && atom.isotope <= 0
+            && atom.radical <= 0
+            && atom.explicitValence < 0
+            && atom.attachmentPoints <= 0) {
+            return {};
+        }
+        if (atom.hOnLeft && atom.implicitHCount > 0
+            && !atom.isAtomList && !atom.isRGroup
+            && atom.element != QStringLiteral("C")
+            && atom.element != QStringLiteral("H")) {
+            const QString hPart = (atom.implicitHCount == 1)
+                ? QStringLiteral("H")
+                : (QStringLiteral("H") + QString::number(atom.implicitHCount));
+            if (atom.label == atom.element + hPart) {
+                return hPart + atom.element;
+            }
+        }
+        return atom.label;
+    }
 }
 
 RenderScene::RenderScene(QObject* parent) 
@@ -155,9 +184,10 @@ bool RenderScene::build(const RenderPrimitives& prims,
     };
     for (const AtomPrim& atom : m_prims.atoms) {
         if (atom.isSgroup) continue;
-        const double halfLabelPt = atom.label.isEmpty() ? 0.0 : measureText(atom.label).width() / 2;
-        if (!atom.label.isEmpty())
-            includeBox(atom.x, atom.y, measureText(atom.label));
+        const QString visLabel = effectiveAtomLabel(atom);
+        const double halfLabelPt = visLabel.isEmpty() ? 0.0 : measureText(visLabel).width() / 2;
+        if (!visLabel.isEmpty())
+            includeBox(atom.x, atom.y, measureText(visLabel));
         // Charge and isotope, placed as in paintAtoms.
         const double superY = atom.y + m_regularFontMetrics.ascent() / 2 * ptToModelUnits;
         if (atom.charge != 0) {
@@ -206,6 +236,32 @@ bool RenderScene::build(const RenderPrimitives& prims,
         for (const QPointF& tail : ma.tails) {
             includePoint(tail.x(), tail.y());
         }
+    }
+    // Include stereo wedge/hash wide-end vertices so tapered stereo bonds do not clip.
+    for (const BondPrim& bond : m_prims.bonds) {
+        if (bond.stereo != 1 && bond.stereo != 6) continue;
+        QPointF p0, p1;
+        bool f0 = false, f1 = false;
+        for (const AtomPrim& atom : m_prims.atoms) {
+            if (atom.id == bond.begin) { p0 = QPointF(atom.x, atom.y); f0 = true; }
+            if (atom.id == bond.end)   { p1 = QPointF(atom.x, atom.y); f1 = true; }
+        }
+        if (f0 && f1) {
+            const QPointF d = p1 - p0;
+            const double len = std::hypot(d.x(), d.y());
+            if (len > 1e-9) {
+                const double w = kWedgeTaperRatio * len;
+                const QPointF n(d.y() / len * w, -d.x() / len * w);
+                includePoint(p1.x() + n.x(), p1.y() + n.y());
+                includePoint(p1.x() - n.x(), p1.y() - n.y());
+            }
+        }
+    }
+
+    // Pad slightly for stroke cap width so edge-aligned bonds/rings are not shaved by 1px.
+    if (haveBounds && ptToModelUnits > 0.0) {
+        const double strokePad = (m_drawingStyle.lineWidth * 0.5 + 0.25) * ptToModelUnits;
+        m_modelBounds = m_modelBounds.marginsAdded(QMarginsF(strokePad, strokePad, strokePad, strokePad));
     }
 
     // A single atom, or atoms that are exactly collinear (e.g. a flat
@@ -331,36 +387,20 @@ void RenderScene::paintAtoms(QPainter* painter, double ptToModel) const {
         }
         
         const QPointF pos(atom.x, atom.y);
-        
-        // Draw atom label
-        if (!atom.label.isEmpty()) {
-            painter->save();
-            
-            // Set color
-            QColor color;
-            if (monochrome) {
-                color = Qt::black;
-            } else if (!atom.color.isEmpty()) {
-                color = QColor(atom.color);
-            } else {
-                color = Qt::black;  // default
-            }
-            painter->setPen(QPen(color, lineWidth));
-            
-            // Set font
-            QFont font = m_regularFont;
-            if (atom.element == QStringLiteral("C") && atom.label != QStringLiteral("C")) {
-                // Non-carbon labels (H, O, N, etc.) or special labels
-                // Keep regular font
-            }
-            // For chiral centers with implicit H, the label might be "CH" etc.
-            drawLabel(painter, font, pos, atom.label, Qt::AlignHCenter | Qt::AlignVCenter);
+        const QString visLabel = effectiveAtomLabel(atom);
 
+        // Draw atom label
+        if (!visLabel.isEmpty()) {
+            painter->save();
+            QColor color = monochrome ? Qt::black
+                                      : (!atom.color.isEmpty() ? QColor(atom.color) : Qt::black);
+            painter->setPen(QPen(color, lineWidth));
+            drawLabel(painter, m_regularFont, pos, visLabel, Qt::AlignHCenter | Qt::AlignVCenter);
             painter->restore();
         }
 
         // Charge and isotope sit at the label's upper corners.
-        const double halfLabelPt = atom.label.isEmpty() ? 0.0 : measureText(atom.label).width() / 2;
+        const double halfLabelPt = visLabel.isEmpty() ? 0.0 : measureText(visLabel).width() / 2;
         const double superPt = -m_regularFontMetrics.ascent() / 2;
         
         // Draw R-group circle for R-group atoms
@@ -419,12 +459,12 @@ void RenderScene::paintBonds(QPainter* painter, double ptToModel) const {
         for (const AtomPrim& atom : m_prims.atoms) {
             if (atom.id == bond.begin) {
                 startPos = QPointF(atom.x, atom.y);
-                startLabel = atom.isSgroup ? QString() : atom.label;
+                startLabel = effectiveAtomLabel(atom);
                 startFound = true;
             }
             if (atom.id == bond.end) {
                 endPos = QPointF(atom.x, atom.y);
-                endLabel = atom.isSgroup ? QString() : atom.label;
+                endLabel = effectiveAtomLabel(atom);
                 endFound = true;
             }
         }
@@ -499,16 +539,18 @@ void RenderScene::paintBonds(QPainter* painter, double ptToModel) const {
         } else {
             // Plain, double, or triple bond: unchanged QPen-based line(s).
             QPen pen(color, lineWidth);
-            if (bond.type == 2) {
-                pen.setWidthF(lineWidth * 1.5);
-            } else if (bond.type == 3) {
-                pen.setWidthF(lineWidth * 2);
-            }
             painter->setPen(pen);
             painter->drawLine(startPos, endPos);
 
             if (bond.type == 2) {
                 QPointF offset = computeDoubleBondOffset(startPos, endPos, bondLength);
+                if (bond.hasRingCenter) {
+                    const QPointF mid = (startPos + endPos) * 0.5;
+                    const QPointF toRing(bond.ringCenterX - mid.x(), bond.ringCenterY - mid.y());
+                    if (toRing.x() * offset.x() + toRing.y() * offset.y() < 0.0) {
+                        offset = -offset;
+                    }
+                }
                 painter->drawLine(startPos + offset, endPos + offset);
             }
             if (bond.type == 3) {
@@ -545,13 +587,14 @@ void RenderScene::paintRings(QPainter* painter, double ptToModel) const {
     const bool monochrome = m_drawingStyle.monochrome;
     
     for (const RingPrim& ring : m_prims.rings) {
-        if (ring.isAromatic) {
-            // Draw aromatic ring circle
+        if (ring.hasBondType4) {
+            // Draw inscribed aromatic ring circle (matching MoleculeLayer.qml's 0.65 * radius)
             painter->save();
             QColor color = monochrome ? Qt::black : Qt::black;
             painter->setPen(QPen(color, lineWidth));
             painter->setBrush(Qt::NoBrush);
-            painter->drawEllipse(QPointF(ring.x, ring.y), ring.radius, ring.radius);
+            const double r = ring.radius * 0.65;
+            painter->drawEllipse(QPointF(ring.x, ring.y), r, r);
             painter->restore();
         }
     }

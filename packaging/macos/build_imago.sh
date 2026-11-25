@@ -13,7 +13,8 @@ if [ "${1:-}" != "--force" ] \
     && [ -f "$DEST/lib/libimago.dylib" ] \
     && [ -f "$DEST/include/imago_c.h" ] \
     && [ -f "$DEST/LICENSE" ] \
-    && [ -f "$DEST/LICENSE-OpenCV" ]; then
+    && [ -f "$DEST/LICENSE-OpenCV" ] \
+    && ! nm -gU "$DEST/lib/libimago.dylib" 2>/dev/null | grep -q "_indigoAllocSessionId"; then
     echo "Imago already built in $DEST (pass --force to rebuild)"
     exit 0
 fi
@@ -50,6 +51,37 @@ with open(pngpriv, "r", encoding="utf-8", errors="replace") as f:
     txt = f.read()
 with open(pngpriv, "w", encoding="utf-8") as f:
     f.write(txt.replace("|| defined(TARGET_OS_MAC)", ""))
+
+cmakelists = os.path.join(src, "CMakeLists.txt")
+with open(cmakelists, "r", encoding="utf-8") as f:
+    lines = f.readlines()
+with open(cmakelists, "w", encoding="utf-8") as f:
+    for line in lines:
+        if "add_subdirectory" in line and ("tools" in line or "bindings" in line):
+            f.write("# " + line)
+        else:
+            f.write(line)
+
+beast = os.path.join(src, "core/src/beast.h")
+with open(beast, "r", encoding="utf-8") as f:
+    btxt = f.read()
+btxt = btxt.replace(
+    "void removeVertex(vertex_descriptor desc)\n        {\n            auto u_iter = _vertex_indices[desc.id];",
+    "void removeVertex(vertex_descriptor desc)\n        {\n            if (desc.id >= _vertex_indices.size() || _vertex_indices[desc.id] == _vertices.end()) return;\n            auto u_iter = _vertex_indices[desc.id];",
+    1,
+)
+btxt = btxt.replace(
+    "size_t getDegree(vertex_descriptor desc) const\n        {\n            return _vertex_indices[desc.id]->neighbors.size();",
+    "size_t getDegree(vertex_descriptor desc) const\n        {\n            if (desc.id >= _vertex_indices.size() || _vertex_indices[desc.id] == _vertices.end()) return 0;\n            return _vertex_indices[desc.id]->neighbors.size();",
+    1,
+)
+btxt = btxt.replace(
+    "void removeEdge(edge_descriptor desc)\n        {\n            auto iter = _edge_indices[desc.id];",
+    "void removeEdge(edge_descriptor desc)\n        {\n            if (desc.id >= _edge_indices.size() || _edge_indices[desc.id] == _edges.end()) return;\n            auto iter = _edge_indices[desc.id];",
+    1,
+)
+with open(beast, "w", encoding="utf-8") as f:
+    f.write(btxt)
 PY
 
 GEN_ARGS=()
@@ -57,9 +89,12 @@ if command -v ninja >/dev/null 2>&1; then
     GEN_ARGS=(-G Ninja)
 fi
 
+# Export only the public C API (_imago*) so Imago's statically linked 2021 Indigo
+# symbols never collide with QtSketch's runtime libindigo 1.45+ dynamic symbols.
 cmake -S "$TMP/src" -B "$TMP/build" "${GEN_ARGS[@]}" \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_SHARED_LINKER_FLAGS="-Wl,-exported_symbol,_imago*" \
     -DCMAKE_INSTALL_NAME_DIR="@rpath" \
     -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
     -DIMAGO_ENABLE_TESTS=OFF \

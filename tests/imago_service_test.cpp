@@ -76,9 +76,60 @@ int main(int argc, char **argv) {
     if (mol >= 0) {
         CHECK(indigoCountAtoms(mol) == 6 && indigoCountBonds(mol) == 6,
               "Imago recognized 6-membered ring (6 atoms, 6 bonds)");
+        CHECK(indigoLayout(mol) >= 0,
+              "indigoLayout succeeds alongside libimago without symbol collision");
         indigoFree(mol);
     }
     indigoReleaseSessionId(sid);
+    // Also verify tight small-crop recognition (160x139 exported-style cyclohexane)
+    // stays below the GUI confidence gate (<= 5 warnings) without over-scaling strokes.
+    const QString smallPngPath = tmpDir.filePath("cyclohexane_tight_160.png");
+    {
+        QImage img(160, 139, QImage::Format_RGB32);
+        img.fill(Qt::white);
+        QPainter p(&img);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setPen(QPen(Qt::black, 5.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        QPolygonF hex;
+        constexpr double kPi = 3.14159265358979323846;
+        const double cx = 80.0, cy = 69.5, r = 64.0;
+        for (int i = 0; i < 6; ++i) {
+            const double a = (i * 60.0 - 90.0) * kPi / 180.0;
+            hex << QPointF(cx + r * std::cos(a), cy + r * std::sin(a));
+        }
+        p.drawPolygon(hex);
+        p.end();
+        CHECK(img.save(smallPngPath, "PNG"), "saved tight 160x139 cyclohexane PNG");
+    }
+
+    finished = false;
+    gotMol.clear();
+    gotErr.clear();
+    int gotWarnings = 999;
+    QObject::disconnect(&svc, &ImagoService::imageRecognized, nullptr, nullptr);
+    QObject::connect(&svc, &ImagoService::imageRecognized, &svc,
+                     [&](const QString &molfile, int warnings, const QString &error) {
+                         gotMol = molfile;
+                         gotWarnings = warnings;
+                         gotErr = error;
+                         finished = true;
+                     });
+    svc.recognizeImage(QUrl::fromLocalFile(smallPngPath));
+    timer.start(15000);
+    while (!finished && timer.isActive()) {
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
+    }
+    CHECK(finished && gotErr.isEmpty() && !gotMol.isEmpty() && gotWarnings <= 5,
+          "Tight 160x139 single-ring crop recognized cleanly with <= 5 warnings");
+    {
+        unsigned long long sid2 = indigoAllocSessionId();
+        indigoSetSessionId(sid2);
+        int mol2 = indigoLoadMoleculeFromString(gotMol.toUtf8().constData());
+        CHECK(mol2 >= 0 && indigoCountAtoms(mol2) >= 5 && indigoCountBonds(mol2) >= 5,
+              "Tight 160x139 single-ring crop produces valid structure without Indigo collision");
+        if (mol2 >= 0) indigoFree(mol2);
+        indigoReleaseSessionId(sid2);
+    }
 #else
     CHECK(gotMol.isEmpty() && !gotErr.isEmpty(), "Stub ImagoService reports clean unavailable message");
 #endif

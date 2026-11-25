@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         desktop-file-utils squashfs-tools zsync libfuse2t64 \
         python3 python3-pip python3-venv \
         libgl1-mesa-dev libopengl0 libglx0 libegl1 \
-        libxkbcommon0 libxkbcommon-x11-0 libfontconfig1 libfreetype6 \
+        libxkbcommon0 libxkbcommon-x11-0 libfontconfig1 libfreetype6 libfreetype-dev \
         libdbus-1-3 libglib2.0-0 \
         libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
         libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-shm0 \

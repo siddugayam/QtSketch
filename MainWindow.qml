@@ -682,18 +682,28 @@ ApplicationWindow {
             id: imagoSvc
             onImageRecognized: function(molfile, warningsCount, error) {
                 window.isProcessing = false
-                if (!error && molfile && warningsCount <= fileDialogsGroup.imageFileDialog.maxAcceptableWarnings && activeSketch) {
-                    activeSketch.sendCommand("insertRecognizedStructure", [molfile, fileDialogsGroup.imageFileDialog.chemX, fileDialogsGroup.imageFileDialog.chemY])
+                const targetCanvas = window.asyncTarget("imago", "Insert Image")
+                const targetSketch = targetCanvas ? targetCanvas.sketch : null
+                if (!targetSketch) return
+                const fileUrl = fileDialogsGroup.imageFileDialog.pendingFileUrl
+                const cx = fileDialogsGroup.imageFileDialog.chemX
+                const cy = fileDialogsGroup.imageFileDialog.chemY
+                if (!error && molfile && warningsCount <= fileDialogsGroup.imageFileDialog.maxAcceptableWarnings) {
+                    targetSketch.sendCommand("insertRecognizedStructure", [molfile, cx, cy])
+                    imageConfirmBanner.targetDocId = targetCanvas.modelData
+                    imageConfirmBanner.pendingFileUrl = fileUrl
+                    imageConfirmBanner.chemX = cx
+                    imageConfirmBanner.chemY = cy
                     imageConfirmBanner.showBanner(warningsCount)
                 } else {
                     // Recognition failed or low-confidence — fall back to a plain image embed.
-                    const dataUri = fileIO.readImageAsDataUri(fileDialogsGroup.imageFileDialog.pendingFileUrl)
+                    const dataUri = fileIO.readImageAsDataUri(fileUrl)
                     if (dataUri === "") {
                         messageDialogsGroup.workerErrorDialog.errorText = "Failed to load image. Ensure it is a supported format (png, jpg, gif, bmp) and under 5 MB."
                         messageDialogsGroup.workerErrorDialog.severe = false
                         messageDialogsGroup.workerErrorDialog.open()
-                    } else if (activeSketch) {
-                        activeSketch.addImage(dataUri, fileDialogsGroup.imageFileDialog.chemX, fileDialogsGroup.imageFileDialog.chemY, 1.5, 1.5)
+                    } else {
+                        targetSketch.addImage(dataUri, cx, cy, 1.5, 1.5)
                     }
                 }
             }
@@ -2590,11 +2600,24 @@ ApplicationWindow {
         id: imageConfirmBanner
         x: (window.width - width) / 2
         y: window.height - height - 30
-        width: 400
-        height: 50
+        width: Math.min(window.width - 40,
+                        bannerLabelMetrics.advanceWidth + keepBannerBtn.implicitWidth + undoBannerBtn.implicitWidth + 110)
+        height: 52
+        padding: 0
         modal: false
         focus: false
         closePolicy: Popup.NoAutoClose
+
+        property int targetDocId: -1
+        property url pendingFileUrl
+        property real chemX: 0
+        property real chemY: 0
+
+        TextMetrics {
+            id: bannerLabelMetrics
+            font: bannerText.font
+            text: bannerText.text
+        }
 
         background: Rectangle {
             color: Theme.surface
@@ -2610,28 +2633,43 @@ ApplicationWindow {
         }
 
         RowLayout {
+            id: bannerRow
             anchors.fill: parent
-            anchors.margins: 8
-            spacing: 8
+            anchors.leftMargin: 14
+            anchors.rightMargin: 12
+            anchors.topMargin: 8
+            anchors.bottomMargin: 8
+            spacing: 10
             Text {
                 id: bannerText
                 color: Theme.textPrimary
                 font.pixelSize: Theme.fontSizeBody
+                elide: Text.ElideRight
+                verticalAlignment: Text.AlignVCenter
                 Layout.fillWidth: true
             }
             Button {
+                id: keepBannerBtn
                 text: "Keep"
                 onClicked: { imageConfirmBanner.close(); bannerTimer.stop() }
             }
             Button {
-                text: "Undo & use image instead"
+                id: undoBannerBtn
+                text: "Undo && use image instead"
                 onClicked: {
                     imageConfirmBanner.close()
                     bannerTimer.stop()
-                    if (window.activeCanvas) window.activeCanvas.undo()
-                    const dataUri = fileIO.readImageAsDataUri(window.fileDialogsGroup.imageFileDialog.pendingFileUrl)
-                    if (dataUri !== "" && window.activeSketch) {
-                        window.activeSketch.addImage(dataUri, window.fileDialogsGroup.imageFileDialog.chemX, window.fileDialogsGroup.imageFileDialog.chemY, 1.5, 1.5)
+                    let targetCanvas = null
+                    for (let i = 0; i < canvasRepeater.count; i++) {
+                        const c = canvasRepeater.itemAt(i)
+                        if (c && c.modelData === imageConfirmBanner.targetDocId) { targetCanvas = c; break }
+                    }
+                    if (!targetCanvas) targetCanvas = window.activeCanvas
+                    if (targetCanvas) targetCanvas.undo()
+                    const targetSketch = targetCanvas ? targetCanvas.sketch : window.activeSketch
+                    const dataUri = fileIO.readImageAsDataUri(imageConfirmBanner.pendingFileUrl)
+                    if (dataUri !== "" && targetSketch) {
+                        targetSketch.addImage(dataUri, imageConfirmBanner.chemX, imageConfirmBanner.chemY, 1.5, 1.5)
                     }
                 }
             }

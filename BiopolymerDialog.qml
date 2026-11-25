@@ -5,8 +5,7 @@ import QtQuick.Layouts
 TaskDialog {
     id: root
     title: "Biopolymer Editor"
-    width: 580
-    height: 480
+    width: 720
     standardButtons: Dialog.Close
 
     // Emitted by Load button — caller calls the relevant IndigoService method
@@ -65,7 +64,7 @@ TaskDialog {
     }
 
     ColumnLayout {
-        anchors { fill: parent; margins: 4 }
+        width: root.availableWidth
         spacing: 8
 
         // ── Format & type row ───────────────────────────────────────────────
@@ -103,7 +102,7 @@ TaskDialog {
         // ── Text area ───────────────────────────────────────────────────────
         Rectangle {
             Layout.fillWidth: true
-            Layout.fillHeight: true
+            Layout.preferredHeight: 220
             color: bioText.readOnly ? Qt.darker(Theme.background, 1.05) : Theme.background
             border.color: Theme.outline
             radius: 4
@@ -111,9 +110,11 @@ TaskDialog {
 
             ScrollView {
                 anchors { fill: parent; margins: 2 }
+                contentWidth: availableWidth
 
                 TextArea {
                     id: bioText
+                    width: parent.width
                     font { family: Theme.fontMono; pixelSize: 12 }
                     wrapMode: TextArea.Wrap
                     selectByMouse: true
@@ -184,6 +185,29 @@ TaskDialog {
 
             Item { Layout.fillWidth: true }
 
+            Button {
+                text: "Copy All"
+                enabled: bioText.text.trim().length > 0
+                onClicked: {
+                    bioText.selectAll()
+                    bioText.copy()
+                    bioText.deselect()
+                    statusLabel.text = "Copied to clipboard."
+                    statusLabel.color = Theme.textSecondary
+                }
+            }
+        }
+
+        RowLayout {
+            spacing: 6
+            Layout.fillWidth: true
+
+            Label {
+                text: "Export:"
+                color: Theme.textSecondary
+                font.pixelSize: 12
+            }
+
             // Export buttons
             Repeater {
                 model: root.formats
@@ -191,6 +215,7 @@ TaskDialog {
                     required property string modelData
                     required property int index
                     text: modelData
+                    implicitWidth: Math.max(68, implicitContentWidth + leftPadding + rightPadding)
                     // SVG is always enabled for vector export
                     opacity: (modelData === "SVG" || modelData === "PDF") ? 1.0 : 
                             (index >= 3 && seqTypeCombo.currentIndex === 2) ? 0.35 : 1.0
@@ -211,17 +236,7 @@ TaskDialog {
                 }
             }
 
-            Button {
-                text: "Copy All"
-                enabled: bioText.text.trim().length > 0
-                onClicked: {
-                    bioText.selectAll()
-                    bioText.copy()
-                    bioText.deselect()
-                    statusLabel.text = "Copied to clipboard."
-                    statusLabel.color = Theme.textSecondary
-                }
-            }
+            Item { Layout.fillWidth: true }
         }
     }
 }

@@ -2,7 +2,7 @@
 
 **Fast, native desktop editor for chemical structures, reactions, and biopolymers**
 
-[![Download macOS DMG](https://img.shields.io/badge/Download%20macOS-Apple%20Silicon%20(.dmg%20%7C%2052%20MB)-000000?logo=apple&logoColor=white)](releases/QtSketch-0.1-arm64.dmg)
+[![Download macOS DMG](https://img.shields.io/badge/Download%20macOS-Apple%20Silicon%20(.dmg%20%7C%2051%20MB)-000000?logo=apple&logoColor=white)](releases/QtSketch-0.1-arm64.dmg)
 [![Linux AppImage](https://img.shields.io/badge/Linux-x86__64%20%7C%20arm64%20(.AppImage)-FCC624?logo=linux&logoColor=black)](#-quick-setup-and-build-macos-and-linux)
 [![Windows x64](https://img.shields.io/badge/Windows-x64%20(MinGW%20%7C%20MSVC)-0078D6?logo=windows&logoColor=white)](#-building-on-windows-mingw)
 [![Qt 6](https://img.shields.io/badge/Qt-6.6%2B%20%7C%20QML-41CD52?logo=qt&logoColor=white)](https://www.qt.io/)
@@ -20,7 +20,7 @@
 
 | Installer | Architecture | Format & Size | SHA-256 Checksum |
 | :--- | :--- | :--- | :--- |
-| 🍎 **[QtSketch-0.1-arm64.dmg](releases/QtSketch-0.1-arm64.dmg)** | macOS Apple Silicon (`arm64`) | Self-contained `.dmg` (`52 MB`, LZMA) | [`QtSketch-0.1-arm64.dmg.sha256`](releases/QtSketch-0.1-arm64.dmg.sha256) |
+| 🍎 **[QtSketch-0.1-arm64.dmg](releases/QtSketch-0.1-arm64.dmg)** | macOS Apple Silicon (`arm64`) | Self-contained `.dmg` (`51 MB`, LZMA) | [`QtSketch-0.1-arm64.dmg.sha256`](releases/QtSketch-0.1-arm64.dmg.sha256) |
 | 🐧 **Linux `.AppImage`** | `x86_64` & `arm64` | Built via `./install_and_build.sh` or [GitHub Releases](../../releases) | Generated `.sha256` |
 
 ---

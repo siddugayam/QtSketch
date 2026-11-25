@@ -11,13 +11,14 @@ permissions:
   contents: read
 
 env:
-  IMAGO_CACHE_REV: cd44e67-v1
+  IMAGO_CACHE_REV: cd44e67-v3
   QT_VER: '6.8.3'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
   macos-arm64:
     name: macOS arm64 (.dmg)
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -86,7 +87,7 @@ jobs:
             desktop-file-utils squashfs-tools zsync libfuse2t64 \
             python3 python3-pip python3-venv \
             libgl1-mesa-dev libopengl0 libglx0 libegl1 \
-            libxkbcommon0 libxkbcommon-x11-0 libfontconfig1 libfreetype6 \
+            libxkbcommon0 libxkbcommon-x11-0 libfontconfig1 libfreetype6 libfreetype-dev \
             libdbus-1-3 libglib2.0-0 \
             libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
             libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-shm0 \

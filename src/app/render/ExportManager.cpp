@@ -47,12 +47,14 @@ QVariantMap ExportManager::defaultOptions(const QString& format) const {
 }
 
 Exporter* ExportManager::createExporter(const QString& format) {
+    // Created on worker threads inside QtConcurrent::run and deleted explicitly;
+    // do not parent to `this` (which lives on the GUI thread).
     if (format == "pdf") {
-        return new PdfExporter(this);
+        return new PdfExporter(nullptr);
     } else if (format == "svg") {
-        return new SvgExporter(this);
+        return new SvgExporter(nullptr);
     } else if (format == "png") {
-        return new PngExporter(this);
+        return new PngExporter(nullptr);
     }
     return nullptr;
 }

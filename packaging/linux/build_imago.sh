@@ -13,7 +13,8 @@ if [ "${1:-}" != "--force" ] \
     && [ -f "$DEST/lib/libimago.so" ] \
     && [ -f "$DEST/include/imago_c.h" ] \
     && [ -f "$DEST/LICENSE" ] \
-    && [ -f "$DEST/LICENSE-OpenCV" ]; then
+    && [ -f "$DEST/LICENSE-OpenCV" ] \
+    && ! nm -D "$DEST/lib/libimago.so" 2>/dev/null | grep -q "indigoAllocSessionId"; then
     echo "Imago already built in $DEST (pass --force to rebuild)"
     exit 0
 fi
@@ -31,16 +32,64 @@ curl -fsSL "https://codeload.github.com/epam/Indigo/tar.gz/$INDIGO_SUBMODULE_COM
 curl -fsSL "https://codeload.github.com/opencv/opencv/tar.gz/$OPENCV_SUBMODULE_COMMIT" \
     | tar -xz -C "$TMP/src/third_party/opencv" --strip-components=1
 
+# Skip optional CLI tools/bindings (which require Freetype/Java) since we only build target imago-c.
+python3 - "$TMP/src" <<'PY'
+import os, re, sys
+src = sys.argv[1]
+p = os.path.join(src, "CMakeLists.txt")
+with open(p, "r", encoding="utf-8") as f:
+    lines = f.readlines()
+with open(p, "w", encoding="utf-8") as f:
+    for line in lines:
+        if re.search(r"add_subdirectory\s*\(\s*(tools|bindings)\b", line):
+            f.write("# " + line)
+        else:
+            f.write(line)
+
+beast = os.path.join(src, "core/src/beast.h")
+with open(beast, "r", encoding="utf-8") as f:
+    btxt = f.read()
+btxt = btxt.replace(
+    "void removeVertex(vertex_descriptor desc)\n        {\n            auto u_iter = _vertex_indices[desc.id];",
+    "void removeVertex(vertex_descriptor desc)\n        {\n            if (desc.id >= _vertex_indices.size() || _vertex_indices[desc.id] == _vertices.end()) return;\n            auto u_iter = _vertex_indices[desc.id];",
+    1,
+)
+btxt = btxt.replace(
+    "size_t getDegree(vertex_descriptor desc) const\n        {\n            return _vertex_indices[desc.id]->neighbors.size();",
+    "size_t getDegree(vertex_descriptor desc) const\n        {\n            if (desc.id >= _vertex_indices.size() || _vertex_indices[desc.id] == _vertices.end()) return 0;\n            return _vertex_indices[desc.id]->neighbors.size();",
+    1,
+)
+btxt = btxt.replace(
+    "void removeEdge(edge_descriptor desc)\n        {\n            auto iter = _edge_indices[desc.id];",
+    "void removeEdge(edge_descriptor desc)\n        {\n            if (desc.id >= _edge_indices.size() || _edge_indices[desc.id] == _edges.end()) return;\n            auto iter = _edge_indices[desc.id];",
+    1,
+)
+with open(beast, "w", encoding="utf-8") as f:
+    f.write(btxt)
+PY
+
 GEN_ARGS=()
 if command -v ninja >/dev/null 2>&1; then
     GEN_ARGS=(-G Ninja)
 fi
+
+# Export only the public C API (imago*) and bind internal symbols locally so Imago's
+# embedded 2021 indigo-static never collides with QtSketch's runtime libindigo.so.
+cat > "$TMP/imago.map" <<'EOF'
+{
+    global:
+        imago*;
+    local:
+        *;
+};
+EOF
 
 # Pre-include <cstdint> so 2021 OpenCV/Indigo sources compile cleanly on GCC 13/14/15+.
 cmake -S "$TMP/src" -B "$TMP/build" "${GEN_ARGS[@]}" \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_CXX_FLAGS="-include cstdint" \
+    -DCMAKE_SHARED_LINKER_FLAGS="-Wl,--version-script=$TMP/imago.map -Wl,-Bsymbolic" \
     -DIMAGO_ENABLE_TESTS=OFF \
     -DBUILD_LIST=core,imgproc,imgcodecs \
     -DBUILD_TESTS=OFF \

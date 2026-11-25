@@ -166,6 +166,7 @@ Item {
         onAccepted: {
             if (!win.activeSketch || !win.beginJob()) return
             pendingFileUrl = selectedFile
+            win.tagAsync("imago")
             win.imagoSvc.recognizeImage(selectedFile)
         }
     }
