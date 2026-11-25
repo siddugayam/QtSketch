@@ -63,11 +63,13 @@ velvety-meandering-snowglobe.md
 ui-typography-redesign.md
 
 # Other-editor AI agent instruction files (not used by this project's own workflow) -
-# untracked from git, kept on disk locally only.
+# untracked from git, kept on disk locally only. Keep .github/workflows/ tracked for CI/Releases.
 .clinerules/
 .windsurf/
 .opencode/
-.github/
+.github/*
+!.github/workflows/
+!.github/workflows/**
 AGENTS.md
 
 # Feature-tracking/planning docs - untracked from git, kept on disk locally only.
@@ -85,5 +87,7 @@ Journal Templates/
 # treatment as indigo/ and imago/ above.
 archive/js-engine/
 
-# macOS app and disk image made by packaging/macos
+# Packaged outputs and local Qt bootstrap (install_and_build.sh)
 /dist/
+/.qt/
+/.aqt-venv/

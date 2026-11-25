@@ -14,7 +14,9 @@ ApplicationWindow {
     property alias messageDialogsGroup: messageDialogsGroup
     property alias settingsDialogsGroup: settingsDialogsGroup
 
-    flags: Qt.Window | Qt.FramelessWindowHint
+    // Windows uses a custom frameless Fluent caption bar; macOS and Linux use
+    // native OS window decorations (macOS traffic-light buttons, desktop WM chrome).
+    flags: Theme.isWindows ? (Qt.Window | Qt.FramelessWindowHint) : Qt.Window
 
     // Fluent's SmokeFillColorDefault: the scrim behind a modal content dialog.
     Overlay.modal: Rectangle { color: Theme.smokeFill }
@@ -51,7 +53,10 @@ ApplicationWindow {
     }
 
     header: Rectangle {
-        height: Theme.captionBarHeight
+        visible: Theme.isWindows
+        enabled: Theme.isWindows
+        height: Theme.isWindows ? Theme.captionBarHeight : 0
+        clip: true
         color: Theme.surface
         RowLayout {
             anchors.fill: parent
@@ -108,6 +113,8 @@ ApplicationWindow {
     // within that Item's bounds (its documented "parent" scope), not the handler's.
     Item {
         anchors.fill: parent
+        visible: Theme.isWindows
+        enabled: Theme.isWindows
         Item {
             anchors { top: parent.top; left: parent.left; right: parent.right }
             height: 4
@@ -603,7 +610,10 @@ ApplicationWindow {
     visible: true
     width: 1400
     height: 900
-    title: "sketch" + (activeCanvas && activeCanvas.isDirty ? " *" : "")
+    title: (Theme.isWindows
+            ? "sketch"
+            : "QtSketch \u2014 " + (window.titleRev, window.titleFor(DocumentManager.activeDocId)))
+           + (activeCanvas && activeCanvas.isDirty ? " *" : "")
     color: Theme.background
 
     property bool _forceQuit: false
