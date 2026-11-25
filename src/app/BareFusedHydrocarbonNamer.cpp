@@ -132,7 +132,7 @@ BareFusedHydrocarbonResult tryNameBareFusedHydrocarbon(
                 }
             }
             if (adjacent) {
-                return {BareFusedDisposition::Rejected, {}, "1,2-dihydroacenaphthylene is out of Stage C2 scope (bare parents only)."};
+                return {BareFusedDisposition::NotMatched, {}, ""};
             } else {
                 return {BareFusedDisposition::Rejected, {}, "unrecognized acenaphthylene hydrogenation state."};
             }
@@ -183,7 +183,7 @@ BareFusedHydrocarbonResult tryNameBareFusedHydrocarbon(
         if (sp3Atoms.empty()) {
             return {BareFusedDisposition::Named, {true, "pyrene", "", NamingStatus::SystematicIupacName}, ""};
         }
-        return {BareFusedDisposition::Rejected, {}, "hydro-pyrene derivatives are out of Stage C2 scope (bare parents only)."};
+        return {BareFusedDisposition::NotMatched, {}, ""};
     }
 
     return {BareFusedDisposition::NotMatched, {}, ""};

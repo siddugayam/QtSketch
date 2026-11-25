@@ -48,9 +48,13 @@ void registerHydrocarbonFamily(std::vector<RetainedRingSystem> &registry) {
         "anthracene",
         "c1ccc2cc3ccccc3cc2c1",
         {"2","3","4","4a","10","10a","5","6","7","8","8a","9","9a","1"},
-        {}, // bond letters added in a later task once an attached-component
-            // use case for "anthra-" actually needs them -- empty map is
-            // valid (base-component-only use still works without it)
+        {
+            {'a', {"1","2"}},   {'b', {"2","3"}},   {'c', {"3","4"}},
+            {'d', {"4","4a"}},  {'e', {"4a","10"}}, {'f', {"10","10a"}},
+            {'g', {"10a","5"}}, {'h', {"5","6"}},   {'i', {"6","7"}},
+            {'j', {"7","8"}},   {'k', {"8","8a"}},  {'l', {"8a","9"}},
+            {'m', {"9","9a"}},  {'n', {"9a","1"}},
+        },
         46,
         "anthra", // Blue Book FR-2.1.9 irregular stem: "anthra-" (not "anthraceneo-")
     });
@@ -111,8 +115,14 @@ void registerHydrocarbonFamily(std::vector<RetainedRingSystem> &registry) {
         "tetracene",
         "c1ccc2cc3cc4ccccc4cc3cc2c1",
         {"2","3","4","4a","5","5a","6","6a","7","8","9","10","10a","11","11a","12","12a","1"},
-        {}, // bond letters not yet needed by any confirmed use case as an
-            // attached component -- same empty-map convention as anthracene
+        {
+            {'a', {"1","2"}},   {'b', {"2","3"}},   {'c', {"3","4"}},
+            {'d', {"4","4a"}},  {'e', {"4a","5"}},  {'f', {"5","5a"}},
+            {'g', {"5a","6"}},  {'h', {"6","6a"}},  {'i', {"6a","7"}},
+            {'j', {"7","8"}},   {'k', {"8","9"}},   {'l', {"9","10"}},
+            {'m', {"10","10a"}},{'n', {"10a","11"}},{'o', {"11","11a"}},
+            {'p', {"11a","12"}},{'q', {"12","12a"}},{'r', {"12a","1"}},
+        },
         38,
         // fusionPrefix: verified directly against Blue Book FR-2.1.2
         // (fetched iupac.qmul.ac.uk/fusedring/FR21.html this session):
@@ -236,5 +246,154 @@ void registerHydrocarbonFamily(std::vector<RetainedRingSystem> &registry) {
         },
         37,
         "piceno",
+    });
+
+    registry.push_back(RetainedRingSystem{
+        "fluorene",
+        "c1cccc2c3ccccc3Cc12",
+        {
+            "1", "2", "3", "4", "4a", "4b", "5", "6", "7", "8",
+            "8a", "9", "9a"
+        },
+        {
+            {'a', {"1", "2"}},
+            {'b', {"2", "3"}},
+            {'c', {"3", "4"}},
+            {'d', {"4", "4a"}},
+            {'e', {"4a", "4b"}},
+            {'f', {"4b", "5"}},
+            {'g', {"5", "6"}},
+            {'h', {"6", "7"}},
+            {'i', {"7", "8"}},
+            {'j', {"8", "8a"}},
+            {'k', {"8a", "9"}},
+            {'l', {"9", "9a"}},
+            {'m', {"9a", "1"}},
+        },
+        10,
+        "",
+        "9",
+    });
+
+    // Pentacene -- 22 carbons; 5 linearly-fused aromatic 6-rings.
+    registry.push_back(RetainedRingSystem{
+        "pentacene",
+        "c1ccc2cc3cc4cc5ccccc5cc4cc3cc2c1",
+        {
+            "2","3","4","4a","5","5a","6","6a","7","7a","8",
+            "9","10","11","11a","12","12a","13","13a","14","14a","1"
+        },
+        {
+            {'a', {"1","2"}},   {'b', {"2","3"}},   {'c', {"3","4"}},
+            {'d', {"4","4a"}},  {'e', {"4a","5"}},  {'f', {"5","5a"}},
+            {'g', {"5a","6"}},  {'h', {"6","6a"}},  {'i', {"6a","7"}},
+            {'j', {"7","7a"}},  {'k', {"7a","8"}},  {'l', {"8","9"}},
+            {'m', {"9","10"}},  {'n', {"10","11"}}, {'o', {"11","11a"}},
+            {'p', {"11a","12"}},{'q', {"12","12a"}},{'r', {"12a","13"}},
+            {'s', {"13","13a"}},{'t', {"13a","14"}},{'u', {"14","14a"}},
+            {'v', {"14a","1"}},
+        },
+        36,
+        "pentaceno",
+    });
+
+    // Chrysene -- 18 carbons; 4 angular zigzag 6-rings.
+    registry.push_back(RetainedRingSystem{
+        "chrysene",
+        "c1cccc2c3ccc4ccccc4c3ccc21",
+        {
+            "1","2","3","4","4a","4b","5","6","6a","7","8","9","10","10a","10b","11","12","12a"
+        },
+        {
+            {'a', {"1","2"}},   {'b', {"2","3"}},   {'c', {"3","4"}},
+            {'d', {"4","4a"}},  {'e', {"4a","4b"}}, {'f', {"4b","5"}},
+            {'g', {"5","6"}},   {'h', {"6","6a"}},  {'i', {"6a","7"}},
+            {'j', {"7","8"}},   {'k', {"8","9"}},   {'l', {"9","10"}},
+            {'m', {"10","10a"}},{'n', {"10a","10b"}},{'o', {"10b","11"}},
+            {'p', {"11","12"}}, {'q', {"12","12a"}},{'r', {"12a","1"}},
+        },
+        42,
+        "chryseno",
+    });
+
+    // Fluoranthene -- 16 carbons; 4 rings (naphthalene + benzene + 5-ring), 1 interior atom 10c.
+    registry.push_back(RetainedRingSystem{
+        "fluoranthene",
+        "c1ccc2cccc3c4ccccc4-c1c23",
+        {
+            "1","2","3","3a","4","5","6","6a","6b","7","8","9","10","10a","10b","10c"
+        },
+        {
+            {'a', {"1","2"}},   {'b', {"2","3"}},   {'c', {"3","3a"}},
+            {'d', {"3a","4"}},  {'e', {"4","5"}},   {'f', {"5","6"}},
+            {'g', {"6","6a"}},  {'h', {"6a","6b"}}, {'i', {"6b","7"}},
+            {'j', {"7","8"}},   {'k', {"8","9"}},   {'l', {"9","10"}},
+            {'m', {"10","10a"}},{'n', {"10a","10b"}},{'o', {"10b","1"}},
+        },
+        44,
+        "fluorantheno",
+        "",
+        {"10c"},
+    });
+
+    // Perylene -- 20 carbons; 5 rings (two naphthalenes joined peri), 2 interior atoms 12c, 12d.
+    registry.push_back(RetainedRingSystem{
+        "perylene",
+        "c1ccc2cccc3c4cccc5cccc(c45)c1c23",
+        {
+            "1","2","3","3a","4","5","6","6a","6b","7","8","9","9a",
+            "10","11","12","12a","12d","12b","12c"
+        },
+        {
+            {'a', {"1","2"}},   {'b', {"2","3"}},   {'c', {"3","3a"}},
+            {'d', {"3a","4"}},  {'e', {"4","5"}},   {'f', {"5","6"}},
+            {'g', {"6","6a"}},  {'h', {"6a","6b"}}, {'i', {"6b","7"}},
+            {'j', {"7","8"}},   {'k', {"8","9"}},   {'l', {"9","9a"}},
+            {'m', {"9a","10"}}, {'n', {"10","11"}}, {'o', {"11","12"}},
+            {'p', {"12","12a"}},{'q', {"12a","12b"}},{'r', {"12b","1"}},
+        },
+        39,
+        "peryleno",
+        "",
+        {"12c", "12d"},
+    });
+
+    // Acenaphthylene -- 12 carbons; 3 peri-fused rings (6,6,5), 1 interior atom 8b.
+    registry.push_back(RetainedRingSystem{
+        "acenaphthylene",
+        "C1=Cc2cccc3cccc1c23",
+        {
+            "1","2","2a","3","4","5","5a","6","7","8","8a","8b"
+        },
+        {
+            {'a', {"1","2"}},   {'b', {"2","2a"}},  {'c', {"2a","3"}},
+            {'d', {"3","4"}},   {'e', {"4","5"}},   {'f', {"5","5a"}},
+            {'g', {"5a","6"}},  {'h', {"6","7"}},   {'i', {"7","8"}},
+            {'j', {"8","8a"}},  {'k', {"8a","1"}},
+        },
+        48,
+        "acenaphthyleno",
+        "",
+        {"8b"},
+    });
+
+    // Pyrene -- 16 carbons; 4 peri-fused 6-rings, 2 interior atoms 10b, 10c.
+    registry.push_back(RetainedRingSystem{
+        "pyrene",
+        "c1ccc2ccc3cccc4ccc1c2c34",
+        {
+            "1","2","3","3a","4","5","5a","6","7","8","8a","9","10","10a","10b","10c"
+        },
+        {
+            {'a', {"1","2"}},   {'b', {"2","3"}},   {'c', {"3","3a"}},
+            {'d', {"3a","4"}},  {'e', {"4","5"}},   {'f', {"5","5a"}},
+            {'g', {"5a","6"}},  {'h', {"6","7"}},   {'i', {"7","8"}},
+            {'j', {"8","8a"}},  {'k', {"8a","9"}},  {'l', {"9","10"}},
+            {'m', {"10","10a"}},{'n', {"10a","1"}},
+        },
+        40,
+        "pyreno",
+        "",
+        {"10b", "10c"},
     });
 }

@@ -41,7 +41,7 @@ void registerIndoleFamily(std::vector<RetainedRingSystem> &registry) {
     // bond, atom[3]-atom[2]) is confirmed a real bond above.
     registry.push_back(RetainedRingSystem{
         "indole",
-        "c2cnc1ccccc12",
+        "c2c[nH]c1ccccc12",
         {"3","2","1","7a","7","6","5","4","3a"},
         {
             {'a', {"1","2"}}, {'b', {"2","3"}}, {'c', {"3","3a"}},
@@ -49,6 +49,30 @@ void registerIndoleFamily(std::vector<RetainedRingSystem> &registry) {
             {'g', {"6","7"}}, {'h', {"7","7a"}}, {'i', {"7a","1"}},
         },
         39, // Appendix 2 seniority rank
+    });
+
+    registry.push_back(RetainedRingSystem{
+        "benzofuran",
+        "c2coc1ccccc12",
+        {"3","2","1","7a","7","6","5","4","3a"},
+        {
+            {'a', {"1","2"}}, {'b', {"2","3"}}, {'c', {"3","3a"}},
+            {'d', {"3a","4"}}, {'e', {"4","5"}}, {'f', {"5","6"}},
+            {'g', {"6","7"}}, {'h', {"7","7a"}}, {'i', {"7a","1"}},
+        },
+        45,
+    });
+
+    registry.push_back(RetainedRingSystem{
+        "benzothiophene",
+        "c2csc1ccccc12",
+        {"3","2","1","7a","7","6","5","4","3a"},
+        {
+            {'a', {"1","2"}}, {'b', {"2","3"}}, {'c', {"3","3a"}},
+            {'d', {"3a","4"}}, {'e', {"4","5"}}, {'f', {"5","6"}},
+            {'g', {"6","7"}}, {'h', {"7","7a"}}, {'i', {"7a","1"}},
+        },
+        45,
     });
 
     // 2. isoindole: N at locant 2 (between C-1 and C-3, neither a
@@ -173,5 +197,24 @@ void registerIndoleFamily(std::vector<RetainedRingSystem> &registry) {
         70,
         "[1,3]benzodioxolo",
         "2",
+    });
+
+    // 5. indazole (1H-indazole): N at locants 1 and 2. Appendix 2 rank 33.
+    // SMILES 'c2nnc1ccccc12', verified via Indigo:
+    //   atom[2]=1(N), atom[1]=2(N), atom[0]=3(C), atom[8]=3a(C),
+    //   atom[7]=4(C), atom[6]=5(C), atom[5]=6(C), atom[4]=7(C), atom[3]=7a(C).
+    // Walking 1-2-3-3a-4-5-6-7-7a matches indole exactly with atom 1 as N.
+    registry.push_back(RetainedRingSystem{
+        "indazole",
+        "c2nnc1ccccc12",
+        {"3","2","1","7a","7","6","5","4","3a"},
+        {
+            {'a', {"1","2"}}, {'b', {"2","3"}}, {'c', {"3","3a"}},
+            {'d', {"3a","4"}}, {'e', {"4","5"}}, {'f', {"5","6"}},
+            {'g', {"6","7"}}, {'h', {"7","7a"}}, {'i', {"7a","1"}},
+        },
+        33,
+        "indazolo",
+        "1",
     });
 }

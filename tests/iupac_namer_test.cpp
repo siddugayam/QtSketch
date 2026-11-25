@@ -442,7 +442,7 @@ int main() {
         // checking for a double bond back to parentIdx first. Structurally
         // validated: 4 rings (quinazoline's 2 + piperazine + furan), 20
         // heavy atoms.
-        {"c1ccc2c(nc(nc2N)N2CCN(C(c3occc3)=O)CC2)c1", "2-[4-(furan-2-yloxomethyl)piperazin-1-yl]-4-aminoquinazoline"},
+        {"c1ccc2c(nc(nc2N)N2CCN(C(c3occc3)=O)CC2)c1", "2-[4-(furan-2-yloxomethyl)piperazin-1-yl]quinazolin-4-amine"},
 
         // Regression guard for a real bug found in the same real-drug validation pass: the
         // monocyclic ring-parent carboxamide/carboxylic-acid suffix construction unconditionally
@@ -1242,7 +1242,9 @@ int main() {
         // "5" -- an impossible/overlapping locant set. Real driver output (not
         // guessed): the methyl substituent and the 4 hydro positions now land on
         // disjoint locants (7 vs 2,3,4,5).
-        {"c1ccc2nc3CCCCc3cc2c1C", "7-methyl-2,3,4,5-tetrahydrodibenzo[1,2-b:1,2-e]pyridine"},
+        // Disjoint locants on retained tetrahydroacridine: methyl sits on C-8
+        // (aromatic ring adjacent to C-9a/C-9 side) while hydro positions cover 1,2,3,4.
+        {"c1ccc2nc3CCCCc3cc2c1C", "8-methyl-1,2,3,4-tetrahydroacridine"},
 
         // Retained-hydro-assembly plan, Task 3: superseded by
         // tryRetainedBaseDecomposition's whole-system final-numbering
@@ -1490,7 +1492,7 @@ int main() {
         // the guard this silently misread the acid as a gem-diol
         // ("4-dihydroxymethyl-2-phenylquinoline"). Confirms the guard correctly
         // declines rather than producing a wrong name.
-        {"O=C(c1c2c(cccc2)nc(-c2ccccc2)c1)O", "", true, "Fused, bridged, spiro, or multiple ring systems are not supported in Phase 2."},
+        {"O=C(c1c2c(cccc2)nc(-c2ccccc2)c1)O", "2-phenylquinoline-4-carboxylic acid", false, ""},
 
         // Same functional-group gap as CINCHOPHEN above, but WITHOUT an
         // isolated extra ring -- just a plain quinoline-6-carboxylic acid.
@@ -1508,10 +1510,10 @@ int main() {
         // all-carbon naphthalene+acid (has its own separate, working suffix
         // path) and a heteroaromatic RING substituent like thiazol-4-yl
         // (whose own internal aromatic bonds aren't a functional group).
-        {"OC(=O)c1ccc2ncccc2c1", "", true, "Fused heterobicyclic ring systems with a functional group (acid, ester, amide, ketone, nitrile, imine, ...) exocyclic to the ring are not yet classified by this mechanism."},
-        {"OC(=O)c1ccc2ccncc2c1", "", true, "Fused heterobicyclic ring systems with a functional group (acid, ester, amide, ketone, nitrile, imine, ...) exocyclic to the ring are not yet classified by this mechanism."},
-        {"OC(=O)c1ccc2occc2c1", "", true, "Fused heterobicyclic ring systems with a functional group (acid, ester, amide, ketone, nitrile, imine, ...) exocyclic to the ring are not yet classified by this mechanism."},
-        {"OC(=O)c1ccc2[nH]ccc2c1", "", true, "Fused heterobicyclic ring systems with a functional group (acid, ester, amide, ketone, nitrile, imine, ...) exocyclic to the ring are not yet classified by this mechanism."},
+        {"OC(=O)c1ccc2ncccc2c1", "quinoline-6-carboxylic acid", false, ""},
+        {"OC(=O)c1ccc2ccncc2c1", "isoquinoline-7-carboxylic acid", false, ""},
+        {"OC(=O)c1ccc2occc2c1", "benzofuran-5-carboxylic acid", false, ""},
+        {"OC(=O)c1ccc2[nH]ccc2c1", "indole-5-carboxylic acid", false, ""},
         // Regression guard for one of the two false positives found and
         // fixed while narrowing this guard: all-carbon naphthalene+acid must
         // stay on its own separate, already-correct suffix path. (The other
@@ -1880,10 +1882,10 @@ int main() {
         // an "N,N-di<prefix>"/"N-<prefix>" token to bump), but the real quaternary CATION needs
         // the charged nitrogen to be forced as principal group regardless of competing groups
         // (P-73.1) -- a materially different mechanism, not attempted here.
-        {"C[N+](CCO)(C)C", "", true, "Charged atoms are not supported"}, // choline
-        {"C[N+](CCOC(=O)N)(C)C", "", true, "Charged atoms are not supported"}, // carbachol
-        {"CC(OCC[N+](C)(C)C)=O", "", true, "Charged atoms are not supported"}, // acetylcholine
-        {"C[N+](CC(O)=O)(C)C", "", true, "Charged atoms are not supported"}, // betaine
+        {"C[N+](CCO)(C)C", "2-hydroxy-N,N,N-trimethylethan-1-aminium"}, // choline
+        {"C[N+](CCOC(=O)N)(C)C", "2-(carbamoyloxy)-N,N,N-trimethylethan-1-aminium"}, // carbachol
+        {"CC(OCC[N+](C)(C)C)=O", "2-(acetyloxy)-N,N,N-trimethylethan-1-aminium"}, // acetylcholine
+        {"C[N+](CC(O)=O)(C)C", "2-(trimethylazaniumyl)ethanoic acid"}, // betaine
         // GALLAMINE's center falls through for a different, unrelated pre-existing gap: the odd
         // branch's own naming hits "Branched, ring, or unsaturated chains on N-substituted amines
         // are not supported" (an aryl ring reached via an ether chain), not this mechanism's fault.
@@ -1910,7 +1912,7 @@ int main() {
         // carries a phenol -OH, the same competing-higher-seniority-group situation already
         // documented above for CHOLINE/CARBACHOL/ACETYLCHOLINE/BETAINE -- correctly falls
         // through, not a bug in this mechanism.
-        {"CC[N+](c1cc(O)ccc1)(C)C", "", true, "Charged atoms are not supported"},
+        {"CC[N+](c1cc(O)ccc1)(C)C", "N-ethyl-3-hydroxy-N,N-dimethylanilinium"},
         // Fallthrough cases for out-of-scope quaternary cations - should still reject
         {"C[N+](C)(C)C(C)C", "N,N,N-trimethylpropan-2-aminium"}, // quaternary ammonium, reduced-amine branch now names fine
         {"[NH3+]CCCCCC[NH3+]", "", true, "Charged atoms are not supported"}, // hexane-1,6-diammonium - multi-charged, out of scope
@@ -4125,8 +4127,11 @@ int main() {
         std::vector<Phase32Test> p32Tests = {
             {"c1ncnc2[nH]cnc12", "purine", false, ""},
             {"c1ncc2[nH]cnc2n1", "purine", false, ""},
-            // Rejection: substituted purine
-            {"Cc1ncnc2[nH]cnc12", "", true, "Fused ring systems other than naphthalene are not supported in this phase."},
+            // Substituted purine (now supported via retained bicyclic naming)
+            {"Cc1ncnc2[nH]cnc12", "6-methylpurine", false, ""},
+            {"Nc1ncnc2[nH]cnc12", "purin-6-amine", false, ""},
+            {"O=C(O)c1ncnc2[nH]cnc12", "purine-6-carboxylic acid", false, ""},
+            {"O=C1C=Cc2ccccc2O1", "chromen-2-one", false, ""},
 
             // These two were originally rejection cases here, expecting the generic
             // "not supported" message - they're genuinely nameable now via the 2-ring
@@ -4264,8 +4269,8 @@ int main() {
             {"C1=C[Se]C2=C1SC=C2", "selenolo[3,2-b]thiophene", false, ""},
             {"C1=C[Te]C2=C1[Se]C=C2", "tellurolo[3,2-b]selenophene", false, ""},
             {"c1c[te]c2c1pccc2", "phosphinino[3,2-b]tellurophene", false, ""},
-            // Rejection: substituted target compound
-            {"CC1=CC2=C(C=CO2)N=C1", "", true, "Fused ring systems other than naphthalene are not supported in this phase."},
+            // Substituted general two-heterocycle fusion (furo[3,2-b]pyridine)
+            {"CC1=CC2=C(C=CO2)N=C1", "6-methylfuro[3,2-b]pyridine", false, ""},
             // Rejection: fusion involving excluded pyrrole ring (furo-pyrrole is now supported in Phase 38!)
             {"c1cc2occc2[nH]1", "4H-furo[3,2-b]pyrrole", false, ""}
         };
@@ -4432,8 +4437,8 @@ int main() {
             // Rejection test 1: Fusion-atom substitution (substituent directly on bridgehead)
             {"CC12C=CC=CC1=NC=CC2", "", true, "Fused ring systems other than naphthalene are not supported in this phase."},
 
-            // Rejection test 2: Out-of-scope substituted Purine (Phase 32 keeps rejecting)
-            {"Cc1ncnc2[nH]cnc12", "", true, "Fused ring systems other than naphthalene are not supported in this phase."},
+            // Substituted Purine now supported
+            {"Cc1ncnc2[nH]cnc12", "6-methylpurine", false, ""},
 
             // Rejection test 3: Out-of-scope substituted Pentalene (Phase 33 keeps rejecting)
             {"CC1=CC=C2C=CC=C12", "", true, "Fused ring systems other than naphthalene are not supported in this phase."},
@@ -4441,8 +4446,8 @@ int main() {
             // Rejection test 4: Out-of-scope substituted 3H-pyrrolizine (Phase 34 keeps rejecting)
             {"CC1=CN2C=CC=C2C1", "", true, "Fused ring systems other than naphthalene are not supported in this phase."},
 
-            // Rejection test 5: Out-of-scope substituted General Fusion (Phase 35 keeps rejecting)
-            {"CC1=CC2=C(C=CO2)N=C1", "", true, "Fused ring systems other than naphthalene are not supported in this phase."}
+            // Substituted General Fusion (furo[3,2-b]pyridine)
+            {"CC1=CC2=C(C=CO2)N=C1", "6-methylfuro[3,2-b]pyridine", false, ""}
         };
 
         for (const auto &t : p37Tests) {
@@ -4493,11 +4498,18 @@ int main() {
             // 5. Pyrazole + pyridine: 1H-pyrazolo[4,5-b]pyridine
             {"C1=CC2=C(N=C1)C=NN2", "1H-pyrazolo[4,5-b]pyridine", false, ""},
 
-            // Rejection 1: Substituted general fusion compound (3-methyl-1H-pyrrolo[2,3-b]pyridine)
-            {"CC1=CNC2=C1C=CC=N2", "", true, "Fused ring systems other than naphthalene are not supported in this phase."},
+            // Substituted general fusion compounds
+            {"CC1=CNC2=C1C=CC=N2", "3-methyl-1H-pyrrolo[2,3-b]pyridine", false, ""},
+            {"Cc1cnc2[nH]ccc2c1", "5-methyl-1H-pyrrolo[2,3-b]pyridine", false, ""},
+            {"O=C(O)c1cnc2[nH]ccc2c1", "1H-pyrrolo[2,3-b]pyridine-5-carboxylic acid", false, ""},
+            {"Cn1ccc2cccnc12", "1-methyl-1H-pyrrolo[2,3-b]pyridine", false, ""},
+            {"Cc1csc2ncccc12", "3-methylthieno[2,3-b]pyridine", false, ""},
 
-            // Rejection 2: Out-of-scope Bridgehead-N fusion (imidazo[1,2-a]pyridine)
-            {"C1=CC2=NC=CN2C=C1", "", true, "Fused ring systems other than naphthalene are not supported in this phase."}
+            // Bridgehead-N fusion (imidazo[1,2-a]pyridine and pyrazolo[1,5-a]pyrimidine)
+            {"C1=CC2=NC=CN2C=C1", "imidazo[1,2-a]pyridine", false, ""},
+            {"Cc1cn2ccccc2n1", "2-methylimidazo[1,2-a]pyridine", false, ""},
+            {"Cc1ccnc2ccnn12", "7-methylpyrazolo[1,5-a]pyrimidine", false, ""},
+            {"O=c1cc(-c2ccccc2)oc2ccccc12", "2-phenylchromen-4-one", false, ""}
         };
 
         for (const auto &t : p38Tests) {
@@ -5273,11 +5285,11 @@ int main() {
         }
     }
     {
-        // Stage C2: Acenaphthene (1,2-dihydroacenaphthylene) - named rejection
+        // Acenaphthene (1,2-dihydroacenaphthylene)
         int m = indigoLoadMoleculeFromString("C1CC2=C3C1=CC=CC3=CC=C2");
         IupacResult r = IupacNamer::generateName(m);
         indigoFree(m);
-        if (!r.success && r.error.contains("1,2-dihydroacenaphthylene is out of Stage C2 scope (bare parents only).")) {
+        if (r.success && r.name == "1,2-dihydroacenaphthylene") {
             std::cout << "[PASS] Acenaphthene rejected as out of Stage C2 scope\n";
             passed++;
         } else {
@@ -5286,11 +5298,11 @@ int main() {
         }
     }
     {
-        // Stage C2: Substituted acenaphthylene (bromo-acenaphthylene) - generic scope rejection
+        // Substituted acenaphthylene (3-bromoacenaphthylene)
         int m = indigoLoadMoleculeFromString("Brc1ccc2cccc3c2c1C=C3");
         IupacResult r = IupacNamer::generateName(m);
         indigoFree(m);
-        if (!r.success && r.error.contains("peri-fused hydrocarbon system not yet supported (Stage C2 scope: bare acenaphthylene, phenalene).")) {
+        if (r.success && r.name == "3-bromoacenaphthylene") {
             std::cout << "[PASS] Bromo-acenaphthylene rejected by generic scope fallback\n";
             passed++;
         } else {
@@ -5431,11 +5443,11 @@ int main() {
         }
     }
     {
-        // Stage C2: Dihydropyrene (one sp3 pair) -> generic hydro-pyrene rejection
-        int m = indigoLoadMoleculeFromString("C1Cc2ccc3cccc4ccc(c1)c2c34");
+        // Dihydropyrene (1,2-dihydropyrene)
+        int m = indigoLoadMoleculeFromString("C1CC=c2ccc3cccc4ccc1c2c34");
         IupacResult r = IupacNamer::generateName(m);
         indigoFree(m);
-        if (!r.success && r.error.contains("hydro-pyrene derivatives are out of Stage C2 scope (bare parents only).")) {
+        if (r.success && r.name == "1,2-dihydropyrene") {
             std::cout << "[PASS] Dihydropyrene rejected as out of Stage C2 scope\n";
             passed++;
         } else {
@@ -5444,11 +5456,11 @@ int main() {
         }
     }
     {
-        // Stage C2: Methylpyrene (substituted, not bare) -> generic scope fallback
+        // Methylpyrene (2-methylpyrene)
         int m = indigoLoadMoleculeFromString("Cc1cc2ccc3cccc4ccc(c1)c2c34");
         IupacResult r = IupacNamer::generateName(m);
         indigoFree(m);
-        if (!r.success && !r.error.isEmpty() && r.name != "pyrene") {
+        if (r.success && r.name == "2-methylpyrene") {
             std::cout << "[PASS] Methylpyrene rejected by generic scope fallback (not named pyrene)\n";
             passed++;
         } else {
@@ -6870,14 +6882,13 @@ int main() {
         // The chain mechanism's N==2 path would be for 2-ring linear chains that don't
         // match Phase 35's criteria. For now, we'll verify that Phase 35 still rejects
         // (which tests the code path that would otherwise handle N==2 in the chain mechanism).
-        // Use the known Phase 35 rejection test SMILES.
+        // Substituted Phase 35 bicyclic: 6-methylfuro[3,2-b]pyridine.
         int m = indigoLoadMoleculeFromString("CC1=CC2=C(C=CO2)N=C1");
         if (m >= 0) {
             IupacResult r = IupacNamer::generateName(m);
             indigoFree(m);
-            // Phase 35 should reject this with its own message, or the chain mechanism would reject it
-            if (!r.success && (r.error.contains("Fused ring systems") || r.error.contains("are not yet supported"))) {
-                std::cout << "[PASS] N==2 with substituent -> rejected as expected (" << r.error.toStdString() << ")\n";
+            if (r.success && r.name == "6-methylfuro[3,2-b]pyridine") {
+                std::cout << "[PASS] N==2 with substituent -> " << r.name.toStdString() << "\n";
                 passed++;
             } else {
                 std::cout << "[FAIL] N==2 with substituent -> got success=" << r.success << " name='" << r.name.toStdString() << "' err='" << r.error.toStdString() << "'\n";
@@ -7331,18 +7342,18 @@ int main() {
         }
     }
 
-    // Test: Fluorene with methyl substituent should be rejected, not return "9H-fluorene"
+    // Test: Substituted 9H-fluorene via retained ring system
     {
         int m = indigoLoadMoleculeFromString("CC1c2ccccc2-c2ccccc21");
         if (m >= 0) {
             IupacResult r = IupacNamer::generateName(m);
             indigoFree(m);
             std::string n = r.name.toStdString();
-            if (!r.success && n != "9H-fluorene") {
-                std::cout << "[PASS] Fluorene with methyl substituent correctly rejected: " << r.error.toStdString() << "\n";
+            if (r.success && n == "9-methyl-9H-fluorene") {
+                std::cout << "[PASS] Substituted fluorene test: " << n << "\n";
                 passed++;
             } else {
-                std::cout << "[FAIL] Fluorene with methyl substituent should be rejected, got success=" << r.success << " name='" << n << "' err='" << r.error.toStdString() << "'\n";
+                std::cout << "[FAIL] Substituted fluorene test: expected '9-methyl-9H-fluorene', got success=" << r.success << " name='" << n << "' err='" << r.error.toStdString() << "'\n";
                 failed++;
             }
         } else {
@@ -7967,25 +7978,37 @@ int main() {
     }
 
     // Verification: Existing chain mechanism tests still pass
-    // Test: coumarin regression (pyran/oxine exclusion).
-    // A 6-membered ring with exactly one heteroatom from the oxine/azine-excluded group
-    // (O, S, Se, Te, Bi) must NOT be named via the Phase 31 GENERAL_HETEROCYCLE branch
-    // to avoid "benzoxine" style names, falling through to honest rejection.
+    // Test: coumarin/chromone/fluorene-acid/dihydro-6-5 regression (via retained fallback)
     {
-        int m = indigoLoadMoleculeFromString("O=c1oc2c(cccc2)cc1");
-        if (m >= 0) {
-            IupacResult r = IupacNamer::generateName(m);
-            indigoFree(m);
-            if (!r.success && r.error.toStdString() == "Fused ring systems other than naphthalene are not supported in this phase.") {
-                std::cout << "[PASS] Coumarin test (rejected): " << r.error.toStdString() << "\n";
-                passed++;
+        struct ExtraCase { const char *smiles; const char *expected; };
+        std::vector<ExtraCase> extraCases = {
+            {"O=c1oc2c(cccc2)cc1", "chromen-2-one"},
+            {"O=c1oc2ccccc2c(O)c1", "4-hydroxychromen-2-one"},
+            {"O=c1ccoc2ccccc12", "chromen-4-one"},
+            {"O=C(O)c1ccc2c(c1)Cc1ccccc21", "9H-fluorene-2-carboxylic acid"},
+            {"c1ccc2c(c1)CCO2", "2,3-dihydrobenzofuran"},
+            {"c1ccc2c(c1)CCN2", "2,3-dihydroindole"},
+            {"CN(C)CCCN1c2ccccc2Sc2ccccc12", "N,N-dimethyl-3-(phenothiazin-10-yl)propan-1-amine"},
+            {"CN(C)CCCN1c2ccccc2Sc2ccc(Cl)cc12", "3-(2-chlorophenothiazin-10-yl)-N,N-dimethylpropan-1-amine"},
+            {"CN(C)CCCN1c2ccccc2Sc2ccc(C(F)(F)F)cc12", "3-(2-(trifluoromethyl)phenothiazin-10-yl)-N,N-dimethylpropan-1-amine"},
+            {"O=C(O)Cc1ccnc2ccccc12", "2-(quinolin-4-yl)ethanoic acid"},
+        };
+        for (const auto &ec : extraCases) {
+            int m = indigoLoadMoleculeFromString(ec.smiles);
+            if (m >= 0) {
+                IupacResult r = IupacNamer::generateName(m);
+                indigoFree(m);
+                if (r.success && r.name == ec.expected) {
+                    std::cout << "[PASS] Retained/chromone test (" << ec.smiles << ") -> " << r.name.toStdString() << "\n";
+                    passed++;
+                } else {
+                    std::cout << "[FAIL] Retained/chromone test (" << ec.smiles << "): expected '" << ec.expected << "', got success=" << r.success << " name='" << r.name.toStdString() << "' err='" << r.error.toStdString() << "'\n";
+                    failed++;
+                }
             } else {
-                std::cout << "[FAIL] Coumarin test: expected rejection, got success=" << r.success << " name='" << r.name.toStdString() << "' err='" << r.error.toStdString() << "'\n";
+                std::cout << "[FAIL] Retained/chromone test: SMILES did not load: " << ec.smiles << "\n";
                 failed++;
             }
-        } else {
-            std::cout << "[FAIL] Coumarin test: SMILES did not load\n";
-            failed++;
         }
     }
 
@@ -8661,6 +8684,20 @@ int main() {
             {"dibenzo[a,j]phenazine", "C1=CC=C2C(=C1)C=CC3=NC4=C(N=C32)C5=CC=CC=C5C=C4", "dibenzo[a,j]phenazine"},
             // Retained-ring matcher peri-fused tricycle test
             {"1H-perimidine", "[nH]1cnc2cccc3cccc1c23", "1H-perimidine"},
+            // Substituted & suffixed retained tricyclic systems (acridine, anthracene,
+            // xanthene, phenothiazine, carbazole, phenazine, phenanthroline, perimidine)
+            {"acridin-9-amine", "Nc1c2ccccc2nc2ccccc12", "acridin-9-amine"},
+            {"9-methylacridine", "Cc1c2ccccc2nc2ccccc12", "9-methylacridine"},
+            {"1,2,3,4-tetrahydroacridin-9-amine", "Nc1c2c(nc3ccccc13)CCCC2", "1,2,3,4-tetrahydroacridin-9-amine"},
+            {"9-methylanthracene", "Cc1c2ccccc2cc2ccccc12", "9-methylanthracene"},
+            {"anthracene-9-carboxylic acid", "O=C(O)c1c2ccccc2cc2ccccc12", "anthracene-9-carboxylic acid"},
+            {"xanthen-9-one", "O=C1c2ccccc2Oc2ccccc12", "xanthen-9-one"},
+            {"3-chlorophenothiazine", "Clc1ccc2c(c1)Sc1ccccc1N2", "3-chlorophenothiazine"},
+            {"9H-carbazole-2-carboxylic acid", "O=C(O)c1ccc2c(c1)[nH]c1ccccc21", "9H-carbazole-2-carboxylic acid"},
+            {"phenazine-1-carboxylic acid", "O=C(O)c1cccc2nc3ccccc3nc12", "phenazine-1-carboxylic acid"},
+            {"3-methyl-1,10-phenanthroline", "Cc1cnc2ncc3ccccc3c2c1", "3-methyl-1,10-phenanthroline"},
+            {"2-methyl-1H-perimidine", "Cc1nc2cccc3cccc(n1)c23", "2-methyl-1H-perimidine"},
+            {"2-(anthracen-9-yl)ethanoic acid", "O=C(O)Cc1c2ccccc2cc2ccccc12", "2-(anthracen-9-yl)ethanoic acid"},
             // 2H-phenomercurazine: whole-molecule naming was never actually
             // exercised when this registry entry was added (only its own
             // internal self-consistency was checked via
@@ -8929,7 +8966,37 @@ int main() {
             // Plain (undefined-geometry) internal alkene on a branch: no stereo to report,
             // must name plain (was wrongly hard-rejected before the Point 5 guard removal).
             {"internal nonterminal double bond substituent regression control", "Clc1ccc(CC=CC)cc1", "1-but-2-en-1-yl-4-chlorobenzene", false, ""},
-            {"internal nonterminal double bond naphthalene substituent regression control", "Clc1ccc2cc(CC=CC)ccc2c1", "2-but-2-en-1-yl-6-chloronaphthalene", false, ""}
+            {"internal nonterminal double bond naphthalene substituent regression control", "Clc1ccc2cc(CC=CC)ccc2c1", "2-but-2-en-1-yl-6-chloronaphthalene", false, ""},
+
+            // Blue Book expansion: fused triazoles, retained PAHs, peri-fused substituted, and polyspiro (P-24.2.1):
+            {"fused triazole [1,2,4]triazolo[1,5-a]pyrimidine", "c1cnc2ncnn2c1", "[1,2,4]triazolo[1,5-a]pyrimidine", false, ""},
+            {"fused triazole [1,2,4]triazolo[4,3-a]pyridine", "c1ccn2c(nnc2)c1", "[1,2,4]triazolo[4,3-a]pyridine", false, ""},
+            {"fused triazole 3H-[1,2,3]triazolo[4,5-b]pyridine", "[nH]1nnc2cccnc12", "3H-[1,2,3]triazolo[4,5-b]pyridine", false, ""},
+            {"PAH benzo[a]anthracene", "c1ccc2c(c1)ccc1cc3ccccc3cc21", "benzo[a]anthracene", false, ""},
+            {"PAH dibenzo[a,h]anthracene", "c1ccc2c(c1)ccc1cc3c(ccc4ccccc34)cc21", "dibenzo[a,h]anthracene", false, ""},
+            {"PAH pentacene", "c1ccc2cc3cc4cc5ccccc5cc4cc3cc2c1", "pentacene", false, ""},
+            {"PAH tetracene", "c1ccc2cc3cc4ccccc4cc3cc2c1", "tetracene", false, ""},
+            {"PAH picene", "c1ccc2c3ccc4c5ccccc5ccc4c3ccc2c1", "picene", false, ""},
+            {"PAH chrysene", "c1ccc2c(c1)ccc3c2ccc4ccccc34", "chrysene", false, ""},
+            {"PAH 2-methylchrysene", "Cc1ccc2c(c1)ccc1c2ccc2ccccc12", "2-methylchrysene", false, ""},
+            {"PAH fluoranthene", "c1ccc2c(c1)-c1cccc3cccc2c13", "fluoranthene", false, ""},
+            {"PAH benzo[b]fluoranthene", "c1ccc2c(c1)-c1cc3ccccc3c3cccc2c13", "benzo[b]fluoranthene", false, ""},
+            {"PAH naphtho[2,3-b]fluoranthene", "c1ccc2c(c1)-c1cc3cc4ccccc4cc3c3cccc2c13", "naphtho[2,3-b]fluoranthene", false, ""},
+            {"PAH perylene", "c1cc2cccc3c4cccc5cccc(c(c1)c23)c45", "perylene", false, ""},
+            {"peri-fused substituted 2-phenyl-1H-perimidine", "c1ccc(-c2[nH]c3cccc4cccc(n2)c34)cc1", "2-phenyl-1H-perimidine", false, ""},
+            {"polyspiro dispiro[5.2.5.2]hexadecane", "C1CCC2(CC1)CCC1(CCCCC1)CC2", "dispiro[5.2.5.2]hexadecane", false, ""},
+            {"polyspiro 3-oxadispiro[5.2.5.2]hexadecane", "O1CCC2(CC1)CCC1(CCCCC1)CC2", "3-oxadispiro[5.2.5.2]hexadecane", false, ""},
+            {"polyspiro trispiro[2.1.1.3.1.2]tridecane", "C1CC2(C1)CC1(CCC3(CC3)C1)C2", "trispiro[2.1.1.3.1.2]tridecane", false, ""},
+
+            // Remaining open Blue Book gap closures (P-24.5, P-25.2.1, P-25.3.1, peri-fused):
+            {"quinolizine 4H-quinolizine", "C1C=CC=C2C=CC=CN12", "4H-quinolizine", false, ""},
+            {"quinolizine 3-methyl-4H-quinolizine", "CC1=CC=C2C=CC=CN2C1", "3-methyl-4H-quinolizine", false, ""},
+            {"peri-fused 1-methylpyrene", "Cc1ccc2ccc3cccc4ccc1c2c34", "1-methylpyrene", false, ""},
+            {"peri-fused benzo[de]isoquinoline-1,3-dione", "O=C1NC(=O)c2cccc3cccc1c23", "benzo[de]isoquinoline-1,3-dione", false, ""},
+            {"poly-mono spiro spiro[cyclopenta-2,4-diene-1,1'-indene]", "c1ccc2c(c1)C=CC21C=CC=C1", "spiro[cyclopenta-2,4-diene-1,1'-indene]", false, ""},
+            {"poly-mono spiro spiro[cyclohexane-1,1'-indene]", "c1ccc2c(c1)C=CC21CCCCC1", "spiro[cyclohexane-1,1'-indene]", false, ""},
+            {"poly-mono spiro 1',2'-dihydrospiro[cyclohexane-1,2'-indene]", "C1CCC2(CC1)Cc1ccccc1C2", "1',2'-dihydrospiro[cyclohexane-1,2'-indene]", false, ""},
+            {"poly-mono spiro spiro[indene-1,4'-piperidine]", "c1ccc2c(c1)C=CC21CCNCC1", "spiro[indene-1,4'-piperidine]", false, ""}
         };
         for (const auto &tc : agyCases) {
             int m = indigoLoadMoleculeFromString(tc.smiles.c_str());

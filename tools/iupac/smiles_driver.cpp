@@ -3,6 +3,8 @@
 #include "indigo.h"
 #include "indigo-inchi.h"
 #include <iostream>
+#include <fstream>
+#include <sstream>
 #include <cstdlib>
 #include <cstdio>
 #include <QString>
@@ -34,6 +36,64 @@ public:
 };
 
 int main(int argc, char** argv) {
+    if (argc > 1 && strcmp(argv[1], "--batch") == 0) {
+        if (argc < 3) {
+            std::cerr << "usage: smiles_driver --batch <tsv_file>" << std::endl;
+            return 2;
+        }
+        std::ifstream infile(argv[2]);
+        if (!infile.is_open()) {
+            std::cerr << "ERROR: cannot open batch file: " << argv[2] << std::endl;
+            return 1;
+        }
+        qword sid = indigoAllocSessionId();
+        indigoSetSessionId(sid);
+        indigoInchiInit(sid);
+        std::string line;
+        int processedCount = 0;
+        while (std::getline(infile, line)) {
+            if (line.empty()) continue;
+            processedCount++;
+            if (processedCount % 200 == 0) {
+                indigoReleaseSessionId(sid);
+                sid = indigoAllocSessionId();
+                indigoSetSessionId(sid);
+                indigoInchiInit(sid);
+            }
+            std::stringstream ss(line);
+            std::string chembl_id, drug_name, smiles;
+            if (std::getline(ss, chembl_id, '\t') &&
+                std::getline(ss, drug_name, '\t') &&
+                std::getline(ss, smiles, '\t')) {
+                int mol = indigoLoadMoleculeFromString(smiles.c_str());
+                if (mol < 0) {
+                    std::cout << chembl_id << "\t" << drug_name << "\t" << smiles << "\tLOAD_FAILED\t0\t" << indigoGetLastError() << "\n";
+                    continue;
+                }
+                int heavyAtoms = 0;
+                int iter = indigoIterateAtoms(mol);
+                if (iter >= 0) {
+                    int a;
+                    while ((a = indigoNext(iter)) != 0) {
+                        if (a == -1) break;
+                        heavyAtoms++;
+                        indigoFree(a);
+                    }
+                    indigoFree(iter);
+                }
+                IupacResult res = IupacNamer::generateName(mol);
+                indigoFree(mol);
+                if (res.success) {
+                    std::cout << chembl_id << "\t" << drug_name << "\t" << smiles << "\tNAME\t" << heavyAtoms << "\t" << res.name.toStdString() << "\n";
+                } else {
+                    std::cout << chembl_id << "\t" << drug_name << "\t" << smiles << "\tREJECTED\t" << heavyAtoms << "\t" << res.error.toStdString() << "\n";
+                }
+            }
+        }
+        indigoReleaseSessionId(sid);
+        return 0;
+    }
+
     const char *tracePath = nullptr;
     int argOffset = 1;
     

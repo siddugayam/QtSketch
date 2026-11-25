@@ -722,28 +722,33 @@ static bool buildRingAdjacency(int mol,
                               std::vector<std::set<int>> &sssrRings,
                               std::vector<std::vector<int>> &shared,
                               std::vector<int> &degree,
-                              int &N) {
+                              int &N,
+                              const std::vector<std::set<int>> *subsetRings = nullptr) {
     sssrRings.clear();
-    
-    int sssrIter = indigoIterateSSSR(mol);
-    if (sssrIter < 0) return false;
-    
-    int subMol = 0;
-    while ((subMol = indigoNext(sssrIter)) != 0) {
-        std::set<int> rAtoms;
-        int ringAtomIter = indigoIterateAtoms(subMol);
-        if (ringAtomIter >= 0) {
-            int ringAtomHandle = 0;
-            while ((ringAtomHandle = indigoNext(ringAtomIter)) != 0) {
-                rAtoms.insert(indigoIndex(ringAtomHandle));
-                indigoFree(ringAtomHandle);
+
+    if (subsetRings != nullptr) {
+        sssrRings = *subsetRings;
+    } else {
+        int sssrIter = indigoIterateSSSR(mol);
+        if (sssrIter < 0) return false;
+
+        int subMol = 0;
+        while ((subMol = indigoNext(sssrIter)) != 0) {
+            std::set<int> rAtoms;
+            int ringAtomIter = indigoIterateAtoms(subMol);
+            if (ringAtomIter >= 0) {
+                int ringAtomHandle = 0;
+                while ((ringAtomHandle = indigoNext(ringAtomIter)) != 0) {
+                    rAtoms.insert(indigoIndex(ringAtomHandle));
+                    indigoFree(ringAtomHandle);
+                }
+                indigoFree(ringAtomIter);
             }
-            indigoFree(ringAtomIter);
+            sssrRings.push_back(rAtoms);
+            indigoFree(subMol);
         }
-        sssrRings.push_back(rAtoms);
-        indigoFree(subMol);
+        indigoFree(sssrIter);
     }
-    indigoFree(sssrIter);
     
     N = static_cast<int>(sssrRings.size());
     if (N < 2) return false; // Need at least 2 rings for fusion
@@ -845,40 +850,77 @@ static std::set<int> hydroLocantsToRealAtoms(const QStringList &locants,
     return result;
 }
 
-std::optional<RingSystemNameResult> tryRetainedBaseDecomposition(int mol) {
+static void emitSymmetryCandidates(const RetainedRingSystem &sys,
+                                   const RingSystemNameResult &baseRes,
+                                   const std::map<int, int> &baseAtomMap,
+                                   bool hasHydro,
+                                   std::vector<RingSystemNameResult> *outSymmetryCandidates) {
+    if (!outSymmetryCandidates) return;
+    outSymmetryCandidates->push_back(baseRes);
+    if (hasHydro) return;
+    int refMol = indigoLoadMoleculeFromString(sys.referenceSmiles.toUtf8().constData());
+    if (refMol < 0) return;
+    indigoAromatize(refMol);
+    std::vector<std::vector<int>> auts = computeAutomorphisms(refMol);
+    indigoFree(refMol);
+    for (const auto &aut : auts) {
+        if (static_cast<int>(aut.size()) != static_cast<int>(sys.peripheralLocants.size())) continue;
+        RingSystemNameResult alt = baseRes;
+        alt.locantMap.clear();
+        for (const auto &kv : baseAtomMap) {
+            int qPos = kv.first;
+            if (qPos >= 0 && qPos < static_cast<int>(aut.size())) {
+                int permPos = aut[qPos];
+                if (permPos >= 0 && permPos < static_cast<int>(sys.peripheralLocants.size())) {
+                    alt.locantMap[kv.second] = sys.peripheralLocants[permPos];
+                }
+            }
+        }
+        if (alt.locantMap.size() == baseRes.locantMap.size()) {
+            outSymmetryCandidates->push_back(std::move(alt));
+        }
+    }
+}
+
+std::optional<RingSystemNameResult> tryRetainedBaseDecomposition(
+    int mol,
+    const std::vector<std::set<int>> *subsetRings,
+    std::vector<RingSystemNameResult> *outSymmetryCandidates) {
     // Step 1: Build ring adjacency
     std::vector<std::set<int>> sssrRings;
     std::vector<std::vector<int>> shared;
     std::vector<int> degree;
     int N = 0;
     
-    if (!buildRingAdjacency(mol, sssrRings, shared, degree, N)) {
+    if (!buildRingAdjacency(mol, sssrRings, shared, degree, N, subsetRings)) {
         // std::cerr << "DEBUG: buildRingAdjacency returned false" << std::endl;
         return std::nullopt; // Not a valid fusion or can't detect SSSR
     }
     
     // Step 2: Check if it's a simple linear/ortho-fused chain
-    int ends = 0, centers = 0;
+    int ends = 0, centers = 0, deg3 = 0;
     bool hasBranching = false;
     for (int i = 0; i < N; ++i) {
         if (degree[i] == 1) ends++;
         else if (degree[i] == 2) centers++;
-        else if (degree[i] > 2) hasBranching = true;
+        else if (degree[i] == 3) { deg3++; hasBranching = true; }
+        else if (degree[i] > 3) hasBranching = true;
     }
     
     // A valid LINEAR chain: every shared[i][j] is either 0 or 2 (never 1 or >2),
     // AND ends==2 AND centers==N-2 (i.e. exactly a straight path through all N rings, no branching).
     // Also, validFusion from buildRingAdjacency must be true (no spiro/bridged fusions).
     bool isLinearChain = (ends == 2 && centers == N - 2 && !hasBranching);
-    bool isPeriFused = (ends == 0 && centers == N && !hasBranching);
+    bool isPeriFused = (ends == 0 && ((centers == N && !hasBranching) ||
+                                      (N == 4 && centers == 2 && deg3 == 2)));
     // std::cerr << "DEBUG: N=" << N << " ends=" << ends << " centers=" << centers << " hasBranching=" << hasBranching << " isLinearChain=" << isLinearChain << std::endl;
     if (!isLinearChain && !isPeriFused) {
         return std::nullopt; // Branching systems fall through to nameBranchingFusion
     }
 
     if (isPeriFused) {
-        // Peri-fused tricycle (e.g. perimidine): 3 rings sharing a central junction in a delta cycle.
-        // Support whole-molecule exact match (k == N == 3).
+        // Peri-fused retained system (e.g. perimidine, acenaphthylene, pyrene).
+        // Support whole-molecule match for entries declaring interiorLocants.
         std::set<int> allRingAtoms;
         for (const auto &r : sssrRings) {
             allRingAtoms.insert(r.begin(), r.end());
@@ -890,6 +932,7 @@ std::optional<RingSystemNameResult> tryRetainedBaseDecomposition(int mol) {
         QStringList matchedHydroLocants;
 
         for (const auto &sys : registry) {
+            if (N >= 4 && sys.interiorLocants.empty()) continue;
             if (static_cast<int>(allRingAtoms.size()) != static_cast<int>(sys.peripheralLocants.size())) {
                 continue;
             }
@@ -928,8 +971,11 @@ std::optional<RingSystemNameResult> tryRetainedBaseDecomposition(int mol) {
         result.success = true;
         result.baseName = hydroPrefix + joiner + ihPart + matchedSys->name;
         for (const auto &kv : matchedAtomMap) {
-            result.locantMap[kv.first] = QString::number(kv.second);
+            if (kv.first >= 0 && kv.first < static_cast<int>(matchedSys->peripheralLocants.size())) {
+                result.locantMap[kv.second] = matchedSys->peripheralLocants[kv.first];
+            }
         }
+        emitSymmetryCandidates(*matchedSys, result, matchedAtomMap, !matchedHydroLocants.empty(), outSymmetryCandidates);
         return result;
     }
     
@@ -1132,8 +1178,11 @@ std::optional<RingSystemNameResult> tryRetainedBaseDecomposition(int mol) {
         result.success = true;
         result.baseName = hydroPrefix + joiner + ihPart + best->system->name;
         for (const auto &kv : best->atomMap) {
-            result.locantMap[kv.first] = QString::number(kv.second);
+            if (kv.first >= 0 && kv.first < static_cast<int>(best->system->peripheralLocants.size())) {
+                result.locantMap[kv.second] = best->system->peripheralLocants[kv.first];
+            }
         }
+        emitSymmetryCandidates(*best->system, result, best->atomMap, !best->hydroLocants.empty(), outSymmetryCandidates);
         return result;
     }
 

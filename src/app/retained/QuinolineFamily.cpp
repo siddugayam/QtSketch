@@ -277,5 +277,29 @@ void registerQuinolineFamily(std::vector<RetainedRingSystem> &registry) {
         23, // Appendix 2 seniority rank
     });
 
-    // 14. quinolizine: Bridgehead N - SKIPPED
+    // 14. purine: BICYCLIC (9H-purine, rank 21)
+    // 5-6 ortho-fused imidazole[4,5-d]pyrimidine system.
+    // Appendix 2 entry 21. Standard IUPAC purine peripheral locants:
+    // N1, C2, N3, C4(bridgehead), N9(indicated H), C8, N7, C5(bridgehead), C6.
+    // SMILES: n1cnc2[nH]cnc2c1
+    // Atom mapping:
+    // atom[0]=1 (N), atom[1]=2 (C), atom[2]=3 (N), atom[3]=4 (C, bh)
+    // atom[4]=9 (N), atom[5]=8 (C), atom[6]=7 (N), atom[7]=5 (C, bh), atom[8]=6 (C)
+    // Cyclic perimeter sequence: {"1","2","3","4","9","8","7","5","6"}
+    // Bond letters: 'a':1-2, 'b':2-3, 'c':3-4, 'd':4-9, 'e':9-8, 'f':8-7, 'g':7-5, 'h':5-6, 'i':6-1
+    registry.push_back(RetainedRingSystem{
+        "purine",
+        "n1cnc2[nH]cnc2c1",
+        {"1","2","3","4","9","8","7","5","6"},
+        {
+            {'a', {"1","2"}}, {'b', {"2","3"}}, {'c', {"3","4"}},
+            {'d', {"4","9"}}, {'e', {"9","8"}}, {'f', {"8","7"}},
+            {'g', {"7","5"}}, {'h', {"5","6"}}, {'i', {"6","1"}},
+        },
+        21, // Appendix 2 seniority rank
+        "purino", // fusion prefix
+        "", // indicated hydrogen locant: IUPAC PIN bare name is "purine"
+    });
+
+    // 15. quinolizine: Bridgehead N - SKIPPED
 }

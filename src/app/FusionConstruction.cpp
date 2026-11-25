@@ -1005,6 +1005,7 @@ QString encodeFusionDescriptor(const ComponentTree &tree, const Graph &g, int mo
 
         Fr45Score score;
         QStringList pieces;
+        bool invalidConfig = false;
         std::map<int, int> distinctAttached;
         std::map<QString, int> nextAttachedPrime;
         std::map<int, int> distinctParents;
@@ -1095,9 +1096,11 @@ QString encodeFusionDescriptor(const ComponentTree &tree, const Graph &g, int mo
             bool omitLocants = (!hasHigherOrderChildren && tree.components[att].prefix == "benzo" && isHostParent);
 
             if (isHostParent) {
+                if (letter.isEmpty()) { invalidConfig = true; break; }
                 if (omitLocants) {
                     pieces.append(letter);
                 } else {
+                    if (loc1.isEmpty() || loc2.isEmpty()) { invalidConfig = true; break; }
                     pieces.append(loc1 + "," + loc2 + "-" + letter);
                 }
             } else {
@@ -1140,6 +1143,8 @@ QString encodeFusionDescriptor(const ComponentTree &tree, const Graph &g, int mo
             }
         }
 
+        if (invalidConfig) continue;
+
         std::sort(score.parentLettersSet.begin(), score.parentLettersSet.end());
         std::sort(score.firstOrderLocantsSet.begin(), score.firstOrderLocantsSet.end(), locantLess);
         std::sort(score.higherOrderLocantsSet.begin(), score.higherOrderLocantsSet.end(), locantLess);
@@ -1151,7 +1156,7 @@ QString encodeFusionDescriptor(const ComponentTree &tree, const Graph &g, int mo
         }
     }
 
-    if (bestPieces.isEmpty()) return QString();
+    if (!hasBest || bestPieces.isEmpty()) return QString();
     bool allAbbr = true;
     bool hasColon = false;
     for (const auto &p : bestPieces) {
@@ -1257,6 +1262,7 @@ QString constructFusionName(const ComponentTree &tree, const Graph &g, int mol) 
         }
 
         Fr45Score score;
+        bool invalidConfig = false;
         for (size_t ji : junctionOrder) {
             const auto &j = tree.junctions[ji];
             int c1 = j.comp1, c2 = j.comp2;
@@ -1350,10 +1356,15 @@ QString constructFusionName(const ComponentTree &tree, const Graph &g, int mol) 
                                 if (attNum.atomLocants.count(pAtom)) aLocList.append(attNum.atomLocants.at(pAtom));
                             }
                             periAttLocants = aLocList.join(",");
+                            size_t foundPeriBonds = 0;
                             for (size_t pi = 0; pi + 1 < path.size(); ++pi) {
                                 auto bKey = std::make_pair(std::min(path[pi], path[pi + 1]), std::max(path[pi], path[pi + 1]));
-                                if (hostNum.bondLetters.count(bKey)) periParentLetters += hostNum.bondLetters.at(bKey);
+                                if (hostNum.bondLetters.count(bKey)) {
+                                    periParentLetters += hostNum.bondLetters.at(bKey);
+                                    foundPeriBonds++;
+                                }
                             }
+                            if (foundPeriBonds != path.size() - 1) periParentLetters.clear();
                         }
                     }
                 }
@@ -1362,7 +1373,11 @@ QString constructFusionName(const ComponentTree &tree, const Graph &g, int mol) 
                     score.parentLettersCitation.push_back(periParentLetters);
                     score.firstOrderLocantsSet.push_back(periAttLocants);
                     score.firstOrderLocantsCitation.push_back(periAttLocants);
+                } else if (j.sharedBonds.size() >= 2) {
+                    invalidConfig = true;
+                    break;
                 } else {
+                    if (letter.isEmpty()) { invalidConfig = true; break; }
                     score.parentLettersSet.push_back(letter);
                     score.parentLettersCitation.push_back(letter);
                     score.firstOrderLocantsSet.push_back(loc1);
@@ -1393,6 +1408,8 @@ QString constructFusionName(const ComponentTree &tree, const Graph &g, int mol) 
             }
         }
 
+        if (invalidConfig) continue;
+
         std::sort(score.parentLettersSet.begin(), score.parentLettersSet.end());
         std::sort(score.firstOrderLocantsSet.begin(), score.firstOrderLocantsSet.end(), locantLess);
         std::sort(score.higherOrderLocantsSet.begin(), score.higherOrderLocantsSet.end(), locantLess);
@@ -1403,6 +1420,7 @@ QString constructFusionName(const ComponentTree &tree, const Graph &g, int mol) 
             hasBest = true;
         }
     }
+    if (!hasBest) return QString();
 
     // Directed adjacency from host to attached (tree structure)
     int nComps = static_cast<int>(tree.components.size());
@@ -1615,13 +1633,21 @@ QString constructFusionName(const ComponentTree &tree, const Graph &g, int mol) 
         jd.att = att;
         if (isHostParent) {
             jd.isHigherOrder = false;
-            if (omitLocants) {
+            if (j.sharedBonds.size() >= 2) {
+                if (periParentLetters.isEmpty()) return QString();
+                if (omitLocants) {
+                    jd.isAbbreviated = true;
+                    jd.piece = periParentLetters;
+                } else {
+                    jd.isAbbreviated = false;
+                    jd.piece = periAttLocants + "-" + periParentLetters;
+                }
+            } else if (omitLocants) {
+                if (letter.isEmpty()) return QString();
                 jd.isAbbreviated = true;
                 jd.piece = letter;
-            } else if (j.sharedBonds.size() >= 2 && !periParentLetters.isEmpty()) {
-                jd.isAbbreviated = false;
-                jd.piece = periAttLocants + "-" + periParentLetters;
             } else {
+                if (letter.isEmpty() || loc1.isEmpty() || loc2.isEmpty()) return QString();
                 jd.isAbbreviated = false;
                 jd.piece = loc1 + "," + loc2 + "-" + letter;
             }

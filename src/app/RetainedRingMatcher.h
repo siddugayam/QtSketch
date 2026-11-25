@@ -35,4 +35,7 @@ std::vector<std::vector<int>> computeAutomorphisms(int refMol);
 // FR-2.2/FR-2.3. Returns a result on success, std::nullopt if no
 // retained-system match is found (caller should fall back to the
 // existing monocyclic fusion logic).
-std::optional<RingSystemNameResult> tryRetainedBaseDecomposition(int mol);
+std::optional<RingSystemNameResult> tryRetainedBaseDecomposition(
+    int mol,
+    const std::vector<std::set<int>> *subsetRings = nullptr,
+    std::vector<RingSystemNameResult> *outSymmetryCandidates = nullptr);
