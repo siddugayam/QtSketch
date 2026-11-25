@@ -389,6 +389,41 @@ int main(int argc, char** argv) {
         CHECK(renderer.isValid() && maxX >= minX, "SVG: the O label is drawn");
     }
 
+    // Test 12: outer double/triple bond offset lines on unlabelled carbons stay unclipped.
+    std::printf("--- Test 12: outer triple-bond offset lines included in bounds ---\n");
+    {
+        RenderPrimitives p;
+        // Bent carbon chain with a horizontal triple bond along the top edge (y = 1.5):
+        // the upper offset line sits at y = 1.5 + 0.15 = 1.65, above any atom center.
+        const double pts[3][2] = {{0.0, 0.0}, {0.75, 1.5}, {2.25, 1.5}};
+        for (int i = 0; i < 3; ++i) {
+            AtomPrim a; a.id = i; a.x = pts[i][0]; a.y = pts[i][1];
+            a.element = "C"; a.label = "C";
+            p.atoms.append(a);
+        }
+        BondPrim b0; b0.id = 0; b0.begin = 0; b0.end = 1; b0.type = 1;
+        BondPrim b1; b1.id = 1; b1.begin = 1; b1.end = 2; b1.type = 3;
+        p.bonds.append(b0);
+        p.bonds.append(b1);
+
+        RenderScene s;
+        CHECK(s.build(p, style, page), "scene builds with outer horizontal triple bond");
+        CHECK(s.modelBounds().bottom() > 1.65,
+              "modelBounds includes outer triple-bond offset line (+0.15 model units) plus stroke");
+
+        QTemporaryDir dir;
+        const QString pngPath = dir.filePath("triple_edge.png");
+        PngExporter png;
+        png.setResolution(300);
+        CHECK(png.exportToFile(s, pngPath), "PNG export of outer triple bond succeeds");
+        QImage img(pngPath);
+        bool topRowClear = true;
+        for (int x = 0; x < img.width(); ++x) {
+            if (qGray(img.pixel(x, 0)) < 128) { topRowClear = false; break; }
+        }
+        CHECK(!img.isNull() && topRowClear, "PNG top pixel row is unclipped above outer triple-bond line");
+    }
+
     std::printf("\nSummary: %d passed, %d failed.\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

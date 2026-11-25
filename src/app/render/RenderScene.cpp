@@ -237,16 +237,25 @@ bool RenderScene::build(const RenderPrimitives& prims,
             includePoint(tail.x(), tail.y());
         }
     }
-    // Include stereo wedge/hash wide-end vertices so tapered stereo bonds do not clip.
+    // Include stereo wedge/hash wide-end vertices and double/triple-bond offset lines
+    // so tapered stereo bonds and outer multiple-bond strokes never clip at frame edges.
     for (const BondPrim& bond : m_prims.bonds) {
-        if (bond.stereo != 1 && bond.stereo != 6) continue;
+        if (bond.stereo != 1 && bond.stereo != 6 && bond.type != 2 && bond.type != 3) continue;
         QPointF p0, p1;
         bool f0 = false, f1 = false;
         for (const AtomPrim& atom : m_prims.atoms) {
             if (atom.id == bond.begin) { p0 = QPointF(atom.x, atom.y); f0 = true; }
             if (atom.id == bond.end)   { p1 = QPointF(atom.x, atom.y); f1 = true; }
         }
-        if (f0 && f1) {
+        if (!f0 || !f1) {
+            for (const SgroupPrim& sg : m_prims.sgroups) {
+                if (!f0 && sg.id == bond.begin) { p0 = QPointF(sg.x, sg.y); f0 = true; }
+                if (!f1 && sg.id == bond.end)   { p1 = QPointF(sg.x, sg.y); f1 = true; }
+            }
+        }
+        if (!f0 || !f1) continue;
+
+        if (bond.stereo == 1 || bond.stereo == 6) {
             const QPointF d = p1 - p0;
             const double len = std::hypot(d.x(), d.y());
             if (len > 1e-9) {
@@ -255,6 +264,23 @@ bool RenderScene::build(const RenderPrimitives& prims,
                 includePoint(p1.x() + n.x(), p1.y() + n.y());
                 includePoint(p1.x() - n.x(), p1.y() - n.y());
             }
+        } else if (bond.type == 2) {
+            QPointF offset = computeDoubleBondOffset(p0, p1, m_drawingStyle.bondLength);
+            if (bond.hasRingCenter) {
+                const QPointF mid = (p0 + p1) * 0.5;
+                const QPointF toRing(bond.ringCenterX - mid.x(), bond.ringCenterY - mid.y());
+                if (toRing.x() * offset.x() + toRing.y() * offset.y() < 0.0) {
+                    offset = -offset;
+                }
+            }
+            includePoint(p0.x() + offset.x(), p0.y() + offset.y());
+            includePoint(p1.x() + offset.x(), p1.y() + offset.y());
+        } else if (bond.type == 3) {
+            const QPointF offset = computeDoubleBondOffset(p0, p1, m_drawingStyle.bondLength);
+            includePoint(p0.x() + offset.x(), p0.y() + offset.y());
+            includePoint(p1.x() + offset.x(), p1.y() + offset.y());
+            includePoint(p0.x() - offset.x(), p0.y() - offset.y());
+            includePoint(p1.x() - offset.x(), p1.y() - offset.y());
         }
     }
 

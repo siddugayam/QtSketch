@@ -130,6 +130,37 @@ int main(int argc, char **argv) {
         if (mol2 >= 0) indigoFree(mol2);
         indigoReleaseSessionId(sid2);
     }
+
+    // Verify oversized (>1600px) images downscale cleanly during decode without excessive warnings.
+    const QString largePngPath = tmpDir.filePath("cyclohexane_2400.png");
+    {
+        QImage img(2400, 1800, QImage::Format_RGB32);
+        img.fill(Qt::white);
+        QPainter p(&img);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setPen(QPen(Qt::black, 24.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        QPolygonF hex;
+        constexpr double kPi = 3.14159265358979323846;
+        const double cx = 1200.0, cy = 900.0, r = 420.0;
+        for (int i = 0; i < 6; ++i) {
+            const double a = (i * 60.0 - 90.0) * kPi / 180.0;
+            hex << QPointF(cx + r * std::cos(a), cy + r * std::sin(a));
+        }
+        p.drawPolygon(hex);
+        p.end();
+        CHECK(img.save(largePngPath, "PNG"), "saved oversized 2400x1800 cyclohexane PNG");
+    }
+    finished = false;
+    gotMol.clear();
+    gotErr.clear();
+    gotWarnings = 999;
+    svc.recognizeImage(QUrl::fromLocalFile(largePngPath));
+    timer.start(15000);
+    while (!finished && timer.isActive()) {
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
+    }
+    CHECK(finished && gotErr.isEmpty() && !gotMol.isEmpty() && gotWarnings <= 5,
+          "Oversized 2400x1800 image downscaled and recognized cleanly with <= 5 warnings");
 #else
     CHECK(gotMol.isEmpty() && !gotErr.isEmpty(), "Stub ImagoService reports clean unavailable message");
 #endif

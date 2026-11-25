@@ -51,12 +51,16 @@ static QByteArray preprocessImageForRecognition(const QString &path) {
     QSize sz = reader.size();
     if (!sz.isValid() || sz.width() <= 0 || sz.height() <= 0) return QByteArray();
     int longSide = qMax(sz.width(), sz.height());
-    if (longSide < kImagoTargetLongSide) {
-        // Cap magnification at 3.2x so tight crops of small single-ring structures
-        // do not inflate bond strokes to 40+ px, while still giving ~500px multi-ring
-        // figures the full ~1600px target resolution for heteroatom glyph recognition.
-        double scale = qMin(3.2, static_cast<double>(kImagoTargetLongSide) / longSide);
-        reader.setScaledSize(QSize(qRound(sz.width() * scale), qRound(sz.height() * scale)));
+    if (longSide != kImagoTargetLongSide) {
+        // Scale toward ~1600px on the longest side in both directions:
+        // - Small inputs (< 1600px) upscale up to 3.2x so ~500px multi-ring figures
+        //   reach ~1600px for heteroatom glyph recognition without bloating tiny single-ring crops.
+        // - Oversized inputs (> 1600px, e.g. high-megapixel scans) downscale during decode
+        //   so we never allocate multi-hundred-MB temporary canvases before Imago's own 1280px pass.
+        const double rawScale = static_cast<double>(kImagoTargetLongSide) / longSide;
+        const double scale = (longSide < kImagoTargetLongSide) ? qMin(3.2, rawScale) : rawScale;
+        reader.setScaledSize(QSize(qMax(1, qRound(sz.width() * scale)),
+                                   qMax(1, qRound(sz.height() * scale))));
     }
     QImage srcImg = reader.read();
     if (srcImg.isNull()) return QByteArray();

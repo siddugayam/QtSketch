@@ -14,7 +14,9 @@ if [ "${1:-}" != "--force" ] \
     && [ -f "$DEST/include/imago_c.h" ] \
     && [ -f "$DEST/LICENSE" ] \
     && [ -f "$DEST/LICENSE-OpenCV" ] \
-    && ! nm -gU "$DEST/lib/libimago.dylib" 2>/dev/null | grep -q "_indigoAllocSessionId"; then
+    && SYMS="$(nm -gU "$DEST/lib/libimago.dylib" 2>/dev/null)" \
+    && [ -n "$SYMS" ] \
+    && ! grep -Fq "_indigoAllocSessionId" <<<"$SYMS"; then
     echo "Imago already built in $DEST (pass --force to rebuild)"
     exit 0
 fi

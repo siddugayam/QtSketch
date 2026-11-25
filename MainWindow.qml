@@ -691,6 +691,7 @@ ApplicationWindow {
                 if (!error && molfile && warningsCount <= fileDialogsGroup.imageFileDialog.maxAcceptableWarnings) {
                     targetSketch.sendCommand("insertRecognizedStructure", [molfile, cx, cy])
                     imageConfirmBanner.targetDocId = targetCanvas.modelData
+                    imageConfirmBanner.expectedRev = targetSketch.editRevision()
                     imageConfirmBanner.pendingFileUrl = fileUrl
                     imageConfirmBanner.chemX = cx
                     imageConfirmBanner.chemY = cy
@@ -2609,6 +2610,7 @@ ApplicationWindow {
         closePolicy: Popup.NoAutoClose
 
         property int targetDocId: -1
+        property int expectedRev: -1
         property url pendingFileUrl
         property real chemX: 0
         property real chemY: 0
@@ -2664,12 +2666,12 @@ ApplicationWindow {
                         const c = canvasRepeater.itemAt(i)
                         if (c && c.modelData === imageConfirmBanner.targetDocId) { targetCanvas = c; break }
                     }
-                    if (!targetCanvas) targetCanvas = window.activeCanvas
-                    if (targetCanvas) targetCanvas.undo()
-                    const targetSketch = targetCanvas ? targetCanvas.sketch : window.activeSketch
+                    if (!targetCanvas || !targetCanvas.sketch) return
+                    if (imageConfirmBanner.expectedRev >= 0 && targetCanvas.sketch.editRevision() !== imageConfirmBanner.expectedRev) return
+                    targetCanvas.undo()
                     const dataUri = fileIO.readImageAsDataUri(imageConfirmBanner.pendingFileUrl)
-                    if (dataUri !== "" && targetSketch) {
-                        targetSketch.addImage(dataUri, imageConfirmBanner.chemX, imageConfirmBanner.chemY, 1.5, 1.5)
+                    if (dataUri !== "") {
+                        targetCanvas.sketch.addImage(dataUri, imageConfirmBanner.chemX, imageConfirmBanner.chemY, 1.5, 1.5)
                     }
                 }
             }
