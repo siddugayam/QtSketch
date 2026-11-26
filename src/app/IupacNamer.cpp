@@ -28,6 +28,7 @@
 #include <climits>
 #include <cmath>
 #include <iostream>
+#include <functional>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -257,9 +258,9 @@ static bool locantLess(const QString &a, const QString &b) {
     return a.mid(i) < b.mid(j);
 }
 
-bool isIsocyanateNitrogen(int nNode, int fromCarbon, const Graph &g) {
+int isocyanateTerminalChalcogenZ(int nNode, int fromCarbon, const Graph &g) {
     const GraphNode &n = g.nodes[nNode];
-    if (n.atomicNumber != 7 || n.totalH != 0 || n.neighbors.size() != 2) return false;
+    if (n.atomicNumber != 7 || n.totalH != 0 || n.neighbors.size() != 2) return 0;
     for (size_t k = 0; k < n.neighbors.size(); ++k) {
         int nn = n.neighbors[k];
         if (nn == fromCarbon || n.bondOrders[k] != 2 || g.nodes[nn].atomicNumber != 6) continue;
@@ -269,11 +270,22 @@ bool isIsocyanateNitrogen(int nNode, int fromCarbon, const Graph &g) {
             int isoNei = isoC.neighbors[m];
             int isoZ = g.nodes[isoNei].atomicNumber;
             if ((isoZ == 8 || isoZ == 16) && isoC.bondOrders[m] == 2 && g.nodes[isoNei].neighbors.size() == 1) {
-                return true;
+                return isoZ;
             }
         }
     }
-    return false;
+    return 0;
+}
+
+bool isIsocyanateNitrogen(int nNode, int fromCarbon, const Graph &g) {
+    return isocyanateTerminalChalcogenZ(nNode, fromCarbon, g) != 0;
+}
+
+QString isocyanateSubstituentPrefix(int nNode, int fromCarbon, const Graph &g) {
+    int tz = isocyanateTerminalChalcogenZ(nNode, fromCarbon, g);
+    if (tz == 8) return QStringLiteral("isocyanato");
+    if (tz == 16) return QStringLiteral("isothiocyanato");
+    return QString();
 }
 
 // Structural check for a nitroso nitrogen (-N=O) singly bonded to `fromCarbon`
@@ -908,9 +920,9 @@ static QString buildSkeletalReplacementPrefix(const std::map<int, std::vector<in
         if (locs.size() == 1) {
             prefixWord = aPrefix;
         } else {
-            QString mp = multiPrefix(static_cast<int>(locs.size()));
-            if (mp.endsWith('a') && isVowel(aPrefix[0])) mp.chop(1);
-            prefixWord = mp + aPrefix;
+            // Skeletal replacement ('a') nomenclature keeps the trailing 'a' of
+            // multiplying prefixes (e.g. tetraaza, tetraoxa, P-15.4 / P-23.2.5).
+            prefixWord = multiPrefix(static_cast<int>(locs.size())) + aPrefix;
         }
         chunks.append(locStrs.join(",") + "-" + prefixWord);
     }
@@ -977,15 +989,21 @@ static QString hwGeneralRingStem(int ringSize, const std::vector<int> &heteroAto
         case 4: return saturated ? (anyN ? "etidine" : "etane") : "ete";   // Confirmed by PINs: oxete, azete, azetidine, oxetane
         case 5: return saturated ? (anyN ? "olidine" : "olane") : "ole";   // 5-ring always "ole" unsaturated
         case 6:
-            // Theme 4: confirmed against the real PIN "1,3-oxazinane" --
-            // any-N size-6 saturated stem is "inane", matching the
-            // size3/4/5 "any N -> -idine family" pattern. Only ever
-            // reached with saturated=true for an any-N composition (the
-            // O,N/S,N two-heteroatom case classifyMonocyclicHeteroRing
-            // routes here); a no-N size-6 saturated stem has no confirmed
-            // PIN and is intentionally left as the unsaturated spelling
-            // rather than guessed.
-            return saturated ? (anyN ? "inane" : hwSixMemberStem(heteroAtomicNumbers)) : hwSixMemberStem(heteroAtomicNumbers);
+            if (saturated) {
+                int leastSeniorRank = -1;
+                int leastSeniorZ = -1;
+                for (int z : heteroAtomicNumbers) {
+                    int r = hwSeniorityRank(z);
+                    if (r > leastSeniorRank) { leastSeniorRank = r; leastSeniorZ = z; }
+                }
+                // Blue Book Table 2.5: O/S/Se/Te saturated 6-rings take '-ane' (oxane, thiane);
+                // N/P/As/Sb/B/Si/Ge/Sn/Pb take '-inane' (1,3-oxazinane, phosphinane).
+                if (leastSeniorZ == 8 || leastSeniorZ == 16 || leastSeniorZ == 34 || leastSeniorZ == 52) {
+                    return "ane";
+                }
+                return "inane";
+            }
+            return hwSixMemberStem(heteroAtomicNumbers);
         case 7: return saturated ? "epane" : "epine"; // Confirmed by PINs: azepine, azepane
         case 8: return saturated ? "ocane" : "ocine"; // Confirmed by PIN: diazocine, azocane
         case 9: return saturated ? "onane" : "onine"; // Confirmed by PIN: dioxonine, azonane
@@ -1633,6 +1651,21 @@ bool classifyMonocyclicHeteroRing(const Graph &g, const std::vector<int> &ringHe
         }
     }
 
+    // P-22.2.2: 7-membered multi-heteroatom mancude rings (e.g. 1H-1,4-diazepine, 1H-1,5-diazepine)
+    if (ringHeteroNodes.size() >= 2 && ringSize == 7 && !allSingleInRing && !fusionBonds.empty()) {
+        int indicatedH = findIndicatedHydrogenLocant(g, ringCycle);
+        bool hasSaturatedHet = false;
+        if (indicatedH == -1) {
+            for (int hn : ringHeteroNodes) {
+                if (heteroatomAtSaturatedPosition(g, ringCycle, hn)) { hasSaturatedHet = true; break; }
+            }
+        }
+        if ((indicatedH > 0 || hasSaturatedHet) && tryGeneralHeterocycle(g, ringHeteroNodes, ringSize, outNameRoot)) {
+            outType = RingType::GENERAL_HETEROCYCLE;
+            return true;
+        }
+    }
+
     // P-22.2.3/P-22.2.4: heteromonocycles of 11-20 ring members use skeletal
     // replacement ('a') nomenclature (cyclo+root+ane, or a mancude '-ene' chain)
     if (ringSize >= 11 && ringSize <= 20) {
@@ -1809,7 +1842,9 @@ bool classifyMonocyclicHeteroRing(const Graph &g, const std::vector<int> &ringHe
                 outType = RingType::TETRAHYDROFURAN; outNameRoot = "tetrahydrofuran"; return true;
             } else if (ringSize == 5 && hZ == 16) {
                 outType = RingType::TETRAHYDROTHIOPHENE; outNameRoot = "tetrahydrothiophene"; return true;
-            } else if ((ringSize >= 3 && ringSize <= 4) || (ringSize >= 7 && ringSize <= 10)) {
+            } else if ((ringSize >= 3 && ringSize <= 4) ||
+                       (ringSize == 6 && (hZ == 8 || hZ == 16 || hZ == 34 || hZ == 52 || hZ == 15)) ||
+                       (ringSize >= 7 && ringSize <= 10)) {
                 // Sizes 3/4 (aziridine/oxirane/thiirane, azetidine/oxetane/
                 // thietane) have no dedicated retained-name RingType here --
                 // route through the same general Hantzsch-Widman machinery
@@ -2024,6 +2059,51 @@ bool classifyMonocyclicHeteroRing(const Graph &g, const std::vector<int> &ringHe
                     outNameRoot = mancudeNameRoot;
                     if (outHydroNodes) *outHydroNodes = std::vector<int>(srp.begin(), srp.end());
                     return true;
+                }
+            }
+        }
+        // Partially unsaturated 5-membered single-heteroatom rings (e.g. 2,3-/2,5-dihydrofuran,
+        // furan-2(5H)-one, maleic anhydride furan-2,5-dione, maleimide pyrrole-2,5-dione):
+        // heteroatom has two single ring bonds, two ring carbons form one internal double bond,
+        // and the remaining two ring carbons have both ring bonds single.
+        if (allowSaturated && outHydroNodes && ringSize == 5 && fusionBonds.empty() &&
+            ringHeteroNodes.size() == 1 && !allSingleInRing) {
+            int hNode = ringHeteroNodes[0];
+            int hZ = g.nodes[hNode].atomicNumber;
+            if (hZ == 7 || hZ == 8 || hZ == 16 || hZ == 34 || hZ == 52) {
+                auto bondOrderOf = [&](int a, int b) -> int {
+                    for (const auto &gb : g.bonds) {
+                        if ((gb.u == a && gb.v == b) || (gb.u == b && gb.v == a)) return gb.order;
+                    }
+                    return -1;
+                };
+                int hIdx = -1;
+                for (int i = 0; i < 5; ++i) if (ringCycle[i] == hNode) { hIdx = i; break; }
+                if (hIdx >= 0 && bondOrderOf(hNode, ringCycle[(hIdx + 4) % 5]) == 1 &&
+                    bondOrderOf(hNode, ringCycle[(hIdx + 1) % 5]) == 1) {
+                    std::vector<int> srpCarbons;
+                    std::vector<int> dblCarbons;
+                    for (int i = 0; i < 5; ++i) {
+                        int u = ringCycle[i];
+                        if (u == hNode) continue;
+                        int prev = ringCycle[(i + 4) % 5];
+                        int next = ringCycle[(i + 1) % 5];
+                        if (bondOrderOf(u, prev) == 1 && bondOrderOf(u, next) == 1) {
+                            srpCarbons.push_back(u);
+                        } else {
+                            dblCarbons.push_back(u);
+                        }
+                    }
+                    if (srpCarbons.size() == 2 && dblCarbons.size() == 2 &&
+                        bondOrderOf(dblCarbons[0], dblCarbons[1]) == 2) {
+                        if (hZ == 8) { outType = RingType::FURAN; outNameRoot = "furan"; }
+                        else if (hZ == 16) { outType = RingType::THIOPHENE; outNameRoot = "thiophene"; }
+                        else if (hZ == 34) { outType = RingType::SELENOPHENE; outNameRoot = "selenophene"; }
+                        else if (hZ == 52) { outType = RingType::TELLUROPHENE; outNameRoot = "tellurophene"; }
+                        else { outType = RingType::PYRROLE; outNameRoot = "pyrrole"; }
+                        *outHydroNodes = srpCarbons;
+                        return true;
+                    }
                 }
             }
         }
@@ -2496,7 +2576,7 @@ QString nameExocyclicRingSubstituent(const Graph &g, int rNode, int nei, int ord
     } else if (nZ == 7 && order == 1 && isAzoNitrogen(nei, rNode, g)) {
         subName = tryNameDiazenylSubstituent(nei, rNode, g, allIndependentRings, combinedForbidden, mol);
     } else if (nZ == 7 && order == 1 && isIsocyanateNitrogen(nei, rNode, g)) {
-        subName = "isocyanato";
+        subName = isocyanateSubstituentPrefix(nei, rNode, g);
     } else if (nZ == 7 && order == 1 && isNitroNitrogen(nei, rNode, g)) {
         subName = "nitro";
     } else if (nZ == 7 && order == 1 && isNitrosoNitrogen(nei, rNode, g)) {
@@ -3352,6 +3432,7 @@ struct RingAssemblySub {
 struct RingAssemblyCandidate {
     int attachLocant;
     std::vector<RingAssemblySub> substituents;
+    std::map<int, int> locantOf;
 };
 struct RingAssemblyAnalysis {
     bool ok = false;
@@ -3365,11 +3446,13 @@ RingAssemblyAnalysis computeRingAssemblyCandidates(const Graph &g, const std::se
                                                      const std::vector<std::set<int>> &allIndependentRings,
                                                      const std::map<int, int> &carbonSulfonamide,
                                                      const std::map<int, int> &carbonSulfinamide,
-                                                     int mol) {
+                                                     int mol,
+                                                     int otherAttachNode = -1,
+                                                     int otherLinkNode = -1) {
     RingAssemblyAnalysis result;
     if (ringNodes.empty() || !ringNodes.count(attachmentNode)) return result;
     int ringSize = static_cast<int>(ringNodes.size());
-    if (ringSize != 5 && ringSize != 6) return result;
+    if (ringSize < 3 || ringSize > 10) return result;
 
     std::vector<int> ringCycle;
     int startNode = *ringNodes.begin();
@@ -3608,6 +3691,7 @@ RingAssemblyAnalysis computeRingAssemblyCandidates(const Graph &g, const std::se
                 int nei = g.nodes[rNode].neighbors[j];
                 if (ringNodes.count(nei)) continue;
                 if (rNode == attachmentNode && nei == parentLinkNode) continue;
+                if (rNode == otherAttachNode && nei == otherLinkNode) continue;
                 int order = g.nodes[rNode].bondOrders[j];
                 bool thisOutErr = false;
                 QString subName = nameExocyclicRingSubstituent(g, rNode, nei, order, allIndependentRings, ringNodes,
@@ -3633,6 +3717,7 @@ RingAssemblyAnalysis computeRingAssemblyCandidates(const Graph &g, const std::se
         RingAssemblyCandidate rc;
         rc.attachLocant = attachLocant;
         rc.substituents = subs;
+        for (int i = 0; i < ringSize; ++i) rc.locantOf[cand[i]] = i + 1;
         result.candidates.push_back(rc);
     }
 
@@ -4607,7 +4692,15 @@ QString buildPolycyclicBaseName(
     bracket += "]";
 
     QString ringPrefix = multiPrefix(evalRes.ringCount) + "cyclo";
-    return ringPrefix + bracket + root + infix;
+    std::map<int, std::vector<int>> locantsByZ;
+    for (int n : ringUnionNodes) {
+        if (g.nodes[n].atomicNumber != 6) {
+            auto it = cand.locantOf.find(n);
+            if (it != cand.locantOf.end()) locantsByZ[g.nodes[n].atomicNumber].push_back(it->second);
+        }
+    }
+    QString heteroPrefix = buildSkeletalReplacementPrefix(locantsByZ, false);
+    return heteroPrefix + ringPrefix + bracket + root + infix;
 }
 
 PolycyclicEvalResult evaluatePolycyclicVonBaeyerSystem(
@@ -4624,7 +4717,7 @@ PolycyclicEvalResult evaluatePolycyclicVonBaeyerSystem(
     }
 
     for (int n : ringUnionNodes) {
-        if (g.nodes[n].atomicNumber != 6) {
+        if (g.nodes[n].atomicNumber != 6 && hwSeniorityRank(g.nodes[n].atomicNumber) == 99) {
             res.error = "Heteroatoms in polycyclic systems are not supported.";
             return res;
         }
@@ -4939,6 +5032,22 @@ PolycyclicEvalResult evaluatePolycyclicVonBaeyerSystem(
                     cand.secondaryBridgeLocantsSorted = sortedSuperscriptLocs;
                     cand.secondaryBridgeLocantsCited = citedSuperscriptLocs;
                     cand.secondaryBridges = secDescs;
+
+                    std::map<int, std::vector<int>> hetLocsByRank;
+                    for (int n : ringUnionNodes) {
+                        if (g.nodes[n].atomicNumber != 6) {
+                            auto it = cand.locantOf.find(n);
+                            if (it != cand.locantOf.end()) {
+                                cand.heteroatomLocants.push_back(it->second);
+                                hetLocsByRank[hwSeniorityRank(g.nodes[n].atomicNumber)].push_back(it->second);
+                            }
+                        }
+                    }
+                    std::sort(cand.heteroatomLocants.begin(), cand.heteroatomLocants.end());
+                    for (auto &kv : hetLocsByRank) {
+                        std::sort(kv.second.begin(), kv.second.end());
+                        for (int l : kv.second) cand.heteroatomSeniorityLocants.push_back(l);
+                    }
 
                     for (const auto &rs : ringSubstituents) {
                         auto it = cand.locantOf.find(rs.first);
@@ -7271,6 +7380,7 @@ static QString principalGroupSuffix(GroupType winningType, int k, int pCount,
                                     const std::vector<int> &principalLocants,
                                     int acylHalideHalogenZ)
 {
+    if (pCount <= 0) return QString();
     QString sfx;
     if (winningType == GroupType::SULFONIC_ACID) {
         if (pCount == 1) sfx = (k <= 2) ? QStringLiteral("sulfonic acid")
@@ -8197,7 +8307,8 @@ QString nameChainParentWithRingSubstituent(int mol, const std::map<int, int> &in
                                           const std::map<int, QChar> &stereoByGraphId = {},
                                           std::set<int> *handledBranchStereoIds = nullptr,
                                           const std::map<int, int> &carbonSulfonamide = {},
-                                          const std::map<int, int> &carbonSulfinamide = {}) {
+                                          const std::map<int, int> &carbonSulfinamide = {},
+                                          const std::function<void()> &ensureStereoFn = {}) {
     // 1. Collect the pure-chain principal carbons of the winning class (carbons
     //    of winningType that are neither part of the ring nor exocyclic to it).
     //    These are the chain-parent's principal characteristic groups; the
@@ -8310,6 +8421,7 @@ QString nameChainParentWithRingSubstituent(int mol, const std::map<int, int> &in
                 if (amideNitrogen != -1) break;
             }
             if (amideNitrogen != -1 && ringAttachToN != -1) {
+                if (ensureStereoFn) ensureStereoFn();
                 // Name the ring as a substituent with the amide nitrogen as attachment point
                 QString ringPrefix = nameRingAsSubstituent(g, ringNodeSet, ringAttachToN, amideNitrogen, allSSSRRings, ringNodeSet, stereoByGraphId, handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide, nullptr, mol);
                 if (ringPrefix.isEmpty()) return "";
@@ -8335,6 +8447,7 @@ QString nameChainParentWithRingSubstituent(int mol, const std::map<int, int> &in
 
     // 4. Name the ring as a substituent prefix (handles ring-borne substituents
     //    such as a methyl via its own locant). This is class-agnostic.
+    if (ensureStereoFn) ensureStereoFn();
     QString ringPrefix = nameRingAsSubstituent(g, ringNodeSet, ipsoRingNode, chainAttachCarbon, allSSSRRings, ringNodeSet, stereoByGraphId, handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide, nullptr, mol);
     if (ringPrefix.isEmpty()) {
         // nameRingAsSubstituent only handles a simple, single ring -- ringNodeSet
@@ -9486,7 +9599,7 @@ RingSystemNameResult namePhase31BenzoFusion(
                             const std::set<int> &heteroNodes = r1Benzo ? ring2Nodes : ring1Nodes;
                             int hSize = static_cast<int>(heteroNodes.size());
 
-                            if (hSize == 5 || hSize == 6) {
+                            if (hSize == 5 || hSize == 6 || hSize == 7) {
                                 std::vector<int> heteroCycle;
                                 int startNode = *heteroNodes.begin();
                                 int current = startNode;
@@ -9515,20 +9628,165 @@ RingSystemNameResult namePhase31BenzoFusion(
 
                                     RingType hType;
                                     QString dummyNameRoot, classErr;
-                                    if (classifyMonocyclicHeteroRing(g, ringHeteroNodes, hSize, heteroCycle, hType, dummyNameRoot, classErr)) {
-                                        auto getDistInCycle = [&](int uIdx, int vIdx) {
-                                            int diff = std::abs(uIdx - vIdx);
-                                            return std::min(diff, hSize - diff);
-                                        };
+                                    bool matchedKetoAnhydride = false;
+                                    bool matchedPartialDiazepinone = false;
+                                    int p31IndicatedHNode = -1;
+                                    std::vector<int> p31HydroNodes;
+                                    QString resultName = "";
 
-                                        int idxA = -1, idxB = -1;
-                                        for (int i = 0; i < hSize; ++i) {
-                                            if (heteroCycle[i] == bhA) idxA = i;
-                                            if (heteroCycle[i] == bhB) idxB = i;
+                                    auto getDistInCycle = [&](int uIdx, int vIdx) {
+                                        int diff = std::abs(uIdx - vIdx);
+                                        return std::min(diff, hSize - diff);
+                                    };
+                                    int idxA = -1, idxB = -1;
+                                    for (int i = 0; i < hSize; ++i) {
+                                        if (heteroCycle[i] == bhA) idxA = i;
+                                        if (heteroCycle[i] == bhB) idxB = i;
+                                    }
+
+                                    bool cOk = classifyMonocyclicHeteroRing(g, ringHeteroNodes, hSize, heteroCycle, hType, dummyNameRoot, classErr, false, {{bhA, bhB}});
+                                    if (!cOk && hSize == 5 && ringHeteroNodes.size() == 1 && idxA != -1 && idxB != -1) {
+                                        // Cyclic 5-ring chalcogen anhydrides fused to benzene (e.g. 2-benzofuran-1,3-dione)
+                                        int hNode = ringHeteroNodes[0];
+                                        int hZ = g.nodes[hNode].atomicNumber;
+                                        if (hZ == 8 || hZ == 16 || hZ == 34 || hZ == 52) {
+                                            bool nonFusionAllSingle = true;
+                                            for (const auto &gb : g.bonds) {
+                                                if (!heteroNodes.count(gb.u) || !heteroNodes.count(gb.v)) continue;
+                                                if ((gb.u == bhA && gb.v == bhB) || (gb.u == bhB && gb.v == bhA)) continue;
+                                                if (gb.order != 1) { nonFusionAllSingle = false; break; }
+                                            }
+                                            int ketoCarbonCount = 0;
+                                            int plainCarbonCount = 0;
+                                            bool validAnhydrideOrLactone = true;
+                                            for (int n : heteroNodes) {
+                                                if (n == bhA || n == bhB || n == hNode) continue;
+                                                if (g.nodes[n].atomicNumber != 6) { validAnhydrideOrLactone = false; break; }
+                                                bool hasExocyclicDoubleO = false;
+                                                bool hasOtherExocyclicDouble = false;
+                                                for (size_t j = 0; j < g.nodes[n].neighbors.size(); ++j) {
+                                                    int nei = g.nodes[n].neighbors[j];
+                                                    if (!heteroNodes.count(nei) && g.nodes[n].bondOrders[j] >= 2) {
+                                                        if (g.nodes[n].bondOrders[j] == 2 && g.nodes[nei].atomicNumber == 8) hasExocyclicDoubleO = true;
+                                                        else hasOtherExocyclicDouble = true;
+                                                    }
+                                                }
+                                                if (hasOtherExocyclicDouble) { validAnhydrideOrLactone = false; break; }
+                                                if (hasExocyclicDoubleO) ketoCarbonCount++;
+                                                else plainCarbonCount++;
+                                            }
+                                            int idxH = -1;
+                                            for (int i = 0; i < hSize; ++i) if (heteroCycle[i] == hNode) idxH = i;
+                                            if (nonFusionAllSingle && validAnhydrideOrLactone &&
+                                                (ketoCarbonCount == 2 || (ketoCarbonCount == 1 && plainCarbonCount == 1)) &&
+                                                idxH != -1 && std::min(getDistInCycle(idxH, idxA), getDistInCycle(idxH, idxB)) == 2) {
+                                                matchedKetoAnhydride = true;
+                                                if (hZ == 8) resultName = "2-benzofuran";
+                                                else if (hZ == 16) resultName = "2-benzothiophene";
+                                                else if (hZ == 34) resultName = "2-benzoselenophene";
+                                                else resultName = "2-benzotellurophene";
+                                            }
                                         }
+                                    } else if (!cOk && hSize == 7 && ringHeteroNodes.size() >= 2 && idxA != -1 && idxB != -1 &&
+                                               tryGeneralHeterocycle(g, ringHeteroNodes, hSize, dummyNameRoot)) {
+                                        // Partially saturated 7-ring multi-heteroatom keto lactam (e.g. 1,3-dihydro-2H-1,4-benzodiazepin-2-one)
+                                        bool hasNonFusionDouble = false;
+                                        auto cycleBondOrder = [&](int a, int b) -> int {
+                                            for (size_t j = 0; j < g.nodes[a].neighbors.size(); ++j) {
+                                                if (g.nodes[a].neighbors[j] == b) return g.nodes[a].bondOrders[j];
+                                            }
+                                            return -1;
+                                        };
+                                        std::vector<int> satAtoms;
+                                        for (int i = 0; i < hSize; ++i) {
+                                            int u = heteroCycle[i];
+                                            int prev = heteroCycle[(i - 1 + hSize) % hSize];
+                                            int next = heteroCycle[(i + 1) % hSize];
+                                            int o1 = cycleBondOrder(u, prev);
+                                            int o2 = cycleBondOrder(u, next);
+                                            if (!((u == bhA && next == bhB) || (u == bhB && next == bhA)) && o2 == 2) {
+                                                hasNonFusionDouble = true;
+                                            }
+                                            if (u == bhA || u == bhB) continue;
+                                            if (o1 == 1 && o2 == 1) satAtoms.push_back(u);
+                                        }
+                                        std::vector<int> ketoSatAtoms;
+                                        for (int u : satAtoms) {
+                                            for (size_t j = 0; j < g.nodes[u].neighbors.size(); ++j) {
+                                                int nei = g.nodes[u].neighbors[j];
+                                                if (!allSystemNodes.count(nei) && g.nodes[u].bondOrders[j] == 2 && g.nodes[nei].atomicNumber == 8) {
+                                                    ketoSatAtoms.push_back(u);
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        if (hasNonFusionDouble && satAtoms.size() >= 3 && satAtoms.size() % 2 == 1 &&
+                                            ketoSatAtoms.size() == 1 && !multiPrefix(static_cast<int>(satAtoms.size() - 1)).isEmpty()) {
+                                            p31IndicatedHNode = ketoSatAtoms[0];
+                                            for (int u : satAtoms) {
+                                                if (u != p31IndicatedHNode) p31HydroNodes.push_back(u);
+                                            }
+                                            hType = RingType::GENERAL_HETEROCYCLE;
+                                            matchedPartialDiazepinone = true;
+                                            cOk = true;
+                                        }
+                                    } else if (!cOk && hSize == 6 && ringHeteroNodes.size() == 2 && idxA != -1 && idxB != -1 &&
+                                               tryGeneralHeterocycle(g, ringHeteroNodes, hSize, dummyNameRoot)) {
+                                        // Saturated/partially saturated 6-ring mixed (chalcogen + N) benzo-heterocycles
+                                        // (e.g. 3,4-dihydro-2H-1,4-benzoxazine, 3,4-dihydro-2H-1,4-benzothiazine).
+                                        int zA = g.nodes[ringHeteroNodes[0]].atomicNumber;
+                                        int zB = g.nodes[ringHeteroNodes[1]].atomicNumber;
+                                        bool hasChalcAndN = ((zA == 7) != (zB == 7)) &&
+                                                            (zA == 8 || zA == 16 || zA == 34 || zA == 52 ||
+                                                             zB == 8 || zB == 16 || zB == 34 || zB == 52);
+                                        bool nonFusionAllSingle = true;
+                                        for (const auto &gb : g.bonds) {
+                                            if (!heteroNodes.count(gb.u) || !heteroNodes.count(gb.v)) continue;
+                                            if ((gb.u == bhA && gb.v == bhB) || (gb.u == bhB && gb.v == bhA)) continue;
+                                            if (gb.order != 1) { nonFusionAllSingle = false; break; }
+                                        }
+                                        bool anyExocyclicDouble = false;
+                                        for (int n : heteroNodes) {
+                                            if (n == bhA || n == bhB) continue;
+                                            for (size_t j = 0; j < g.nodes[n].neighbors.size(); ++j) {
+                                                if (!allSystemNodes.count(g.nodes[n].neighbors[j]) && g.nodes[n].bondOrders[j] >= 2) {
+                                                    anyExocyclicDouble = true; break;
+                                                }
+                                            }
+                                            if (anyExocyclicDouble) break;
+                                        }
+                                        if (hasChalcAndN && nonFusionAllSingle && !anyExocyclicDouble) {
+                                            RingCHydrogenationCandidates hm = computeRingCHydrogenationCandidates(g, heteroCycle, bhA, bhB);
+                                            if (hm.success && hm.oddRuns.size() == 1 && hm.hydroNodes.size() % 2 == 0 && !hm.indicatedHCandidates.empty()) {
+                                                std::map<int, QString> initLocMap = computePeripheralNumbering(g, ring1Nodes, ring2Nodes, bhA, bhB);
+                                                QString bestIhLoc;
+                                                int bestIhNode = -1;
+                                                for (int candIh : hm.indicatedHCandidates[0]) {
+                                                    if (!initLocMap.count(candIh)) continue;
+                                                    QString ls = initLocMap[candIh];
+                                                    if (ls.endsWith("a") || ls.endsWith("b")) continue;
+                                                    if (bestIhNode == -1 || locantLess(ls, bestIhLoc)) {
+                                                        bestIhLoc = ls;
+                                                        bestIhNode = candIh;
+                                                    }
+                                                }
+                                                if (bestIhNode != -1 &&
+                                                    !multiPrefix(static_cast<int>(hm.hydroNodes.size() + hm.oddRuns[0].size() - 1)).isEmpty()) {
+                                                    p31IndicatedHNode = bestIhNode;
+                                                    p31HydroNodes = hm.hydroNodes;
+                                                    for (int u : hm.oddRuns[0]) {
+                                                        if (u != p31IndicatedHNode) p31HydroNodes.push_back(u);
+                                                    }
+                                                    hType = RingType::GENERAL_HETEROCYCLE;
+                                                    matchedPartialDiazepinone = true;
+                                                    cOk = true;
+                                                }
+                                            }
+                                        }
+                                    }
 
+                                    if (cOk && !matchedKetoAnhydride) {
                                         if (idxA != -1 && idxB != -1) {
-                                            QString resultName = "";
 
                                             if (hType == RingType::FURAN || hType == RingType::THIOPHENE ||
                                                 hType == RingType::SELENOPHENE || hType == RingType::TELLUROPHENE ||
@@ -9592,6 +9850,49 @@ RingSystemNameResult namePhase31BenzoFusion(
                                                         });
                                                         if (minDist == 1) resultName = "cinnoline";
                                                         else if (minDist == 2) resultName = "phthalazine";
+                                                    }
+                                                }
+                                            } else if (hType == RingType::AZEPINE || hType == RingType::OXEPINE ||
+                                                       hType == RingType::THIEPINE || hType == RingType::SELENEPINE ||
+                                                       hType == RingType::TELLUREPINE) {
+                                                if (ringHeteroNodes.size() == 1) {
+                                                    int hNode = ringHeteroNodes[0];
+                                                    int idxH = -1;
+                                                    for (int i = 0; i < hSize; ++i) {
+                                                        if (heteroCycle[i] == hNode) idxH = i;
+                                                    }
+                                                    if (idxH != -1) {
+                                                        int minDist = std::min(getDistInCycle(idxH, idxA), getDistInCycle(idxH, idxB));
+                                                        if (minDist >= 1 && minDist <= 3) {
+                                                            QString stem;
+                                                            if (hType == RingType::AZEPINE) stem = "azepine";
+                                                            else if (hType == RingType::OXEPINE) stem = "oxepine";
+                                                            else if (hType == RingType::THIEPINE) stem = "thiepine";
+                                                            else if (hType == RingType::SELENEPINE) stem = "selenepine";
+                                                            else stem = "tellurepine";
+
+                                                            QString benzoPfx = (isVowel(stem[0])) ? "benz" : "benzo";
+                                                            std::map<int, QString> localLocMap = computePeripheralNumbering(g, ring1Nodes, ring2Nodes, bhA, bhB);
+                                                            QString ihPfx;
+                                                            for (int hn : heteroNodes) {
+                                                                if (hn == bhA || hn == bhB) continue;
+                                                                bool allSingleInSys = true;
+                                                                for (size_t j = 0; j < g.nodes[hn].neighbors.size(); ++j) {
+                                                                    if (allSystemNodes.count(g.nodes[hn].neighbors[j]) && g.nodes[hn].bondOrders[j] != 1) {
+                                                                        allSingleInSys = false;
+                                                                        break;
+                                                                    }
+                                                                }
+                                                                if (allSingleInSys && g.nodes[hn].totalH >= 1 && localLocMap.count(hn)) {
+                                                                    const QString &ihLoc = localLocMap[hn];
+                                                                    if (!ihLoc.isEmpty() && !ihLoc.endsWith("a") && !ihLoc.endsWith("b")) {
+                                                                        ihPfx = ihLoc + "H-";
+                                                                    }
+                                                                    break;
+                                                                }
+                                                            }
+                                                            resultName = ihPfx + QString::number(minDist) + "-" + benzoPfx + stem;
+                                                        }
                                                     }
                                                 }
                                             } else if (hType == RingType::ISOTHIAZOLE || hType == RingType::ISOXAZOLE) {
@@ -9724,42 +10025,58 @@ RingSystemNameResult namePhase31BenzoFusion(
                                                         QString benzoPrefix = "benzo";
                                                         if (!bareStem.isEmpty() && isVowel(bareStem[0])) benzoPrefix.chop(1);
 
-                                                        int indicatedH = findIndicatedHydrogenLocant(g, chosenCand);
-                                                        QString ihPfx;
-                                                        if (indicatedH > 0) {
-                                                            int ihNode = chosenCand[indicatedH - 1];
-                                                            QString ihLocStr = localLocantMap.count(ihNode) ? localLocantMap[ihNode] : QString();
-                                                            if (!ihLocStr.isEmpty() && !ihLocStr.endsWith("a") && !ihLocStr.endsWith("b")) {
-                                                                ihPfx = ihLocStr + "H-";
+                                                        if (matchedPartialDiazepinone) {
+                                                            QString ihLocStr = localLocantMap.count(p31IndicatedHNode) ? localLocantMap[p31IndicatedHNode] : QString();
+                                                            QStringList hydroLocStrs;
+                                                            bool hydroValid = !ihLocStr.isEmpty() && !ihLocStr.endsWith("a") && !ihLocStr.endsWith("b");
+                                                            for (int hn : p31HydroNodes) {
+                                                                QString hLoc = localLocantMap.count(hn) ? localLocantMap[hn] : QString();
+                                                                if (hLoc.isEmpty() || hLoc.endsWith("a") || hLoc.endsWith("b")) { hydroValid = false; break; }
+                                                                hydroLocStrs.append(hLoc);
                                                             }
+                                                            if (hydroValid) {
+                                                                std::sort(hydroLocStrs.begin(), hydroLocStrs.end(), locantLess);
+                                                                QString hydroPfx = hydroLocStrs.join(",") + "-" + multiPrefix(static_cast<int>(hydroLocStrs.size())) + "hydro-";
+                                                                resultName = hydroPfx + ihLocStr + "H-" + locPfx + benzoPrefix + bareStem;
+                                                            }
+                                                        } else {
+                                                            int indicatedH = findIndicatedHydrogenLocant(g, chosenCand);
+                                                            QString ihPfx;
+                                                            if (indicatedH > 0) {
+                                                                int ihNode = chosenCand[indicatedH - 1];
+                                                                QString ihLocStr = localLocantMap.count(ihNode) ? localLocantMap[ihNode] : QString();
+                                                                if (!ihLocStr.isEmpty() && !ihLocStr.endsWith("a") && !ihLocStr.endsWith("b")) {
+                                                                    ihPfx = ihLocStr + "H-";
+                                                                }
+                                                            }
+                                                            resultName = ihPfx + locPfx + benzoPrefix + bareStem;
                                                         }
-                                                        resultName = ihPfx + locPfx + benzoPrefix + bareStem;
                                                     }
                                                 }
-                                            }
-
-                                            if (!resultName.isEmpty()) {
-                                                std::vector<std::pair<int, int>> ringSubstituents;
-                                                for (int n : allSystemNodes) {
-                                                    for (int nei : g.nodes[n].neighbors) {
-                                                        if (!allSystemNodes.count(nei)) {
-                                                            ringSubstituents.push_back({n, nei});
-                                                        }
-                                                    }
-                                                }
-
-                                                std::set<int> substituentBearingNodes;
-                                                for (const auto &subPair : ringSubstituents) {
-                                                    substituentBearingNodes.insert(subPair.first);
-                                                }
-
-                                                std::map<int, QString> locantMap = computePeripheralNumbering(g, ring1Nodes, ring2Nodes, bhA, bhB, substituentBearingNodes);
-                                                if (locantMap.empty()) {
-                                                    return {false, "Fused ring systems other than naphthalene are not supported in this phase.", "", {}};
-                                                }
-                                                return {true, "", resultName, locantMap};
                                             }
                                         }
+                                    }
+
+                                    if (!resultName.isEmpty()) {
+                                        std::vector<std::pair<int, int>> ringSubstituents;
+                                        for (int n : allSystemNodes) {
+                                            for (int nei : g.nodes[n].neighbors) {
+                                                if (!allSystemNodes.count(nei)) {
+                                                    ringSubstituents.push_back({n, nei});
+                                                }
+                                            }
+                                        }
+
+                                        std::set<int> substituentBearingNodes;
+                                        for (const auto &subPair : ringSubstituents) {
+                                            substituentBearingNodes.insert(subPair.first);
+                                        }
+
+                                        std::map<int, QString> locantMap = computePeripheralNumbering(g, ring1Nodes, ring2Nodes, bhA, bhB, substituentBearingNodes);
+                                        if (locantMap.empty()) {
+                                            return {false, "Fused ring systems other than naphthalene are not supported in this phase.", "", {}};
+                                        }
+                                        return {true, "", resultName, locantMap};
                                     }
                                 }
                             }
@@ -12901,6 +13218,7 @@ struct FunctionalGroupClassification {
     std::map<int, int> carbonImine;
     GroupType combinedWinner = GroupType::NONE;
     GroupType winningRingGroup = GroupType::NONE;
+    GroupType winningChainGroup = GroupType::NONE;
 };
 
 // IUPAC P-41 / Table 4.1 Seniority order of classes of principal groups
@@ -13009,7 +13327,13 @@ static FunctionalGroupClassification classifyFunctionalGroups(
 
                 if (nZ == 8 && order == 2) doubleO.push_back(nei);
                   else if (nZ == 16 && order == 2) doubleS.push_back(nei);
-                  else if (nZ == 7 && order == 2) doubleN.push_back(nei);
+                  else if (nZ == 7 && order == 2) {
+                      bool isEndoRingCN = false;
+                      for (const auto &r : allSSSRRings) {
+                          if (r.count(static_cast<int>(i)) && r.count(nei)) { isEndoRingCN = true; break; }
+                      }
+                      if (!isEndoRingCN) doubleN.push_back(nei);
+                  }
                 else if (nZ == 8 && order == 1) {
                     bool isRingBond = ringNodeSet.count(static_cast<int>(i)) && ringNodeSet.count(nei);
                     if (!isRingBond) singleO.push_back(nei);
@@ -13508,6 +13832,7 @@ static FunctionalGroupClassification classifyFunctionalGroups(
     GroupType combinedWinner = (groupRank(winningRingGroup) <= groupRank(winningChainGroup)) ? winningRingGroup : winningChainGroup;
     result.combinedWinner = combinedWinner;
     result.winningRingGroup = winningRingGroup;
+    result.winningChainGroup = winningChainGroup;
     return result;
 }
 
@@ -17456,36 +17781,44 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
     // Ensure 2D coordinates are calculated for stereochemistry determination
     indigoLayout(mol);
 
-    indigoAddCIPStereoDescriptors(mol);
+    // Defer expensive CIP digraph expansion (e.g. >6s on complex polycyclic
+    // steroids rejected before stereochemistry is ever needed) until a
+    // stereo-consuming path actually inspects `stereoByGraphId`.
     std::map<int, QChar> stereoByGraphId;
-    int stereoIter = indigoIterateStereocenters(mol);
-    if (stereoIter >= 0) {
-        int atom = 0;
-        while ((atom = indigoNext(stereoIter)) != 0) {
-            if (atom == -1) break;
-            int idx = indigoIndex(atom);
-            int cip = indigoStereocenterCIPDescriptor(atom);
-            if (cip == 2) {
-                if (indigoToGraphIdx.count(idx)) {
-                    stereoByGraphId[indigoToGraphIdx[idx]] = 's';
+    bool stereoComputed = false;
+    auto ensureStereo = [&]() {
+        if (stereoComputed) return;
+        stereoComputed = true;
+        indigoAddCIPStereoDescriptors(mol);
+        int stereoIter = indigoIterateStereocenters(mol);
+        if (stereoIter >= 0) {
+            int atom = 0;
+            while ((atom = indigoNext(stereoIter)) != 0) {
+                if (atom == -1) break;
+                int idx = indigoIndex(atom);
+                int cip = indigoStereocenterCIPDescriptor(atom);
+                if (cip == 2) {
+                    if (indigoToGraphIdx.count(idx)) {
+                        stereoByGraphId[indigoToGraphIdx[idx]] = 's';
+                    }
+                } else if (cip == 3) {
+                    if (indigoToGraphIdx.count(idx)) {
+                        stereoByGraphId[indigoToGraphIdx[idx]] = 'r';
+                    }
+                } else if (cip == 4) {
+                    if (indigoToGraphIdx.count(idx)) {
+                        stereoByGraphId[indigoToGraphIdx[idx]] = 'S';
+                    }
+                } else if (cip == 5) {
+                    if (indigoToGraphIdx.count(idx)) {
+                        stereoByGraphId[indigoToGraphIdx[idx]] = 'R';
+                    }
                 }
-            } else if (cip == 3) {
-                if (indigoToGraphIdx.count(idx)) {
-                    stereoByGraphId[indigoToGraphIdx[idx]] = 'r';
-                }
-            } else if (cip == 4) {
-                if (indigoToGraphIdx.count(idx)) {
-                    stereoByGraphId[indigoToGraphIdx[idx]] = 'S';
-                }
-            } else if (cip == 5) {
-                if (indigoToGraphIdx.count(idx)) {
-                    stereoByGraphId[indigoToGraphIdx[idx]] = 'R';
-                }
+                indigoFree(atom);
             }
-            indigoFree(atom);
+            indigoFree(stereoIter);
         }
-        indigoFree(stereoIter);
-    }
+    };
 
     // --- P-67.2 dinuclear phosphorus oxoacids: diphosphoric, hypodiphosphoric, diphosphorous, hypodiphosphorous ---
     if (g.nodes.size() >= 6 && g.nodes.size() <= 9) {
@@ -20506,34 +20839,44 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
     if (ringCount == 2 && allSSSRRings.size() == 2 && !hasSeniorPrincipalGroup(g)) {
         const std::set<int> &ring1Nodes = allSSSRRings[0];
         const std::set<int> &ring2Nodes = allSSSRRings[1];
-        if ((ring1Nodes.size() == 5 || ring1Nodes.size() == 6) && (ring2Nodes.size() == 5 || ring2Nodes.size() == 6) && ring1Nodes.size() == ring2Nodes.size()) {
+        if (ring1Nodes.size() == ring2Nodes.size() && ring1Nodes.size() >= 3 && ring1Nodes.size() <= 10) {
             std::vector<int> sharedNodes;
             for (int n : ring1Nodes) {
                 if (ring2Nodes.count(n)) sharedNodes.push_back(n);
             }
             if (sharedNodes.empty()) {
                 // Connectivity is checked independently from substitution now (unlike the
-                // old single combined scan): find the sole single bond joining the two
-                // rings first; whether either ring also carries a halogen/methyl branch
-                // is computeRingAssemblyCandidates's own, separate concern.
+                // old single combined scan): find the sole single or double bond joining
+                // the two rings first; whether either ring also carries a halogen/methyl
+                // branch is computeRingAssemblyCandidates's own, separate concern.
                 int attach1 = -1, attach2 = -1;
+                int interBondOrder = 0;
                 int interRingBondCount = 0;
                 for (int n1 : ring1Nodes) {
                     for (size_t j = 0; j < g.nodes[n1].neighbors.size(); ++j) {
                         int nei = g.nodes[n1].neighbors[j];
                         if (ring2Nodes.count(nei)) {
                             interRingBondCount++;
-                            if (g.nodes[n1].bondOrders[j] == 1) { attach1 = n1; attach2 = nei; }
+                            int bo = g.nodes[n1].bondOrders[j];
+                            if (bo == 1 || bo == 2) { attach1 = n1; attach2 = nei; interBondOrder = bo; }
                         }
                     }
                 }
-                if (interRingBondCount == 1 && attach1 != -1) {
+                bool validSizeForOrder = (interBondOrder == 1 || interBondOrder == 2);
+                if (interRingBondCount == 1 && attach1 != -1 && validSizeForOrder) {
                     RingAssemblyAnalysis analysis1 = computeRingAssemblyCandidates(g, ring1Nodes, attach1, attach2, allSSSRRings, carbonSulfonamide, carbonSulfinamide, mol);
                     RingAssemblyAnalysis analysis2 = computeRingAssemblyCandidates(g, ring2Nodes, attach2, attach1, allSSSRRings, carbonSulfonamide, carbonSulfinamide, mol);
                     if (analysis1.outErr || analysis2.outErr) {
                         return {false, "", "N-substituted amino ring substituents are not supported"};
                     }
-                    if (analysis1.ok && analysis2.ok && analysis1.bareParentName == analysis2.bareParentName) {
+                    bool smallSizeOk = (ring1Nodes.size() == 5 || ring1Nodes.size() == 6) ||
+                        (analysis1.rType == RingType::CYCLOALKANE);
+                    bool doubleBondTypeOk = (interBondOrder == 1) ||
+                        (analysis1.rType == RingType::CYCLOALKANE ||
+                         analysis1.rType == RingType::PIPERIDINE ||
+                         analysis1.rType == RingType::PYRROLIDINE ||
+                         analysis1.rType == RingType::PIPERAZINE);
+                    if (analysis1.ok && analysis2.ok && smallSizeOk && doubleBondTypeOk && analysis1.bareParentName == analysis2.bareParentName) {
                         QString parentName = analysis1.bareParentName;
                         bool phenylLike = (analysis1.rType == RingType::BENZENE);
                         bool cyclohexylLike = (analysis1.rType == RingType::CYCLOALKANE && ring1Nodes.size() == 6);
@@ -20590,9 +20933,22 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
 
                         if (best) {
                             QString biBlock;
-                            if (phenylLike) biBlock = "biphenyl";
-                            else if (cyclohexylLike) biBlock = "bicyclohexyl";
-                            else biBlock = QString("%1,%2'-bi%3").arg(best->attach0).arg(best->attach1v).arg(parentName);
+                            if (interBondOrder == 2) {
+                                if (analysis1.rType == RingType::CYCLOALKANE && parentName.endsWith("ane")) {
+                                    QString stem = parentName.left(parentName.length() - 3);
+                                    biBlock = QString("%1,%2'-bi(%3ylidene)").arg(best->attach0).arg(best->attach1v).arg(stem);
+                                } else if (best->attach0 == best->attach1v) {
+                                    QString stem = parentName.endsWith("e") ? parentName.left(parentName.length() - 1) : parentName;
+                                    biBlock = QString("%1,%2'-bi(%3-%4-ylidene)").arg(best->attach0).arg(best->attach1v).arg(stem).arg(best->attach0);
+                                }
+                            } else {
+                                if (phenylLike) biBlock = "biphenyl";
+                                else if (cyclohexylLike) biBlock = "bicyclohexyl";
+                                else if (analysis1.rType == RingType::CYCLOALKANE && ring1Nodes.size() != 5 && ring1Nodes.size() != 6)
+                                    biBlock = QString("%1,%2'-bi(%3)").arg(best->attach0).arg(best->attach1v).arg(parentName);
+                                else biBlock = QString("%1,%2'-bi%3").arg(best->attach0).arg(best->attach1v).arg(parentName);
+                            }
+                            if (!biBlock.isEmpty()) {
 
                             std::map<QString, std::vector<std::pair<int, int>>> grouped;
                             for (const auto &s : best->subs) grouped[std::get<0>(s)].push_back({std::get<1>(s), std::get<2>(s)});
@@ -20609,10 +20965,11 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                                 QString countWord = (locs.size() == 2) ? "di" : (locs.size() == 3) ? "tri" : (locs.size() == 4) ? "tetra" : "";
                                 parts.append(locStrs.join(",") + "-" + countWord + name);
                             }
-                            QString subPrefix = parts.join("-");
-                            QString sep = (!biBlock.isEmpty() && biBlock[0].isDigit()) ? "-" : "";
-                            QString finalName = subPrefix.isEmpty() ? biBlock : (subPrefix + sep + biBlock);
-                            return {true, finalName, ""};
+                                QString subPrefix = parts.join("-");
+                                QString sep = (!biBlock.isEmpty() && biBlock[0].isDigit()) ? "-" : "";
+                                QString finalName = subPrefix.isEmpty() ? biBlock : (subPrefix + sep + biBlock);
+                                return {true, finalName, ""};
+                            }
                         }
                     }
                 }
@@ -20697,7 +21054,18 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                 if (isIsocyanateNitrogen(nei, cNode, g)) isNitroIsoOrAzide = true;
                 if (isNitroNitrogen(nei, cNode, g)) isNitroIsoOrAzide = true;
                 if (isNitrosoNitrogen(nei, cNode, g)) isNitroIsoOrAzide = true;
-                if (!isNitroIsoOrAzide) {
+                bool hasAcylNeighbor = false;
+                for (int nNei : g.nodes[nei].neighbors) {
+                    if (nNei == cNode) continue;
+                    for (size_t m = 0; m < g.nodes[nNei].neighbors.size(); ++m) {
+                        int aZ = g.nodes[g.nodes[nNei].neighbors[m]].atomicNumber;
+                        if ((aZ == 8 || aZ == 16) && g.nodes[nNei].bondOrders[m] == 2) {
+                            hasAcylNeighbor = true; break;
+                        }
+                    }
+                    if (hasAcylNeighbor) break;
+                }
+                if (!isNitroIsoOrAzide && !hasAcylNeighbor) {
                     hasAmineN = true;
                 }
             }
@@ -20970,6 +21338,36 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                 else if (carbonSelenol.count(rNode)) gt = GroupType::SELENOL;
                 else if (carbonTellurol.count(rNode)) gt = GroupType::TELLUROL;
                 else if (carbonPhosphine.count(rNode)) gt = GroupType::PHOSPHINE;
+                else if (carbonGroup.count(rNode)) {
+                    GroupType cgt = carbonGroup.at(rNode);
+                    if (cgt == GroupType::ALCOHOL || cgt == GroupType::KETONE ||
+                        cgt == GroupType::THIONE || cgt == GroupType::IMINE) {
+                        gt = cgt;
+                    } else if (cgt == GroupType::AMINE) {
+                        for (size_t k = 0; k < g.nodes[rNode].neighbors.size(); ++k) {
+                            int nei = g.nodes[rNode].neighbors[k];
+                            if (!rNodes.count(nei) && g.nodes[nei].atomicNumber == 7 && g.nodes[rNode].bondOrders[k] == 1) {
+                                bool hasAcylNeighbor = false;
+                                for (int nNei : g.nodes[nei].neighbors) {
+                                    if (nNei == rNode) continue;
+                                    for (size_t m = 0; m < g.nodes[nNei].neighbors.size(); ++m) {
+                                        int aZ = g.nodes[g.nodes[nNei].neighbors[m]].atomicNumber;
+                                        if ((aZ == 8 || aZ == 16) && g.nodes[nNei].bondOrders[m] == 2) {
+                                            hasAcylNeighbor = true; break;
+                                        }
+                                    }
+                                    if (hasAcylNeighbor) break;
+                                }
+                                if (!hasAcylNeighbor && !isAzideNitrogen(nei, rNode, g) &&
+                                    !isIsocyanateNitrogen(nei, rNode, g) && !isNitroNitrogen(nei, rNode, g) &&
+                                    !isNitrosoNitrogen(nei, rNode, g)) {
+                                    gt = GroupType::AMINE;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
                 
                 if (gt != GroupType::NONE) {
                     if (ringBestGroup == GroupType::NONE || groupRank(gt) < groupRank(ringBestGroup)) {
@@ -20993,9 +21391,18 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
             
             // Case 1: Multiple rings
             if (allSSSRRings.size() > 1) {
-                // Only treat as substituent if ring has NO principal characteristic group.
-                // If it has one, it's still eligible to be the senior parent (decided later).
-                if (ringBestGroup == GroupType::NONE) {
+                // Treat this ring as a substituent when:
+                // (a) the ring itself has no principal group and either no ring bears one or the chain
+                //     beats/ties the winning ring group (so 4-benzylphenol stays on the multi-ring path), OR
+                // (b) the chain beats/ties this ring's own principal group (e.g. diaryl ketones like
+                //     oxybenzone/tolcapone where KETONE (27) outranks ring ALCOHOL (29), or multi-ring
+                //     chains like ritodrine).
+                if ((ringBestGroup == GroupType::NONE &&
+                     (fgcSubScan.winningRingGroup == GroupType::NONE ||
+                      groupRank(fgcSubScan.winningChainGroup) <= groupRank(fgcSubScan.winningRingGroup))) ||
+                    (ringBestGroup != GroupType::NONE &&
+                     fgcSubScan.winningChainGroup != GroupType::NONE &&
+                     groupRank(fgcSubScan.winningChainGroup) <= groupRank(ringBestGroup))) {
                     hasPrincipalGroupOrMultipleRings = true;
                 }
             }
@@ -21050,7 +21457,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                     else if (carbonSelenol.count(cNode)) gt = GroupType::SELENOL;
                     else if (carbonTellurol.count(cNode)) gt = GroupType::TELLUROL;
                     else if (carbonPhosphine.count(cNode)) gt = GroupType::PHOSPHINE;
-                    else if (carbonGroup.count(cNode) && isExocyclicCarbonConsumingGroup(carbonGroup.at(cNode))) gt = carbonGroup.at(cNode);
+                    else if (carbonGroup.count(cNode)) gt = carbonGroup.at(cNode);
 
                     if (gt != GroupType::NONE) {
                         if (chainBestGroup == GroupType::NONE || groupRank(gt) < groupRank(chainBestGroup)) {
@@ -21114,6 +21521,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                 // call on these ring nodes) -- passing stereo through here is safe, no
                 // double-processing risk, and lets a ring substituent's own stereocenter
                 // reach the name instead of being silently dropped.
+                ensureStereo();
                 std::set<int> ringInfoHandledStereoIds;
                 bool ringSubErr = false;
                 QString pName = nameRingAsSubstituent(g, rNodes, attachRingNode, foundAttachChainNode, allSSSRRings, {}, stereoByGraphId, &ringInfoHandledStereoIds, carbonSulfonamide, carbonSulfinamide, &ringSubErr, mol);
@@ -21326,6 +21734,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                         if (r.count(attachRingNode)) { seedRing = r; break; }
                     }
                     if (!seedRing.empty()) {
+                        ensureStereo();
                         QString pName = nameRingSystemAsSubstituent(g, mol, attachRingNode, seedRing, allSSSRRings, {}, stereoByGraphId, foundAttachChainNode);
                         if (!pName.isEmpty()) {
                             ringSubstituentInfos.push_back({allSSSRNodes, pName, foundAttachChainNode});
@@ -21689,7 +22098,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                 }
             } else if (isChainParentWithRingSubstituentSupported(combinedWinner)) {
                 std::set<int> handledBranchStereoIds;
-                QString chainName = nameChainParentWithRingSubstituent(mol, indigoToGraphIdx, g, ringNodeSet, allSSSRRings, carbonGroup, combinedWinner, stereoByGraphId, &handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide);
+                QString chainName = nameChainParentWithRingSubstituent(mol, indigoToGraphIdx, g, ringNodeSet, allSSSRRings, carbonGroup, combinedWinner, stereoByGraphId, &handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide, ensureStereo);
                 if (!chainName.isEmpty()) {
                     std::set<int> pCarbons;
                     for (const auto &pair : carbonGroup) { if (pair.second == combinedWinner) pCarbons.insert(pair.first); }
@@ -22009,6 +22418,9 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
             }
         }
 
+        struct DeferredBranchStereo { int nei; int rNode; size_t subIndex; bool hadParens; };
+        std::vector<DeferredBranchStereo> deferredBranchStereos;
+
         for (int i = 0; i < ringSize; ++i) {
             int rNode = cand[i];
             int locant = i + 1;
@@ -22020,10 +22432,10 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                 if (ringNodeSet.count(nei)) continue;
 
                 if (winningType != GroupType::NONE) {
-                    if ((winningType == GroupType::ALCOHOL || winningType == GroupType::KETONE || winningType == GroupType::AMINE || winningType == GroupType::IMINE || winningType == GroupType::SULFONIC_ACID || winningType == GroupType::SULFONAMIDE || winningType == GroupType::SULFONYL_HALIDE || winningType == GroupType::SULFINIC_ACID || winningType == GroupType::SULFINAMIDE || winningType == GroupType::SULFINYL_HALIDE || winningType == GroupType::THIOL || winningType == GroupType::SELENOL || winningType == GroupType::TELLUROL || winningType == GroupType::HYDROPEROXIDE || winningType == GroupType::PHOSPHONIC_ACID || winningType == GroupType::PHOSPHONIC_DIHALIDE || winningType == GroupType::ARSONIC_ACID || winningType == GroupType::ARSONIC_DIHALIDE || winningType == GroupType::STIBONIC_ACID || winningType == GroupType::STIBINIC_ACID) && isPrincipalRNode) {
+                    if ((winningType == GroupType::ALCOHOL || winningType == GroupType::KETONE || winningType == GroupType::AMINE || winningType == GroupType::IMINE || winningType == GroupType::SULFONIC_ACID || winningType == GroupType::SULFONAMIDE || winningType == GroupType::SULFONYL_HALIDE || winningType == GroupType::SULFINIC_ACID || winningType == GroupType::SULFINAMIDE || winningType == GroupType::SULFINYL_HALIDE || winningType == GroupType::THIOL || winningType == GroupType::SELENOL || winningType == GroupType::TELLUROL || winningType == GroupType::HYDROPEROXIDE || winningType == GroupType::BORONIC_ACID || winningType == GroupType::BORINIC_ACID || winningType == GroupType::PHOSPHONIC_ACID || winningType == GroupType::PHOSPHONIC_DIHALIDE || winningType == GroupType::ARSONIC_ACID || winningType == GroupType::ARSONIC_DIHALIDE || winningType == GroupType::STIBONIC_ACID || winningType == GroupType::STIBINIC_ACID) && isPrincipalRNode) {
                         int nz = g.nodes[nei].atomicNumber;
                         bool isAzide = (carbonAzide.count(rNode) && std::find(carbonAzide[rNode].begin(), carbonAzide[rNode].end(), nei) != carbonAzide[rNode].end());
-                        if (!isAzide && (nz == 7 || nz == 8 || nz == 16 || nz == 34 || nz == 52 || nz == 15 || nz == 33 || nz == 51)) continue;
+                        if (!isAzide && (nz == 7 || nz == 8 || nz == 16 || nz == 34 || nz == 52 || nz == 15 || nz == 33 || nz == 51 || (nz == 5 && winningType == GroupType::BORONIC_ACID))) continue;
                     }
                     if (principalCarbons.count(nei) > 0) {
                         // Silent-drop bug (albuterol/pirbuterol): an exocyclic principal-group
@@ -22130,7 +22542,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                     if (carbonAzide.count(rNode) && ringNodeSet.count(rNode) > 0 && std::find(carbonAzide[rNode].begin(), carbonAzide[rNode].end(), nei) != carbonAzide[rNode].end()) {
                         subName = "azido";
                     } else if (isIsocyanateNitrogen(nei, rNode, g)) {
-                        subName = "isocyanato";
+                        subName = isocyanateSubstituentPrefix(nei, rNode, g);
                     } else if (isNitroNitrogen(nei, rNode, g)) {
                         subName = "nitro";
                     } else if (isNitrosoNitrogen(nei, rNode, g)) {
@@ -22340,26 +22752,8 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                     } else if (subName.isEmpty()) {
                         subName = nameBranchGraph(g, nei, rNode, allSSSRRings, ringNodeSet, {}, nullptr, mol, branchBondStereo);
                         if (!subName.isEmpty()) {
-                            QString branchStereo = formatBranchStereoPrefix(g, nei, rNode, stereoByGraphId, sig.handledBranchStereoIds, allSSSRRings, branchBondStereo, &sig.handledBranchBonds);
-                            if (!branchStereo.isEmpty()) {
-                                if (subName.startsWith("(") && subName.endsWith(")")) {
-                                    QString inner = subName.mid(1, subName.length() - 2);
-                                    subName = QString("[%1%2]").arg(branchStereo, inner);
-                                } else {
-                                    subName = QString("[%1%2]").arg(branchStereo, subName);
-                                }
-                            } else if (subName.startsWith("(") && subName.endsWith(")")) {
-                                QString inner = subName.mid(1, subName.length() - 2);
-                                // Only strip the enclosure when the inner name does NOT start
-                                // with a locant digit -- a name like "(2-aminoethyl)" needs its
-                                // own parens kept when later cited after the ring's own locant
-                                // ("5-(2-aminoethyl)-...", not the ambiguous "5-2-aminoethyl-...");
-                                // a name like "(1-methylethyl)" that starts with a letter is fine
-                                // stripped bare.
-                                if (!inner.isEmpty() && !inner[0].isDigit()) {
-                                    subName = inner;
-                                }
-                            }
+                            bool hadParens = subName.startsWith("(") && subName.endsWith(")");
+                            deferredBranchStereos.push_back({nei, rNode, sig.namedSubstituents.size(), hadParens});
                         }
                     }
                 }
@@ -22373,6 +22767,22 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                         return {false, "", ezRes.error};
                     }
                     return {false, "", "Unrecognized or unsupported substituent on ring."};
+                }
+            }
+        }
+        if (!deferredBranchStereos.empty()) {
+            ensureStereo();
+            for (const auto &dbs : deferredBranchStereos) {
+                QString &targetName = sig.namedSubstituents[dbs.subIndex].first;
+                QString branchStereo = formatBranchStereoPrefix(g, dbs.nei, dbs.rNode, stereoByGraphId, sig.handledBranchStereoIds, allSSSRRings, branchBondStereo, &sig.handledBranchBonds);
+                if (!branchStereo.isEmpty()) {
+                    QString inner = dbs.hadParens ? targetName.mid(1, targetName.length() - 2) : targetName;
+                    targetName = QString("[%1%2]").arg(branchStereo, inner);
+                } else if (dbs.hadParens) {
+                    QString inner = targetName.mid(1, targetName.length() - 2);
+                    if (!inner.isEmpty() && !inner[0].isDigit()) {
+                        targetName = inner;
+                    }
                 }
             }
         }
@@ -22563,6 +22973,24 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
     // (hexahydro) case omits locants, same convention as
     // "decahydronaphthalene" -- unambiguous when every ring position is
     // cited.
+    int monocyclicAddedHLocant = -1;
+    if (!monocyclicHydroNodes.empty()) {
+        // For 5-membered single-heteroatom ketone/dione heterocycles (e.g. furan-2,5-dione,
+        // furan-2(5H)-one), ketone carbons themselves are NOT dihydro positions:
+        // 0 remaining SRP atoms -> omit hydro prefix; 1 remaining -> added indicated hydrogen (nH).
+        if (ringSize == 5 && monocyclicHydroNodes.size() == 2 && winningType == GroupType::KETONE) {
+            std::vector<int> nonPrincipalHydro;
+            for (int node : monocyclicHydroNodes) {
+                if (!principalCarbons.count(node)) nonPrincipalHydro.push_back(node);
+            }
+            if (nonPrincipalHydro.empty()) {
+                monocyclicHydroNodes.clear();
+            } else if (nonPrincipalHydro.size() == 1 && graphIdToLocant.count(nonPrincipalHydro[0])) {
+                monocyclicAddedHLocant = graphIdToLocant[nonPrincipalHydro[0]];
+                monocyclicHydroNodes.clear();
+            }
+        }
+    }
     if (!monocyclicHydroNodes.empty()) {
         std::vector<int> hydroLocs;
         for (int node : monocyclicHydroNodes) {
@@ -22592,6 +23020,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
         }
     }
 
+    ensureStereo();
     StereoResult ezRes = processDoubleBondStereo(mol, g, ringNodeSet, graphIdToLocant, stereoByGraphId, branchBondStereo, false, allSSSRNodes);
     if (!ezRes.ok) {
         return {false, "", ezRes.error};
@@ -22854,14 +23283,14 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                 hName = "di" + halogenSuffixWord(hz);
                 sfx = (pCount == 1) ? ("arsonic " + hName) : ("diarsonic " + hName);
             }
-            else if (winningType == GroupType::THIOL) sfx = (pCount == 1) ? "thiol" : "dithiol";
-            else if (winningType == GroupType::SELENOL) sfx = (pCount == 1) ? "selenol" : "diselenol";
-            else if (winningType == GroupType::TELLUROL) sfx = (pCount == 1) ? "tellurol" : "ditellurol";
-            else if (winningType == GroupType::ALCOHOL) sfx = (pCount == 1) ? "ol" : "diol";
-            else if (winningType == GroupType::HYDROPEROXIDE) sfx = (pCount == 1) ? "peroxol" : "diperoxol";
-            else if (winningType == GroupType::KETONE) sfx = (pCount == 1) ? "one" : "dione";
-            else if (winningType == GroupType::AMINE) sfx = (pCount == 1) ? "amine" : "diamine";
-            else if (winningType == GroupType::IMINE) sfx = (pCount == 1) ? "imine" : "diimine";
+            else if (winningType == GroupType::THIOL) sfx = ((pCount == 1) ? "" : multiPrefix(pCount)) + "thiol";
+            else if (winningType == GroupType::SELENOL) sfx = ((pCount == 1) ? "" : multiPrefix(pCount)) + "selenol";
+            else if (winningType == GroupType::TELLUROL) sfx = ((pCount == 1) ? "" : multiPrefix(pCount)) + "tellurol";
+            else if (winningType == GroupType::ALCOHOL) sfx = ((pCount == 1) ? "" : multiPrefix(pCount)) + "ol";
+            else if (winningType == GroupType::HYDROPEROXIDE) sfx = ((pCount == 1) ? "" : multiPrefix(pCount)) + "peroxol";
+            else if (winningType == GroupType::KETONE) sfx = ((pCount == 1) ? "" : multiPrefix(pCount)) + "one";
+            else if (winningType == GroupType::AMINE) sfx = ((pCount == 1) ? "" : multiPrefix(pCount)) + "amine";
+            else if (winningType == GroupType::IMINE) sfx = ((pCount == 1) ? "" : multiPrefix(pCount)) + "imine";
 
             bool allCarbon = true;
             for (int n : ringNodeSet) {
@@ -22874,6 +23303,21 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                 fullName = prefixPart + "phenol";
             } else if (rType == RingType::BENZENE && winningType == GroupType::AMINE && pCount == 1) {
                 fullName = prefixPart + "aniline";
+            } else if (winningType == GroupType::BORONIC_ACID) {
+                if (pCount != 1) {
+                    return {false, "", "Multiple boronic acid groups on a ring are not supported in this phase."};
+                }
+                if (rType == RingType::BENZENE) {
+                    fullName = prefixPart + "phenylboronic acid";
+                } else if (rType == RingType::CYCLOALKANE) {
+                    QString base = rootStr;
+                    if (base.endsWith("ane")) base.chop(3);
+                    fullName = prefixPart + base + "ylboronic acid";
+                } else {
+                    QString stem = rootStr;
+                    if (stem.endsWith("e")) stem.chop(1);
+                    fullName = prefixPart + stem + QString("-%1-ylboronic acid").arg(bestSig.principalLocants[0]);
+                }
             } else {
                 QString stem = rootStr;
                 if (stem.endsWith("e") && !sfx.isEmpty() && isVowel(sfx[0])) stem.chop(1);
@@ -22901,6 +23345,8 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                      winningType == GroupType::SULFONAMIDE || winningType == GroupType::SULFINAMIDE);
                 if (omitSuffixLocant) {
                     fullName = prefixPart + stem + sfx;
+                } else if (monocyclicAddedHLocant > 0 && pCount == 1) {
+                    fullName = prefixPart + stem + QString("-%1(%2H)-%3").arg(bestSig.principalLocants[0]).arg(monocyclicAddedHLocant).arg(sfx);
                 } else {
                     QStringList lStrs;
                     for (int l : bestSig.principalLocants) lStrs.append(QString::number(l));
@@ -23155,7 +23601,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                     }
                 } else if (isChainParentWithRingSubstituentSupported(combinedWinner)) {
                     std::set<int> handledBranchStereoIds;
-                    QString chainName = nameChainParentWithRingSubstituent(mol, indigoToGraphIdx, g, ringNodeSet, allSSSRRings, carbonGroup, combinedWinner, stereoByGraphId, &handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide);
+                    QString chainName = nameChainParentWithRingSubstituent(mol, indigoToGraphIdx, g, ringNodeSet, allSSSRRings, carbonGroup, combinedWinner, stereoByGraphId, &handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide, ensureStereo);
                     if (!chainName.isEmpty()) {
                         std::set<int> pCarbons;
                         for (const auto &pair : carbonGroup) { if (pair.second == combinedWinner) pCarbons.insert(pair.first); }
@@ -23195,6 +23641,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
             std::set<std::pair<int, int>> handledBranchBonds;
         };
 
+        ensureStereo();
         std::set<int> naphthRingNodes(ring1Nodes.begin(), ring1Nodes.end());
         naphthRingNodes.insert(ring2Nodes.begin(), ring2Nodes.end());
         std::map<int, int> initialNaphthLocantMap;
@@ -23304,7 +23751,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                         if (carbonAzide.count(rNode) && ringNodeSet.count(rNode) > 0 && std::find(carbonAzide[rNode].begin(), carbonAzide[rNode].end(), nei) != carbonAzide[rNode].end()) {
                             subName = "azido";
                         } else if (isIsocyanateNitrogen(nei, rNode, g)) {
-                            subName = "isocyanato";
+                            subName = isocyanateSubstituentPrefix(nei, rNode, g);
                         } else if (isNitroNitrogen(nei, rNode, g)) {
                             subName = "nitro";
                         } else if (isNitrosoNitrogen(nei, rNode, g)) {
@@ -23723,14 +24170,14 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                     hName = "di" + halogenSuffixWord(hz);
                     sfx = (pCount == 1) ? ("arsonic " + hName) : ("diarsonic " + hName);
                 }
-                else if (winningType == GroupType::THIOL) sfx = (pCount == 1) ? "thiol" : "dithiol";
-                else if (winningType == GroupType::SELENOL) sfx = (pCount == 1) ? "selenol" : "diselenol";
-                else if (winningType == GroupType::TELLUROL) sfx = (pCount == 1) ? "tellurol" : "ditellurol";
-                else if (winningType == GroupType::ALCOHOL) sfx = (pCount == 1) ? "ol" : "diol";
-                else if (winningType == GroupType::HYDROPEROXIDE) sfx = (pCount == 1) ? "peroxol" : "diperoxol";
-                else if (winningType == GroupType::KETONE) sfx = (pCount == 1) ? "one" : "dione";
-                else if (winningType == GroupType::AMINE) sfx = (pCount == 1) ? "amine" : "diamine";
-                else if (winningType == GroupType::IMINE) sfx = (pCount == 1) ? "imine" : "diimine";
+                else if (winningType == GroupType::THIOL) sfx = ((pCount == 1) ? "" : multiPrefix(pCount)) + "thiol";
+                else if (winningType == GroupType::SELENOL) sfx = ((pCount == 1) ? "" : multiPrefix(pCount)) + "selenol";
+                else if (winningType == GroupType::TELLUROL) sfx = ((pCount == 1) ? "" : multiPrefix(pCount)) + "tellurol";
+                else if (winningType == GroupType::ALCOHOL) sfx = ((pCount == 1) ? "" : multiPrefix(pCount)) + "ol";
+                else if (winningType == GroupType::HYDROPEROXIDE) sfx = ((pCount == 1) ? "" : multiPrefix(pCount)) + "peroxol";
+                else if (winningType == GroupType::KETONE) sfx = ((pCount == 1) ? "" : multiPrefix(pCount)) + "one";
+                else if (winningType == GroupType::AMINE) sfx = ((pCount == 1) ? "" : multiPrefix(pCount)) + "amine";
+                else if (winningType == GroupType::IMINE) sfx = ((pCount == 1) ? "" : multiPrefix(pCount)) + "imine";
 
                 if (pCount == 1) {
                     QString root = (!sfx.isEmpty() && isVowel(sfx[0])) ? "naphthalen" : "naphthalene";
@@ -23843,7 +24290,13 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
 
                     if (nZ == 8 && order == 2) doubleO.push_back(nei);
                   else if (nZ == 16 && order == 2) doubleS.push_back(nei);
-                  else if (nZ == 7 && order == 2) doubleN.push_back(nei);
+                  else if (nZ == 7 && order == 2) {
+                      bool isEndoRingCN = false;
+                      for (const auto &r : allSSSRRings) {
+                          if (r.count(static_cast<int>(i)) && r.count(nei)) { isEndoRingCN = true; break; }
+                      }
+                      if (!isEndoRingCN) doubleN.push_back(nei);
+                  }
                     else if (nZ == 8 && order == 1) singleO.push_back(nei);
                     else if (nZ == 7 && order == 1) {
                         bool isNitroIsoOrAzide = false;
@@ -24721,6 +25174,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
             return {false, "", "Could not determine a valid parent chain for this structure."};
         }
         PathSignature bestSig = *bestIt;
+        ensureStereo();
         std::map<int, int> graphIdToLocant;
         for (size_t i = 0; i < bestSig.parentChain.size(); ++i) {
             graphIdToLocant[bestSig.parentChain[i]] = static_cast<int>(i + 1);
@@ -24760,8 +25214,9 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
             bool cNodeIsAcylPseudohalideAzide = winningType == GroupType::ACYL_HALIDE && acylHalideHalogen.count(cNode) &&
                 acylHalideHalogen[cNode] == -11;
             if (carbonIsocyanate.count(cNode) && !cNodeIsAcylPseudohalideIsocyanate) {
-                for (size_t nIdx = 0; nIdx < carbonIsocyanate[cNode].size(); ++nIdx) {
-                    locantSubstituents[locant].append("isocyanato");
+                for (int isoN : carbonIsocyanate[cNode]) {
+                    QString isoPfx = isocyanateSubstituentPrefix(isoN, cNode, g);
+                    if (!isoPfx.isEmpty()) locantSubstituents[locant].append(isoPfx);
                 }
             }
             if (carbonAzide.count(cNode) && !cNodeIsAcylPseudohalideAzide) {
@@ -25302,6 +25757,10 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
         QString fullName = prefixPart + rootStr + infix;
         int pCount = static_cast<int>(bestSig.principalLocants.size());
         if (winningType != GroupType::NONE) {
+            if (pCount <= 0 && winningType != GroupType::BORINIC_ACID && winningType != GroupType::PHOSPHINIC_ACID &&
+                winningType != GroupType::ARSINIC_ACID && winningType != GroupType::STIBINIC_ACID) {
+                return {false, "", "Principal characteristic group could not be placed on the parent chain."};
+            }
             QString stem = rootStr + infix;
             // Phase 54: per-class suffix is built by the shared helper so it
             // cannot drift from the chain-as-parent path. The acyl-halide
@@ -25788,6 +26247,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                         fullName = prefix + fullName;
                     }
 
+                    ensureStereo();
                     StereoResult stereoRes = formatStereoPrefix(stereoByGraphId, bestLocantOf, std::set<int>());
                     if (!stereoRes.ok) return {false, "", stereoRes.error};
                     
@@ -25837,7 +26297,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                 if (!ringHasHeteroatom && (chainCountWin > ringCountWin || (chainCountWin == ringCountWin && chainDeepCountWin > 0))) {
                     if (isChainParentWithRingSubstituentSupported(combinedWinner)) {
                         std::set<int> handledBranchStereoIds;
-                        QString chainName = nameChainParentWithRingSubstituent(mol, indigoToGraphIdx, g, allSSSRNodes, allSSSRRings, carbonGroup, combinedWinner, stereoByGraphId, &handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide);
+                        QString chainName = nameChainParentWithRingSubstituent(mol, indigoToGraphIdx, g, allSSSRNodes, allSSSRRings, carbonGroup, combinedWinner, stereoByGraphId, &handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide, ensureStereo);
                         if (!chainName.isEmpty()) {
                             return {true, chainName, ""};
                         }
@@ -25896,10 +26356,82 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                     if (g.nodes[n].atomicNumber != 6 && hwSeniorityRank(g.nodes[n].atomicNumber) == 99) { validPreconditions = false; break; }
                 }
 
+                // Blue Book P-23.2.6.3: benzene ortho-fused to a 3- or 4-membered carbocycle
+                // (e.g. bicyclo[4.2.0]octa-1,3,5-triene, bicyclo[4.1.0]hepta-1,3,5-triene)
+                // has no P-25 fusion PIN and is named by von Baeyer bicyclic nomenclature
+                // after localized Kekule bond assignment with non-compound double-bond locants.
+                Graph gBicycKek;
+                bool useBenzoSmallKekule = false;
+                if (validPreconditions && ((sssrRings[0].size() == 6 && (sssrRings[1].size() == 3 || sssrRings[1].size() == 4)) ||
+                                           (sssrRings[1].size() == 6 && (sssrRings[0].size() == 3 || sssrRings[0].size() == 4)))) {
+                    bool allC = true;
+                    for (int n : ringUnionNodes) if (g.nodes[n].atomicNumber != 6) { allC = false; break; }
+                    if (allC) {
+                        std::set<int> r1G, r2G;
+                        for (int idx : sssrRings[0]) if (indigoToGraphIdx.count(idx)) r1G.insert(indigoToGraphIdx[idx]);
+                        for (int idx : sssrRings[1]) if (indigoToGraphIdx.count(idx)) r2G.insert(indigoToGraphIdx[idx]);
+                        const std::set<int> &sixNodes = (r1G.size() == 6) ? r1G : r2G;
+                        const std::set<int> &smallNodes = (r1G.size() == 6) ? r2G : r1G;
+                        std::vector<int> sharedBH;
+                        for (int n : sixNodes) if (smallNodes.count(n)) sharedBH.push_back(n);
+                        if (sharedBH.size() == 2) {
+                            int bhA = sharedBH[0], bhB = sharedBH[1];
+                            bool bhBonded = false;
+                            for (int nei : g.nodes[bhA].neighbors) if (nei == bhB) { bhBonded = true; break; }
+                            bool sixAllArom = true, smallNonArom = true;
+                            for (const auto &gb : g.bonds) {
+                                if (sixNodes.count(gb.u) && sixNodes.count(gb.v)) {
+                                    if (gb.order != 4) sixAllArom = false;
+                                } else if (smallNodes.count(gb.u) && smallNodes.count(gb.v)) {
+                                    if (gb.order != 1 && gb.order != 2) smallNonArom = false;
+                                }
+                            }
+                            if (bhBonded && sixAllArom && smallNonArom) {
+                                std::vector<int> cycle6 = {bhA, bhB};
+                                int prev = bhA, cur = bhB;
+                                while (cycle6.size() < 6) {
+                                    int nxt = -1;
+                                    for (int nei : g.nodes[cur].neighbors) {
+                                        if (sixNodes.count(nei) && nei != prev) { nxt = nei; break; }
+                                    }
+                                    if (nxt == -1) break;
+                                    cycle6.push_back(nxt);
+                                    prev = cur; cur = nxt;
+                                }
+                                bool closed = (cycle6.size() == 6);
+                                if (closed) {
+                                    bool back = false;
+                                    for (int nei : g.nodes[cycle6.back()].neighbors) if (nei == bhA) { back = true; break; }
+                                    closed = back;
+                                }
+                                if (closed) {
+                                    gBicycKek = g;
+                                    auto setKekOrder = [&](int u, int v, int ord) {
+                                        for (auto &gb : gBicycKek.bonds) {
+                                            if ((gb.u == u && gb.v == v) || (gb.u == v && gb.v == u)) gb.order = ord;
+                                        }
+                                        for (size_t k = 0; k < gBicycKek.nodes[u].neighbors.size(); ++k) {
+                                            if (gBicycKek.nodes[u].neighbors[k] == v) gBicycKek.nodes[u].bondOrders[k] = ord;
+                                        }
+                                        for (size_t k = 0; k < gBicycKek.nodes[v].neighbors.size(); ++k) {
+                                            if (gBicycKek.nodes[v].neighbors[k] == u) gBicycKek.nodes[v].bondOrders[k] = ord;
+                                        }
+                                    };
+                                    for (int k = 0; k < 6; ++k) {
+                                        setKekOrder(cycle6[k], cycle6[(k + 1) % 6], (k % 2 == 0) ? 1 : 2);
+                                    }
+                                    useBenzoSmallKekule = true;
+                                }
+                            }
+                        }
+                    }
+                }
+                const Graph &bg = useBenzoSmallKekule ? gBicycKek : g;
+
                 // No bond within the ring union may have an invalid order (aromaticity out of scope,
                 // but double/triple bonds are permitted).
                 if (validPreconditions) {
-                    for (const auto &gb : g.bonds) {
+                    for (const auto &gb : bg.bonds) {
                         if (ringUnionNodes.count(gb.u) && ringUnionNodes.count(gb.v) && gb.order != 1 && gb.order != 2 && gb.order != 3) {
                             validPreconditions = false; break;
                         }
@@ -25908,11 +26440,11 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
 
                 bool bicyclicSkeletonValid = validPreconditions;
                 if (bicyclicSkeletonValid) {
-                    BicyclicEvalResult evalCheck = evaluateBicyclicSystem(g, ringUnionNodes, {});
+                    BicyclicEvalResult evalCheck = evaluateBicyclicSystem(bg, ringUnionNodes, {});
                     if (!evalCheck.valid) {
                         bicyclicSkeletonValid = false;
-                    } else if (evalCheck.lengths.size() == 3 && evalCheck.lengths[2] == 0) {
-                        for (const auto &gb : g.bonds) {
+                    } else if (evalCheck.lengths.size() == 3 && evalCheck.lengths[2] == 0 && !useBenzoSmallKekule) {
+                        for (const auto &gb : bg.bonds) {
                             if (ringUnionNodes.count(gb.u) && ringUnionNodes.count(gb.v) && gb.order != 1) {
                                 bicyclicSkeletonValid = false;
                                 break;
@@ -26125,7 +26657,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                     if (!ringHasHeteroatom && (chainCountWin > ringCountWin || (chainCountWin == ringCountWin && chainDeepCountWin > 0))) {
                         if (isChainParentWithRingSubstituentSupported(combinedWinner)) {
                             std::set<int> handledBranchStereoIds;
-                            QString chainName = nameChainParentWithRingSubstituent(mol, indigoToGraphIdx, g, ringUnionNodes, allSSSRRings, carbonGroup, combinedWinner, stereoByGraphId, &handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide);
+                            QString chainName = nameChainParentWithRingSubstituent(mol, indigoToGraphIdx, g, ringUnionNodes, allSSSRRings, carbonGroup, combinedWinner, stereoByGraphId, &handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide, ensureStereo);
                             if (!chainName.isEmpty()) {
                                 return {true, chainName, ""};
                             }
@@ -26140,7 +26672,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                     }
                     // Bridgehead identification: ring atoms with ring-degree 3.
                     
-                    BicyclicEvalResult evalRes = evaluateBicyclicSystem(g, ringUnionNodes, ringSubstituents, principalRingAtoms);
+                    BicyclicEvalResult evalRes = evaluateBicyclicSystem(bg, ringUnionNodes, ringSubstituents, principalRingAtoms);
                     if (evalRes.valid) {
                     if (true) {
                     if (true) {
@@ -26193,13 +26725,13 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                                     QString heteroPrefix = buildSkeletalReplacementPrefix(locantsByZ, false);
                                     if (!heteroPrefix.isEmpty()) {
                                         if (prefixPart.isEmpty()) prefixPart = heteroPrefix;
-                                        else prefixPart = heteroPrefix + "-" + prefixPart;
+                                        else prefixPart = prefixPart + "-" + heteroPrefix;
                                     }
 
                                     std::vector<std::pair<int, int>> dbLocs = best.doubleBondLocants;
                                     std::vector<std::pair<int, int>> tbLocs = best.tripleBondLocants;
 
-                                    if (lengths[2] == 0 && (!dbLocs.empty() || !tbLocs.empty())) {
+                                    if (lengths[2] == 0 && (!dbLocs.empty() || !tbLocs.empty()) && !useBenzoSmallKekule) {
                                         // Unsaturated ortho-fused rings fall through to fusion nomenclature
                                     } else {
                                         auto formatBondLoc = [](const std::pair<int, int> &p) -> QString {
@@ -26274,6 +26806,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                                             }
                                         }
 
+                                        ensureStereo();
                                         StereoResult stereoRes = formatStereoPrefix(stereoByGraphId, best.locantOf, std::set<int>());
                                         if (!stereoRes.ok) return {false, "", stereoRes.error};
 
@@ -26302,8 +26835,26 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
             }
         }
 
+        bool hasHeteroAtomPoly = false;
         for (int n : ringUnionNodes) {
-            if (g.nodes[n].atomicNumber != 6) { validPreconditions = false; break; }
+            if (g.nodes[n].atomicNumber != 6) {
+                hasHeteroAtomPoly = true;
+                if (hwSeniorityRank(g.nodes[n].atomicNumber) == 99) { validPreconditions = false; break; }
+            }
+        }
+        if (validPreconditions && hasHeteroAtomPoly) {
+            // Only route heteroatom polycycles through von Baeyer (e.g. methenamine) when
+            // at least one ring pair is truly bridged (shares >= 3 atoms), leaving
+            // ortho-fused saturated heterocycles (shared <= 2) for fusion naming.
+            bool hasBridgedPair = false;
+            for (size_t i = 0; i < allSSSRRings.size() && !hasBridgedPair; ++i) {
+                for (size_t j = i + 1; j < allSSSRRings.size(); ++j) {
+                    int cnt = 0;
+                    for (int a : allSSSRRings[i]) if (allSSSRRings[j].count(a)) cnt++;
+                    if (cnt >= 3) { hasBridgedPair = true; break; }
+                }
+            }
+            if (!hasBridgedPair) validPreconditions = false;
         }
         if (validPreconditions) {
             for (const auto &gb : g.bonds) {
@@ -26398,7 +26949,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
             if (chainCountWin > ringCountWin || (chainCountWin == ringCountWin && chainDeepCountWin > 0)) {
                 if (isChainParentWithRingSubstituentSupported(combinedWinner)) {
                     std::set<int> handledBranchStereoIds;
-                    QString chainName = nameChainParentWithRingSubstituent(mol, indigoToGraphIdx, g, ringUnionNodes, allSSSRRings, carbonGroup, combinedWinner, stereoByGraphId, &handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide);
+                    QString chainName = nameChainParentWithRingSubstituent(mol, indigoToGraphIdx, g, ringUnionNodes, allSSSRRings, carbonGroup, combinedWinner, stereoByGraphId, &handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide, ensureStereo);
                     if (!chainName.isEmpty()) {
                         return {true, chainName, ""};
                     }
@@ -26442,10 +26993,12 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                 bool outRejected = false;
                 QString baseName = buildPolycyclicBaseName(g, ringUnionNodes, evalRes, best, outRejected);
                 if (!outRejected && !baseName.isEmpty()) {
+                    ensureStereo();
                     StereoResult stereoRes = formatStereoPrefix(stereoByGraphId, best.locantOf, std::set<int>());
                     if (!stereoRes.ok) return {false, "", stereoRes.error};
 
-                    QString fullName = stereoRes.prefix + prefixPart + baseName;
+                    QString sep = (!prefixPart.isEmpty() && !baseName.isEmpty() && baseName[0].isDigit()) ? "-" : "";
+                    QString fullName = stereoRes.prefix + prefixPart + sep + baseName;
                     return {true, fullName, ""};
                 }
             }
@@ -27113,21 +27666,608 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
         }
     }
 
+// --- Phase 29.4b: Polycyclic-Polycyclic Identical Monospiro (P-24.3: l1,l2'-spirobi[stem]) ---
+    if (ringCount >= 4 && static_cast<int>(allSSSRRings.size()) == ringCount) {
+        std::vector<int> sbParent(ringCount);
+        for (int i = 0; i < ringCount; ++i) sbParent[i] = i;
+        auto sbFind = [&](int x) {
+            while (sbParent[x] != x) x = sbParent[x];
+            return x;
+        };
+        for (int i = 0; i < ringCount; ++i) {
+            for (int j = i + 1; j < ringCount; ++j) {
+                int sh = 0;
+                for (int a : allSSSRRings[i]) if (allSSSRRings[j].count(a)) sh++;
+                if (sh >= 2) {
+                    int ri = sbFind(i), rj = sbFind(j);
+                    if (ri != rj) sbParent[ri] = rj;
+                }
+            }
+        }
+        std::map<int, std::vector<int>> sbComps;
+        for (int i = 0; i < ringCount; ++i) sbComps[sbFind(i)].push_back(i);
+        if (sbComps.size() == 2) {
+            auto itA = sbComps.begin();
+            auto itB = std::next(itA);
+            const std::vector<int> &compRingsA = itA->second;
+            const std::vector<int> &compRingsB = itB->second;
+            if (compRingsA.size() >= 2 && compRingsB.size() >= 2) {
+                std::set<int> nodesA, nodesB;
+                for (int ri : compRingsA) nodesA.insert(allSSSRRings[ri].begin(), allSSSRRings[ri].end());
+                for (int ri : compRingsB) nodesB.insert(allSSSRRings[ri].begin(), allSSSRRings[ri].end());
+                std::vector<int> inter;
+                for (int n : nodesA) if (nodesB.count(n)) inter.push_back(n);
+                bool hasDirectBondAB = false;
+                if (inter.size() == 1) {
+                    for (int n : nodesA) {
+                        if (n == inter[0]) continue;
+                        for (int nei : g.nodes[n].neighbors) {
+                            if (nodesB.count(nei) && nei != inter[0]) { hasDirectBondAB = true; break; }
+                        }
+                        if (hasDirectBondAB) break;
+                    }
+                }
+                if (inter.size() == 1 && !hasDirectBondAB) {
+                    int spiroAtom = inter[0];
+                    std::map<int, int> graphToIndigo;
+                    for (const auto &kv : indigoToGraphIdx) graphToIndigo[kv.second] = kv.first;
+                    std::vector<std::set<int>> indRingsA, indRingsB;
+                    for (int ri : compRingsA) {
+                        std::set<int> ir;
+                        for (int n : allSSSRRings[ri]) if (graphToIndigo.count(n)) ir.insert(graphToIndigo[n]);
+                        indRingsA.push_back(std::move(ir));
+                    }
+                    for (int ri : compRingsB) {
+                        std::set<int> ir;
+                        for (int n : allSSSRRings[ri]) if (graphToIndigo.count(n)) ir.insert(graphToIndigo[n]);
+                        indRingsB.push_back(std::move(ir));
+                    }
+                    std::vector<RingSystemNameResult> candsA, candsB;
+                    auto resA = tryRetainedBaseDecomposition(mol, &indRingsA, &candsA);
+                    auto resB = tryRetainedBaseDecomposition(mol, &indRingsB, &candsB);
+                    if (resA && resB && resA->success && resB->success) {
+                        auto splitBaseName = [](const QString &raw, QString &outHydro, QString &outIH, QString &outStem) {
+                            static const QRegularExpression re("^(?:([0-9a-z,]+)-(?:di|tri|tetra|hexa|octa|deca)?hydro-?)?(?:([0-9]+)H-)?(.+)$");
+                            auto m = re.match(raw);
+                            if (!m.hasMatch()) { outStem = raw; return; }
+                            outHydro = m.captured(1);
+                            outIH = m.captured(2);
+                            outStem = m.captured(3);
+                        };
+                        QString hydA, ihA, stemA, hydB, ihB, stemB;
+                        splitBaseName(resA->baseName, hydA, ihA, stemA);
+                        splitBaseName(resB->baseName, hydB, ihB, stemB);
+                        if (!stemA.isEmpty() && stemA == stemB && hydA == hydB && !hasSeniorPrincipalGroup(g)) {
+                            if (candsA.empty()) candsA.push_back(*resA);
+                            if (candsB.empty()) candsB.push_back(*resB);
+                            std::set<int> allUnion = nodesA;
+                            allUnion.insert(nodesB.begin(), nodesB.end());
+                            std::vector<std::pair<int, QString>> subsA, subsB;
+                            bool subsOk = true;
+                            for (int n : allUnion) {
+                                for (int nei : g.nodes[n].neighbors) {
+                                    if (allUnion.count(nei) || g.nodes[nei].atomicNumber == 1) continue;
+                                    QString sName = nameFusedRingSubstituent(g, n, nei, allUnion, allSSSRRings, mol, false);
+                                    if (sName.isEmpty()) sName = nameBranchGraph(g, nei, n, allSSSRRings, allUnion, {}, nullptr, mol);
+                                    if (sName.isEmpty()) { subsOk = false; break; }
+                                    if (sName.startsWith("(") && sName.endsWith(")")) {
+                                        QString inner = sName.mid(1, sName.length() - 2);
+                                        if (!inner.isEmpty() && !inner[0].isDigit()) sName = inner;
+                                    }
+                                    if (nodesA.count(n)) subsA.push_back({n, sName});
+                                    else subsB.push_back({n, sName});
+                                }
+                                if (!subsOk) break;
+                            }
+                            if (subsOk) {
+                                struct SpiroBiChoice {
+                                    int sp0, sp1;
+                                    std::vector<std::pair<int, int>> sortedSubLocs;
+                                    QString fullName;
+                                };
+                                std::optional<SpiroBiChoice> bestSB;
+                                auto evalSB = [&](const std::vector<RingSystemNameResult> &c1, const QString &h1, const QString &ih1,
+                                                  const std::vector<std::pair<int, QString>> &s1,
+                                                  const std::vector<RingSystemNameResult> &c2, const QString &h2, const QString &ih2,
+                                                  const std::vector<std::pair<int, QString>> &s2) {
+                                    for (const auto &ca : c1) {
+                                        std::map<int, int> m1;
+                                        for (const auto &kv : ca.locantMap) {
+                                            if (!indigoToGraphIdx.count(kv.first)) continue;
+                                            bool ok = false; int v = kv.second.toInt(&ok);
+                                            if (ok) m1[indigoToGraphIdx.at(kv.first)] = v;
+                                        }
+                                        if (!m1.count(spiroAtom)) continue;
+                                        bool ok1 = true;
+                                        for (const auto &ps : s1) if (!m1.count(ps.first)) { ok1 = false; break; }
+                                        if (!ok1) continue;
+
+                                        for (const auto &cb : c2) {
+                                            std::map<int, int> m2;
+                                            for (const auto &kv : cb.locantMap) {
+                                                if (!indigoToGraphIdx.count(kv.first)) continue;
+                                                bool ok = false; int v = kv.second.toInt(&ok);
+                                                if (ok) m2[indigoToGraphIdx.at(kv.first)] = v;
+                                            }
+                                            if (!m2.count(spiroAtom)) continue;
+                                            bool ok2 = true;
+                                            for (const auto &ps : s2) if (!m2.count(ps.first)) { ok2 = false; break; }
+                                            if (!ok2) continue;
+
+                                            int l1 = m1[spiroAtom], l2 = m2[spiroAtom];
+                                            QString effIH = "";
+                                            bool needIH1 = !ih1.isEmpty() && ih1.toInt() != l1;
+                                            bool needIH2 = !ih2.isEmpty() && ih2.toInt() != l2;
+                                            if (needIH1 && needIH2) effIH = ih1 + "H," + ih2 + "'H-";
+                                            else if (needIH1) effIH = ih1 + "H-";
+                                            else if (needIH2) effIH = ih2 + "'H-";
+
+                                            QString effHydro;
+                                            if (!h1.isEmpty() || !h2.isEmpty()) {
+                                                std::vector<QString> hToks;
+                                                if (!h1.isEmpty()) for (const auto &t : h1.split(',', Qt::SkipEmptyParts)) hToks.push_back(t);
+                                                if (!h2.isEmpty()) for (const auto &t : h2.split(',', Qt::SkipEmptyParts)) hToks.push_back(t + "'");
+                                                std::sort(hToks.begin(), hToks.end(), locantLess);
+                                                QStringList hq; for (const auto &t : hToks) hq.append(t);
+                                                QString hp = multiPrefix(static_cast<int>(hq.size())) + "hydro";
+                                                effHydro = hq.join(",") + "-" + hp + "-";
+                                            }
+
+                                            std::vector<std::pair<int, int>> allSubLocs;
+                                            std::map<QString, std::vector<std::pair<int, int>>> grouped;
+                                            for (const auto &ps : s1) {
+                                                allSubLocs.push_back({m1[ps.first], 0});
+                                                grouped[ps.second].push_back({m1[ps.first], 0});
+                                            }
+                                            for (const auto &ps : s2) {
+                                                allSubLocs.push_back({m2[ps.first], 1});
+                                                grouped[ps.second].push_back({m2[ps.first], 1});
+                                            }
+                                            std::sort(allSubLocs.begin(), allSubLocs.end());
+                                            struct SPfx { QString key, text; };
+                                            std::vector<SPfx> pGroups;
+                                            for (auto &kv : grouped) {
+                                                std::sort(kv.second.begin(), kv.second.end());
+                                                QStringList ls;
+                                                for (const auto &lp : kv.second) ls.append(QString::number(lp.first) + (lp.second == 1 ? "'" : ""));
+                                                QString mp = (kv.second.size() > 1) ? multiPrefix(static_cast<int>(kv.second.size())) : QString();
+                                                pGroups.push_back({alphabetizationKey(kv.first).toLower(), ls.join(",") + "-" + mp + kv.first});
+                                            }
+                                            std::sort(pGroups.begin(), pGroups.end(), [](const SPfx &x, const SPfx &y) { return x.key < y.key; });
+                                            QStringList pp; for (const auto &pg : pGroups) pp.append(pg.text);
+                                            QString subPfx = pp.join("-");
+                                            QString core = QString("%1%2%3,%4'-spirobi[%5]").arg(effHydro, effIH).arg(l1).arg(l2).arg(stemA);
+                                            QString fullName = subPfx.isEmpty() ? core : (subPfx + "-" + core);
+                                            SpiroBiChoice ch{l1, l2, std::move(allSubLocs), fullName};
+                                            auto isBetterSB = [](const SpiroBiChoice &a, const SpiroBiChoice &b) {
+                                                if (a.sp0 != b.sp0) return a.sp0 < b.sp0;
+                                                if (a.sp1 != b.sp1) return a.sp1 < b.sp1;
+                                                if (a.sortedSubLocs != b.sortedSubLocs) return a.sortedSubLocs < b.sortedSubLocs;
+                                                return a.fullName < b.fullName;
+                                            };
+                                            if (!bestSB || isBetterSB(ch, *bestSB)) bestSB = std::move(ch);
+                                        }
+                                    }
+                                };
+                                evalSB(candsA, hydA, ihA, subsA, candsB, hydB, ihB, subsB);
+                                evalSB(candsB, hydB, ihB, subsB, candsA, hydA, ihA, subsA);
+                                if (bestSB) return {true, bestSB->fullName, "", NamingStatus::SystematicIupacName};
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    struct PreparedFusedContext {
+        bool supported = true;
+        QString unsupportedError;
+        FusedParentContext ctx;
+        std::vector<std::pair<int, QString>> extraSubs;
+    };
+    auto prepareFusedParentContext = [&](const std::set<int> &ringNodeSet,
+                                          const FunctionalGroupClassification &fgc) -> PreparedFusedContext {
+        PreparedFusedContext out;
+        GroupType winningType = fgc.winningRingGroup;
+        const std::map<int, GroupType> &carbonGroup = fgc.carbonGroup;
+
+        std::set<int> principalCarbons;
+        if (winningType != GroupType::NONE) {
+            for (const auto &pair : carbonGroup) {
+                int cNode = pair.first;
+                if (pair.second != winningType) continue;
+                bool isOnOrExocyclic = ringNodeSet.count(cNode) > 0;
+                if (!isOnOrExocyclic) {
+                    for (int nei : g.nodes[cNode].neighbors) {
+                        if (ringNodeSet.count(nei) > 0) { isOnOrExocyclic = true; break; }
+                    }
+                }
+                if (isOnOrExocyclic) principalCarbons.insert(cNode);
+            }
+        }
+
+        if (winningType == GroupType::SULFONAMIDE) {
+            // Sulfonamide on benzo-heterocycles is cited as prefix (sulfamoyl) for Phase 31 compatibility
+            winningType = GroupType::NONE;
+            principalCarbons.clear();
+        } else {
+            auto unsubRes = checkPrincipalHeteroatomsUnsubstituted(g, principalCarbons, winningType, ringNodeSet);
+            if (unsubRes.hasError) {
+                if (winningType == GroupType::AMINE) {
+                    // Substituted secondary/tertiary amines fall back to prefix citation
+                    winningType = GroupType::NONE;
+                    principalCarbons.clear();
+                } else {
+                    out.supported = false;
+                    out.unsupportedError = unsubRes.msg;
+                    return out;
+                }
+            }
+        }
+
+        // Narrowed first-release suffix scope (Wave 3 Part 2): the ring-carbon
+        // heteroatom suffixes and the exocyclic-carbon suffixes nameNaphthaleneFusion
+        // already supports. Anything else (ESTER, ACYL_HALIDE, halide-class
+        // suffixes, P/As/Sb acids) is correctly left unsupported here -- those
+        // molecules keep today's existing rejection message, zero regression.
+        int pCount = static_cast<int>(principalCarbons.size());
+        QString bareWord;
+        bool exocyclicCarbonSuffix = false;
+        if (winningType == GroupType::ALCOHOL) bareWord = "ol";
+        else if (winningType == GroupType::KETONE) bareWord = "one";
+        else if (winningType == GroupType::AMINE) bareWord = "amine";
+        else if (winningType == GroupType::THIOL) bareWord = "thiol";
+        else if (winningType == GroupType::SELENOL) bareWord = "selenol";
+        else if (winningType == GroupType::TELLUROL) bareWord = "tellurol";
+        else if (winningType == GroupType::IMINE) bareWord = "imine";
+        else if (winningType == GroupType::HYDROPEROXIDE) bareWord = "peroxol";
+        else if (winningType == GroupType::SULFONIC_ACID) bareWord = "sulfonic acid";
+        else if (winningType == GroupType::SULFONAMIDE) bareWord = "sulfonamide";
+        else if (winningType == GroupType::SULFINIC_ACID) bareWord = "sulfinic acid";
+        else if (winningType == GroupType::SULFINAMIDE) bareWord = "sulfinamide";
+        else if (winningType == GroupType::ACID) { bareWord = "carboxylic acid"; exocyclicCarbonSuffix = true; }
+        else if (winningType == GroupType::AMIDE) { bareWord = "carboxamide"; exocyclicCarbonSuffix = true; }
+        else if (winningType == GroupType::THIOAMIDE) { bareWord = "carbothioamide"; exocyclicCarbonSuffix = true; }
+        else if (winningType == GroupType::HYDRAZIDE) { bareWord = "carbohydrazide"; exocyclicCarbonSuffix = true; }
+        else if (winningType == GroupType::AMIDINE) { bareWord = "carboximidamide"; exocyclicCarbonSuffix = true; }
+        else if (winningType == GroupType::NITRILE) { bareWord = "carbonitrile"; exocyclicCarbonSuffix = true; }
+        else if (winningType == GroupType::ALDEHYDE) { bareWord = "carbaldehyde"; exocyclicCarbonSuffix = true; }
+        else if (winningType == GroupType::ESTER) {
+            bareWord = "carboxylate";
+            exocyclicCarbonSuffix = true;
+            int esterCarbon = -1;
+            for (int pc : principalCarbons) {
+                if (carbonGroup.count(pc) && carbonGroup.at(pc) == GroupType::ESTER) {
+                    esterCarbon = pc;
+                    break;
+                }
+            }
+            if (esterCarbon != -1 && fgc.esterAlkylRoot.count(esterCarbon) && fgc.esterOxygen.count(esterCarbon)) {
+                int alkylRoot = fgc.esterAlkylRoot.at(esterCarbon);
+                int sO = fgc.esterOxygen.at(esterCarbon);
+                QString alkylName = nameBranchGraph(g, alkylRoot, sO, allSSSRRings, ringNodeSet, {}, nullptr, mol);
+                if (alkylName.isEmpty()) {
+                    out.supported = false;
+                    out.unsupportedError = "Substituents on fused ring systems named via this mechanism are not yet supported.";
+                    return out;
+                }
+                out.ctx.esterPrefix = alkylName;
+            }
+        }
+        else if (winningType == GroupType::ACYL_HALIDE) {
+            int hz = 17;
+            for (int pc : principalCarbons) {
+                if (fgc.acylHalideHalogen.count(pc)) { hz = fgc.acylHalideHalogen.at(pc); break; }
+            }
+            QString hName = halogenSuffixWord(hz);
+            bareWord = "carbonyl " + hName;
+            exocyclicCarbonSuffix = true;
+        }
+
+        if (winningType != GroupType::NONE && bareWord.isEmpty()) {
+            out.supported = false;
+            out.unsupportedError = "Substituents on fused ring systems named via this mechanism are not yet supported.";
+            return out;
+        }
+
+        if (!bareWord.isEmpty()) {
+            out.ctx.suffixWord = (pCount == 1) ? bareWord : (multiPrefix(pCount) + bareWord);
+            out.ctx.elideTerminalE = isVowel(out.ctx.suffixWord.at(0));
+            for (int pc : principalCarbons) {
+                if (exocyclicCarbonSuffix) {
+                    // pc is the exocyclic defining carbon (e.g. the -COOH carbon);
+                    // the suffix locant belongs to its RING neighbor.
+                    int ringNei = -1;
+                    for (int nei : g.nodes[pc].neighbors) {
+                        if (ringNodeSet.count(nei)) { ringNei = nei; break; }
+                    }
+                    if (ringNei == -1) {
+                        out.supported = false;
+                        out.unsupportedError = "Substituents on fused ring systems named via this mechanism are not yet supported.";
+                        return out;
+                    }
+                    out.ctx.principalRingAtoms.push_back(ringNei);
+                    out.ctx.handledExocyclicNeighbors.insert(pc);
+                } else {
+                    // pc is the ring atom itself; the defining heteroatom neighbor
+                    // (and nothing else) is what the generic prefix scan must skip.
+                    out.ctx.principalRingAtoms.push_back(pc);
+                    for (int nei : g.nodes[pc].neighbors) {
+                        if (ringNodeSet.count(nei)) continue;
+                        int nz = g.nodes[nei].atomicNumber;
+                        bool isAzide = (carbonAzide.count(pc) && std::find(carbonAzide[pc].begin(), carbonAzide[pc].end(), nei) != carbonAzide[pc].end());
+                        if (!isAzide && (nz == 7 || nz == 8 || nz == 16 || nz == 34 || nz == 52)) {
+                            out.ctx.handledExocyclicNeighbors.insert(nei);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Partition every remaining exocyclic bond: let the caller's own
+        // simpleRingSubstituentName handle plain alkyl/halogen (by leaving it
+        // alone here), and classify everything else (the same per-neighbor
+        // switch nameNaphthaleneFusion uses) into out.extraSubs.
+        for (int rNode : ringNodeSet) {
+            for (size_t j = 0; j < g.nodes[rNode].neighbors.size(); ++j) {
+                int nei = g.nodes[rNode].neighbors[j];
+                int order = g.nodes[rNode].bondOrders[j];
+                if (ringNodeSet.count(nei)) continue;
+                if (g.nodes[nei].atomicNumber == 1) continue;
+                if (out.ctx.handledExocyclicNeighbors.count(nei)) continue;
+
+                QString existingName = nameFusedRingSubstituent(g, rNode, nei, ringNodeSet, allSSSRRings, mol, true);
+                if (!existingName.isEmpty()) continue; // native path handles it
+
+                int nz = g.nodes[nei].atomicNumber;
+                QString subName;
+                if (nz == 9 || nz == 17 || nz == 35 || nz == 53) {
+                    subName = halogenPrefix(nz);
+                } else if (nz == 8) {
+                    if (order == 1) {
+                        if (fgc.etherOxygens.count(nei)) {
+                            int alkylNei = -1;
+                            for (int oNei : g.nodes[nei].neighbors) {
+                                if (oNei != rNode) { alkylNei = oNei; break; }
+                            }
+                            if (alkylNei != -1) {
+                                QString alkylName = nameBranchGraph(g, alkylNei, nei, allSSSRRings, ringNodeSet, {}, nullptr, mol);
+                                if (!alkylName.isEmpty()) {
+                                    if (alkylName.startsWith("(") && alkylName.endsWith(")")) {
+                                        // Substituted phenyl still contracts to phenoxy, same
+                                        // as the bare "phenyl" case below (see nameBranchGraph's
+                                        // own ether dispatch for the full explanation).
+                                        QString inner = alkylName.mid(1, alkylName.length() - 2);
+                                        if (inner.endsWith("phenyl")) {
+                                            inner.chop(2);
+                                            subName = "(" + inner + "oxy)";
+                                        } else {
+                                            subName = alkylName + "oxy";
+                                        }
+                                    } else if (alkylName == "methyl" || alkylName == "ethyl" || alkylName == "propyl" || alkylName == "butyl" || alkylName == "phenyl") {
+                                        alkylName.chop(2); alkylName += "oxy";
+                                        subName = alkylName;
+                                    } else if (alkylName.endsWith("yl") && !alkylName.contains('(') && !alkylName.contains('[') &&
+                                               !std::any_of(alkylName.begin(), alkylName.end(), [](QChar c) { return c.isDigit(); })) {
+                                        alkylName += "oxy";
+                                        subName = alkylName;
+                                    } else {
+                                        subName = "(" + alkylName + ")oxy";
+                                    }
+                                }
+                            }
+                        } else if (winningType != GroupType::ALCOHOL) {
+                            subName = "hydroxy";
+                        }
+                    } else if (order == 2) {
+                        if (winningType != GroupType::ALDEHYDE && winningType != GroupType::KETONE) {
+                            subName = "oxo";
+                        }
+                    }
+                } else if (nz == 7) {
+                    bool isAzide = false;
+                    for (size_t k = 0; k < g.nodes[nei].neighbors.size(); ++k) {
+                        int nNei = g.nodes[nei].neighbors[k];
+                        if (g.nodes[nei].bondOrders[k] >= 2 && isAzideNitrogen(nNei, nei, g)) { isAzide = true; break; }
+                    }
+                    if (carbonAzide.count(rNode) && std::find(carbonAzide[rNode].begin(), carbonAzide[rNode].end(), nei) != carbonAzide[rNode].end()) {
+                        subName = "azido";
+                    } else if (isIsocyanateNitrogen(nei, rNode, g)) {
+                        subName = isocyanateSubstituentPrefix(nei, rNode, g);
+                    } else if (isNitroNitrogen(nei, rNode, g)) {
+                        subName = "nitro";
+                    } else if (isNitrosoNitrogen(nei, rNode, g)) {
+                        subName = "nitroso";
+                    } else if (!isAzide && order == 1 && winningType != GroupType::AMINE) {
+                        QString amidoName = tryNameAmidoSubstituent(nei, rNode, g, allSSSRRings, mol);
+                        if (!amidoName.isEmpty()) {
+                            subName = amidoName;
+                        } else if (isHydrazinylNitrogen(nei, rNode, g)) {
+                            subName = "hydrazinyl";
+                        } else {
+                            subName = nameAmineSubstituentPrefix(nei, rNode, g, allSSSRRings, {}, mol);
+                        }
+                    } else if (!isAzide && order == 2 && fgc.carbonImine.count(rNode) && fgc.carbonImine.at(rNode) == nei && winningType != GroupType::IMINE) {
+                        subName = "imino";
+                    }
+                } else if (nz == 16) {
+                    if (carbonSulfonicAcid.count(rNode) && carbonSulfonicAcid[rNode] == nei && winningType != GroupType::SULFONIC_ACID) {
+                        subName = "sulfo";
+                    } else if (carbonSulfonamide.count(rNode) && carbonSulfonamide[rNode] == nei && winningType != GroupType::SULFONAMIDE) {
+                        subName = "sulfamoyl";
+                    } else if (carbonSulfonylHalide.count(rNode) && carbonSulfonylHalide[rNode] == nei && winningType != GroupType::SULFONYL_HALIDE) {
+                        subName = halogenPrefix(sulfonylHalideZ[rNode]) + "sulfonyl";
+                    } else if (carbonSulfinylHalide.count(rNode) && carbonSulfinylHalide[rNode] == nei && winningType != GroupType::SULFINYL_HALIDE) {
+                        subName = halogenPrefix(sulfinylHalideZ[rNode]) + "sulfinyl";
+                    } else if (carbonSulfinicAcid.count(rNode) && carbonSulfinicAcid[rNode] == nei && winningType != GroupType::SULFINIC_ACID) {
+                        subName = "sulfino";
+                    } else if (carbonSulfinamide.count(rNode) && carbonSulfinamide[rNode] == nei && winningType != GroupType::SULFINAMIDE) {
+                        subName = "sulfinamoyl";
+                    } else if (fgc.carbonHydroperoxide.count(rNode) && fgc.carbonHydroperoxide.at(rNode) == nei && winningType != GroupType::HYDROPEROXIDE) {
+                        subName = "hydroperoxy";
+                    } else if (carbonThiol.count(rNode) && carbonThiol[rNode] == nei && winningType != GroupType::THIOL) {
+                        subName = "sulfanyl";
+                    } else if (order == 1) {
+                        if (thioetherSulfurs.count(nei)) {
+                            int alkylNei = -1;
+                            for (int sNei : g.nodes[nei].neighbors) { if (sNei != rNode) { alkylNei = sNei; break; } }
+                            if (alkylNei != -1) {
+                                QString alkylName = nameBranchGraph(g, alkylNei, nei, allSSSRRings, {}, {}, nullptr, mol);
+                                if (!alkylName.isEmpty()) subName = wrapCompoundSuffix(alkylName, "sulfanyl");
+                            }
+                        }
+                    }
+                } else if (nz == 34) {
+                    if (carbonSelenol.count(rNode) && carbonSelenol[rNode] == nei && winningType != GroupType::SELENOL) {
+                        subName = "selanyl";
+                    }
+                } else if (nz == 52) {
+                    if (carbonTellurol.count(rNode) && carbonTellurol[rNode] == nei && winningType != GroupType::TELLUROL) {
+                        subName = "tellanyl";
+                    }
+                } else if (nz == 15) {
+                    if (carbonPhosphonicAcid.count(rNode) && carbonPhosphonicAcid[rNode] == nei && winningType != GroupType::PHOSPHONIC_ACID) {
+                        subName = "phosphono";
+                    }
+                } else if (nz == 33) {
+                    if (carbonArsonicAcid.count(rNode) && carbonArsonicAcid[rNode] == nei && winningType != GroupType::ARSONIC_ACID) {
+                        subName = "arsono";
+                    }
+                } else if (nz == 5) {
+                    if (carbonBoronicAcid.count(rNode) && carbonBoronicAcid[rNode] == nei && winningType != GroupType::BORONIC_ACID) {
+                        subName = "borono";
+                    }
+                } else if (nz == 6) {
+                    if (carbonGroup.count(nei) && winningType != carbonGroup.at(nei)) {
+                        GroupType neiGroup = carbonGroup.at(nei);
+                        if (neiGroup == GroupType::ACID) subName = "carboxy";
+                        else if (neiGroup == GroupType::AMIDE) subName = "carbamoyl";
+                        else if (neiGroup == GroupType::THIOAMIDE) subName = "carbamothioyl";
+                        else if (neiGroup == GroupType::AMIDINE) subName = "carbamimidoyl";
+                    }
+                    if (subName.isEmpty()) {
+                        subName = nameBranchGraph(g, nei, rNode, allSSSRRings, ringNodeSet, {}, nullptr, mol);
+                        if (subName.startsWith("(") && subName.endsWith(")")) {
+                            QString inner = subName.mid(1, subName.length() - 2);
+                            if (!inner.isEmpty() && !inner[0].isDigit()) subName = inner;
+                        }
+                    }
+                }
+
+                if (subName.isEmpty()) {
+                    subName = nameFusedRingSubstituent(g, rNode, nei, ringNodeSet, allSSSRRings, mol, true);
+                }
+                if (subName.isEmpty()) {
+                    out.supported = false;
+                    out.unsupportedError = "Substituents on fused ring systems named via this mechanism are not yet supported.";
+                    return out;
+                }
+                out.ctx.handledExocyclicNeighbors.insert(nei);
+                out.extraSubs.push_back({rNode, subName});
+            }
+        }
+
+        return out;
+    };
+
+    auto hasAcyclicChainSeniorGroup = [&](const std::set<int> &systemNodes,
+                                          const FunctionalGroupClassification &fgc) -> bool {
+        for (const auto &pair : fgc.carbonGroup) {
+            if (pair.second != fgc.combinedWinner) continue;
+            int cNode = pair.first;
+            bool isOnRing = systemNodes.count(cNode) > 0;
+            if (!isOnRing) {
+                for (size_t k = 0; k < g.nodes[cNode].neighbors.size(); ++k) {
+                    int nei = g.nodes[cNode].neighbors[k];
+                    if (systemNodes.count(nei) > 0) { isOnRing = true; break; }
+                    // N-acylamino substituent directly attached to the ring (ring-NH-C(=O)-R, e.g. afatinib):
+                    // fused ring dispatchers already format this as '<loc>-(...amido)<ring>'.
+                    if ((pair.second == GroupType::AMIDE || pair.second == GroupType::THIOAMIDE) &&
+                        g.nodes[nei].atomicNumber == 7 && g.nodes[cNode].bondOrders[k] == 1) {
+                        for (int nNei : g.nodes[nei].neighbors) {
+                            if (nNei != cNode && systemNodes.count(nNei) > 0) {
+                                isOnRing = true;
+                                break;
+                            }
+                        }
+                        if (isOnRing) break;
+                    }
+                }
+            }
+            if (isOnRing) continue;
+            if (allSSSRNodes.count(cNode) == 0) {
+                bool exoToAnyRing = false;
+                for (int nei : g.nodes[cNode].neighbors) {
+                    if (allSSSRNodes.count(nei) > 0) { exoToAnyRing = true; break; }
+                }
+                if (!exoToAnyRing) return true;
+            }
+        }
+        return false;
+    };
+
 // --- Shared monocyclic spiro candidate & assembly helper (Phase 29.3 + Phase 28) ---
     struct MonoSpiroCand {
         std::vector<int> descriptor;
         std::map<int, int> locantOf;
         std::vector<int> heteroatomLocants;
         std::vector<int> heteroatomSeniorityLocants;
+        std::vector<int> principalGroupLocants;
         std::vector<std::pair<int, int>> doubleBondLocants;
         std::vector<std::pair<int, int>> tripleBondLocants;
         std::vector<int> subLocants;
         std::vector<std::pair<QString, int>> namedSubs;
     };
 
+    auto collectSpiroSubsAndContext = [&](const std::set<int> &unionNodes,
+                                          std::vector<std::pair<int, QString>> &ringSubstituents,
+                                          PreparedFusedContext &outPrep) -> bool {
+        FunctionalGroupClassification fgcSpiro = classifyFunctionalGroups(
+            g, mol, unionNodes, allSSSRRings,
+            carbonAzide, carbonSulfonicAcid, carbonSulfonamide, carbonSulfonylHalide,
+            carbonSulfinylHalide, carbonSulfinicAcid, carbonSulfinamide,
+            carbonThiol, carbonSelenol, carbonTellurol,
+            carbonBoronicAcid, carbonBorinicAcid, carbonPhosphonicAcid, carbonPhosphinicAcid,
+            carbonPhosphonicDihalide, carbonArsonicAcid, carbonArsinicAcid, carbonArsonicDihalide,
+            carbonStibonicAcid, carbonStibinicAcid, carbonPhosphine);
+        if (fgcSpiro.hasEarlyResult || hasAcyclicChainSeniorGroup(unionNodes, fgcSpiro)) {
+            return false;
+        }
+        outPrep = prepareFusedParentContext(unionNodes, fgcSpiro);
+        if (!outPrep.supported) return false;
+        for (int pNode : outPrep.ctx.principalRingAtoms) {
+            if (!unionNodes.count(pNode)) return false;
+        }
+        for (const auto &es : outPrep.extraSubs) {
+            QString sn = es.second;
+            if (sn.startsWith("(") && sn.endsWith(")")) {
+                QString inner = sn.mid(1, sn.length() - 2);
+                if (!inner.isEmpty() && !inner[0].isDigit()) sn = inner;
+            }
+            ringSubstituents.push_back({es.first, sn});
+        }
+        for (int n : unionNodes) {
+            for (int nei : g.nodes[n].neighbors) {
+                if (unionNodes.count(nei) || g.nodes[nei].atomicNumber == 1) continue;
+                if (outPrep.ctx.handledExocyclicNeighbors.count(nei)) continue;
+                QString subName = simpleRingSubstituentName(g, n, nei, unionNodes, mol);
+                if (subName.isEmpty()) {
+                    subName = nameFusedRingSubstituent(g, n, nei, unionNodes, allSSSRRings, mol, false);
+                }
+                if (subName.isEmpty()) return false;
+                if (subName.startsWith("(") && subName.endsWith(")"))
+                    subName = subName.mid(1, subName.length() - 2);
+                ringSubstituents.push_back({n, subName});
+            }
+        }
+        return true;
+    };
+
     auto populateMonoSpiroCand = [&](const std::set<int> &unionNodes,
                                      const std::vector<std::pair<int, QString>> &subs,
-                                     MonoSpiroCand &cand) {
+                                     MonoSpiroCand &cand,
+                                     const PreparedFusedContext *prep = nullptr) {
         std::map<int, std::vector<int>> locsByRank;
         for (int n : unionNodes) {
             if (g.nodes[n].atomicNumber != 6) {
@@ -27140,6 +28280,13 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
         for (auto &kv : locsByRank) {
             std::sort(kv.second.begin(), kv.second.end());
             for (int l : kv.second) cand.heteroatomSeniorityLocants.push_back(l);
+        }
+        if (prep) {
+            for (int pNode : prep->ctx.principalRingAtoms) {
+                auto it = cand.locantOf.find(pNode);
+                if (it != cand.locantOf.end()) cand.principalGroupLocants.push_back(it->second);
+            }
+            std::sort(cand.principalGroupLocants.begin(), cand.principalGroupLocants.end());
         }
         for (const auto &rs : subs) {
             auto it = cand.locantOf.find(rs.first);
@@ -27168,7 +28315,8 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                                           const std::set<int> &unionNodes,
                                           QString root,
                                           const QString &spiroStemPrefix,
-                                          const QString &bracketText) -> std::optional<IupacResult> {
+                                          const QString &bracketText,
+                                          const PreparedFusedContext *prep = nullptr) -> std::optional<IupacResult> {
         if (cands.empty()) return std::nullopt;
         auto compareBondLocs = [](const std::vector<std::pair<int, int>> &aBonds,
                                   const std::vector<std::pair<int, int>> &bBonds) {
@@ -27206,6 +28354,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                 if (a.descriptor != b.descriptor) return a.descriptor < b.descriptor;
                 if (a.heteroatomLocants != b.heteroatomLocants) return a.heteroatomLocants < b.heteroatomLocants;
                 if (a.heteroatomSeniorityLocants != b.heteroatomSeniorityLocants) return a.heteroatomSeniorityLocants < b.heteroatomSeniorityLocants;
+                if (a.principalGroupLocants != b.principalGroupLocants) return a.principalGroupLocants < b.principalGroupLocants;
                 if (a.doubleBondLocants != b.doubleBondLocants) return compareBondLocs(a.doubleBondLocants, b.doubleBondLocants);
                 if (a.tripleBondLocants != b.tripleBondLocants) return compareBondLocs(a.tripleBondLocants, b.tripleBondLocants);
                 if (a.subLocants != b.subLocants) return a.subLocants < b.subLocants;
@@ -27257,7 +28406,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
         }
         QString heteroPrefix = buildSkeletalReplacementPrefix(locantsByZ, false);
         if (!heteroPrefix.isEmpty()) {
-            prefixPart = prefixPart.isEmpty() ? heteroPrefix : (heteroPrefix + "-" + prefixPart);
+            prefixPart = prefixPart.isEmpty() ? heteroPrefix : (prefixPart + "-" + heteroPrefix);
         }
 
         auto formatBondLoc = [](const std::pair<int, int> &p) -> QString {
@@ -27296,13 +28445,28 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
             infix = QString("-%1-%2").arg(dPart, tPart);
         }
 
+        ensureStereo();
         StereoResult stereoRes = formatStereoPrefix(stereoByGraphId, best.locantOf, std::set<int>());
         if (!stereoRes.ok) return IupacResult{false, "", stereoRes.error};
 
         QStringList descStrs;
         for (int d : best.descriptor) descStrs.append(QString::number(d));
         QString effBracket = !bracketText.isEmpty() ? bracketText : descStrs.join(".");
-        QString fullName = stereoRes.prefix + prefixPart + spiroStemPrefix + "spiro[" + effBracket + "]" + root + infix;
+        QString suffixPart;
+        if (prep && !prep->ctx.principalRingAtoms.empty() && !prep->ctx.suffixWord.isEmpty()) {
+            std::vector<int> pLocs = best.principalGroupLocants;
+            std::sort(pLocs.begin(), pLocs.end());
+            QStringList pLocStrs;
+            for (int l : pLocs) pLocStrs.append(QString::number(l));
+            if (prep->ctx.elideTerminalE && infix.endsWith('e')) {
+                infix.chop(1);
+            }
+            suffixPart = "-" + pLocStrs.join(",") + "-" + prep->ctx.suffixWord;
+        }
+        QString fullName = stereoRes.prefix + prefixPart + spiroStemPrefix + "spiro[" + effBracket + "]" + root + infix + suffixPart;
+        if (prep && !prep->ctx.esterPrefix.isEmpty()) {
+            fullName = prep->ctx.esterPrefix + " " + fullName;
+        }
         return IupacResult{true, fullName, ""};
     };
 
@@ -27389,17 +28553,10 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                 }
             }
             std::vector<std::pair<int, QString>> ringSubstituents;
+            PreparedFusedContext spiroPrep;
             if (validPreconditions) {
-                for (int n : polyRingUnion) {
-                    for (int nei : g.nodes[n].neighbors) {
-                        if (polyRingUnion.count(nei)) continue;
-                        QString subName = simpleRingSubstituentName(g, n, nei, polyRingUnion, mol);
-                        if (subName.isEmpty()) { validPreconditions = false; break; }
-                        if (subName.startsWith("(") && subName.endsWith(")"))
-                            subName = subName.mid(1, subName.length() - 2);
-                        ringSubstituents.push_back({n, subName});
-                    }
-                    if (!validPreconditions) break;
+                if (!collectSpiroSubsAndContext(polyRingUnion, ringSubstituents, spiroPrep)) {
+                    validPreconditions = false;
                 }
             }
             int totalAtoms = static_cast<int>(polyRingUnion.size());
@@ -27475,11 +28632,11 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                         cand.descriptor = desc;
                         for (int i = 0; i < totalAtoms; ++i) cand.locantOf[walk[i]] = i + 1;
                         if (static_cast<int>(cand.locantOf.size()) != totalAtoms) continue;
-                        populateMonoSpiroCand(polyRingUnion, ringSubstituents, cand);
+                        populateMonoSpiroCand(polyRingUnion, ringSubstituents, cand, &spiroPrep);
                         cands.push_back(cand);
                     }
                 }
-                if (auto res = selectAndAssembleMonoSpiro(cands, polyRingUnion, root, multiPrefix(K - 1), QString())) {
+                if (auto res = selectAndAssembleMonoSpiro(cands, polyRingUnion, root, multiPrefix(K - 1), QString(), &spiroPrep)) {
                     return *res;
                 }
             }
@@ -27561,18 +28718,10 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                     // (plain saturated acyclic alkyl, or a bare terminal halogen); collect
                     // (ringAtom, subName) pairs for locant assignment after numbering.
                     std::vector<std::pair<int, QString>> ringSubstituents;
+                    PreparedFusedContext spiroPrep;
                     if (validPreconditions) {
-                        for (int n : ringUnionNodes) {
-                            for (size_t j = 0; j < g.nodes[n].neighbors.size(); ++j) {
-                                int nei = g.nodes[n].neighbors[j];
-                                if (ringUnionNodes.count(nei)) continue;
-                                QString subName = simpleRingSubstituentName(g, n, nei, ringUnionNodes, mol);
-                                if (subName.isEmpty()) { validPreconditions = false; break; }
-                                if (subName.startsWith("(") && subName.endsWith(")"))
-                                    subName = subName.mid(1, subName.length() - 2);
-                                ringSubstituents.push_back({n, subName});
-                            }
-                            if (!validPreconditions) break;
+                        if (!collectSpiroSubsAndContext(ringUnionNodes, ringSubstituents, spiroPrep)) {
+                            validPreconditions = false;
                         }
                     }
 
@@ -27658,13 +28807,13 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
 
                                     if ((int)cand.locantOf.size() != totalCarbons) continue;
 
-                                    populateMonoSpiroCand(ringUnionNodes, ringSubstituents, cand);
+                                    populateMonoSpiroCand(ringUnionNodes, ringSubstituents, cand, &spiroPrep);
                                     cands.push_back(cand);
                                 }
                             }
                         }
 
-                        if (auto res = selectAndAssembleMonoSpiro(cands, ringUnionNodes, root, QString(), QString("%1.%2").arg(sizeA).arg(sizeB))) {
+                        if (auto res = selectAndAssembleMonoSpiro(cands, ringUnionNodes, root, QString(), QString("%1.%2").arg(sizeA).arg(sizeB), &spiroPrep)) {
                             return *res;
                         }
                     }
@@ -27899,340 +29048,6 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
         }
     }
 
-    struct PreparedFusedContext {
-        bool supported = true;
-        QString unsupportedError;
-        FusedParentContext ctx;
-        std::vector<std::pair<int, QString>> extraSubs;
-    };
-    auto prepareFusedParentContext = [&](const std::set<int> &ringNodeSet,
-                                          const FunctionalGroupClassification &fgc) -> PreparedFusedContext {
-        PreparedFusedContext out;
-        GroupType winningType = fgc.winningRingGroup;
-        const std::map<int, GroupType> &carbonGroup = fgc.carbonGroup;
-
-        std::set<int> principalCarbons;
-        if (winningType != GroupType::NONE) {
-            for (const auto &pair : carbonGroup) {
-                int cNode = pair.first;
-                if (pair.second != winningType) continue;
-                bool isOnOrExocyclic = ringNodeSet.count(cNode) > 0;
-                if (!isOnOrExocyclic) {
-                    for (int nei : g.nodes[cNode].neighbors) {
-                        if (ringNodeSet.count(nei) > 0) { isOnOrExocyclic = true; break; }
-                    }
-                }
-                if (isOnOrExocyclic) principalCarbons.insert(cNode);
-            }
-        }
-
-        if (winningType == GroupType::SULFONAMIDE) {
-            // Sulfonamide on benzo-heterocycles is cited as prefix (sulfamoyl) for Phase 31 compatibility
-            winningType = GroupType::NONE;
-            principalCarbons.clear();
-        } else {
-            auto unsubRes = checkPrincipalHeteroatomsUnsubstituted(g, principalCarbons, winningType, ringNodeSet);
-            if (unsubRes.hasError) {
-                if (winningType == GroupType::AMINE) {
-                    // Substituted secondary/tertiary amines fall back to prefix citation
-                    winningType = GroupType::NONE;
-                    principalCarbons.clear();
-                } else {
-                    out.supported = false;
-                    out.unsupportedError = unsubRes.msg;
-                    return out;
-                }
-            }
-        }
-
-        // Narrowed first-release suffix scope (Wave 3 Part 2): the ring-carbon
-        // heteroatom suffixes and the exocyclic-carbon suffixes nameNaphthaleneFusion
-        // already supports. Anything else (ESTER, ACYL_HALIDE, halide-class
-        // suffixes, P/As/Sb acids) is correctly left unsupported here -- those
-        // molecules keep today's existing rejection message, zero regression.
-        int pCount = static_cast<int>(principalCarbons.size());
-        QString bareWord;
-        bool exocyclicCarbonSuffix = false;
-        if (winningType == GroupType::ALCOHOL) bareWord = "ol";
-        else if (winningType == GroupType::KETONE) bareWord = "one";
-        else if (winningType == GroupType::AMINE) bareWord = "amine";
-        else if (winningType == GroupType::THIOL) bareWord = "thiol";
-        else if (winningType == GroupType::SELENOL) bareWord = "selenol";
-        else if (winningType == GroupType::TELLUROL) bareWord = "tellurol";
-        else if (winningType == GroupType::IMINE) bareWord = "imine";
-        else if (winningType == GroupType::HYDROPEROXIDE) bareWord = "peroxol";
-        else if (winningType == GroupType::SULFONIC_ACID) bareWord = "sulfonic acid";
-        else if (winningType == GroupType::SULFONAMIDE) bareWord = "sulfonamide";
-        else if (winningType == GroupType::SULFINIC_ACID) bareWord = "sulfinic acid";
-        else if (winningType == GroupType::SULFINAMIDE) bareWord = "sulfinamide";
-        else if (winningType == GroupType::ACID) { bareWord = "carboxylic acid"; exocyclicCarbonSuffix = true; }
-        else if (winningType == GroupType::AMIDE) { bareWord = "carboxamide"; exocyclicCarbonSuffix = true; }
-        else if (winningType == GroupType::THIOAMIDE) { bareWord = "carbothioamide"; exocyclicCarbonSuffix = true; }
-        else if (winningType == GroupType::HYDRAZIDE) { bareWord = "carbohydrazide"; exocyclicCarbonSuffix = true; }
-        else if (winningType == GroupType::AMIDINE) { bareWord = "carboximidamide"; exocyclicCarbonSuffix = true; }
-        else if (winningType == GroupType::NITRILE) { bareWord = "carbonitrile"; exocyclicCarbonSuffix = true; }
-        else if (winningType == GroupType::ALDEHYDE) { bareWord = "carbaldehyde"; exocyclicCarbonSuffix = true; }
-        else if (winningType == GroupType::ESTER) {
-            bareWord = "carboxylate";
-            exocyclicCarbonSuffix = true;
-            int esterCarbon = -1;
-            for (int pc : principalCarbons) {
-                if (carbonGroup.count(pc) && carbonGroup.at(pc) == GroupType::ESTER) {
-                    esterCarbon = pc;
-                    break;
-                }
-            }
-            if (esterCarbon != -1 && fgc.esterAlkylRoot.count(esterCarbon) && fgc.esterOxygen.count(esterCarbon)) {
-                int alkylRoot = fgc.esterAlkylRoot.at(esterCarbon);
-                int sO = fgc.esterOxygen.at(esterCarbon);
-                QString alkylName = nameBranchGraph(g, alkylRoot, sO, allSSSRRings, ringNodeSet, {}, nullptr, mol);
-                if (alkylName.isEmpty()) {
-                    out.supported = false;
-                    out.unsupportedError = "Substituents on fused ring systems named via this mechanism are not yet supported.";
-                    return out;
-                }
-                out.ctx.esterPrefix = alkylName;
-            }
-        }
-        else if (winningType == GroupType::ACYL_HALIDE) {
-            int hz = 17;
-            for (int pc : principalCarbons) {
-                if (fgc.acylHalideHalogen.count(pc)) { hz = fgc.acylHalideHalogen.at(pc); break; }
-            }
-            QString hName = halogenSuffixWord(hz);
-            bareWord = "carbonyl " + hName;
-            exocyclicCarbonSuffix = true;
-        }
-
-        if (winningType != GroupType::NONE && bareWord.isEmpty()) {
-            out.supported = false;
-            out.unsupportedError = "Substituents on fused ring systems named via this mechanism are not yet supported.";
-            return out;
-        }
-
-        if (!bareWord.isEmpty()) {
-            out.ctx.suffixWord = (pCount == 1) ? bareWord : (multiPrefix(pCount) + bareWord);
-            out.ctx.elideTerminalE = isVowel(out.ctx.suffixWord.at(0));
-            for (int pc : principalCarbons) {
-                if (exocyclicCarbonSuffix) {
-                    // pc is the exocyclic defining carbon (e.g. the -COOH carbon);
-                    // the suffix locant belongs to its RING neighbor.
-                    int ringNei = -1;
-                    for (int nei : g.nodes[pc].neighbors) {
-                        if (ringNodeSet.count(nei)) { ringNei = nei; break; }
-                    }
-                    if (ringNei == -1) {
-                        out.supported = false;
-                        out.unsupportedError = "Substituents on fused ring systems named via this mechanism are not yet supported.";
-                        return out;
-                    }
-                    out.ctx.principalRingAtoms.push_back(ringNei);
-                    out.ctx.handledExocyclicNeighbors.insert(pc);
-                } else {
-                    // pc is the ring atom itself; the defining heteroatom neighbor
-                    // (and nothing else) is what the generic prefix scan must skip.
-                    out.ctx.principalRingAtoms.push_back(pc);
-                    for (int nei : g.nodes[pc].neighbors) {
-                        if (ringNodeSet.count(nei)) continue;
-                        int nz = g.nodes[nei].atomicNumber;
-                        bool isAzide = (carbonAzide.count(pc) && std::find(carbonAzide[pc].begin(), carbonAzide[pc].end(), nei) != carbonAzide[pc].end());
-                        if (!isAzide && (nz == 7 || nz == 8 || nz == 16 || nz == 34 || nz == 52)) {
-                            out.ctx.handledExocyclicNeighbors.insert(nei);
-                        }
-                    }
-                }
-            }
-        }
-
-        // Partition every remaining exocyclic bond: let the caller's own
-        // simpleRingSubstituentName handle plain alkyl/halogen (by leaving it
-        // alone here), and classify everything else (the same per-neighbor
-        // switch nameNaphthaleneFusion uses) into out.extraSubs.
-        for (int rNode : ringNodeSet) {
-            for (size_t j = 0; j < g.nodes[rNode].neighbors.size(); ++j) {
-                int nei = g.nodes[rNode].neighbors[j];
-                int order = g.nodes[rNode].bondOrders[j];
-                if (ringNodeSet.count(nei)) continue;
-                if (g.nodes[nei].atomicNumber == 1) continue;
-                if (out.ctx.handledExocyclicNeighbors.count(nei)) continue;
-
-                QString existingName = nameFusedRingSubstituent(g, rNode, nei, ringNodeSet, allSSSRRings, mol, true);
-                if (!existingName.isEmpty()) continue; // native path handles it
-
-                int nz = g.nodes[nei].atomicNumber;
-                QString subName;
-                if (nz == 9 || nz == 17 || nz == 35 || nz == 53) {
-                    subName = halogenPrefix(nz);
-                } else if (nz == 8) {
-                    if (order == 1) {
-                        if (fgc.etherOxygens.count(nei)) {
-                            int alkylNei = -1;
-                            for (int oNei : g.nodes[nei].neighbors) {
-                                if (oNei != rNode) { alkylNei = oNei; break; }
-                            }
-                            if (alkylNei != -1) {
-                                QString alkylName = nameBranchGraph(g, alkylNei, nei, allSSSRRings, ringNodeSet, {}, nullptr, mol);
-                                if (!alkylName.isEmpty()) {
-                                    if (alkylName.startsWith("(") && alkylName.endsWith(")")) {
-                                        // Substituted phenyl still contracts to phenoxy, same
-                                        // as the bare "phenyl" case below (see nameBranchGraph's
-                                        // own ether dispatch for the full explanation).
-                                        QString inner = alkylName.mid(1, alkylName.length() - 2);
-                                        if (inner.endsWith("phenyl")) {
-                                            inner.chop(2);
-                                            subName = "(" + inner + "oxy)";
-                                        } else {
-                                            subName = alkylName + "oxy";
-                                        }
-                                    } else if (alkylName == "methyl" || alkylName == "ethyl" || alkylName == "propyl" || alkylName == "butyl" || alkylName == "phenyl") {
-                                        alkylName.chop(2); alkylName += "oxy";
-                                        subName = alkylName;
-                                    } else if (alkylName.endsWith("yl") && !alkylName.contains('(') && !alkylName.contains('[') &&
-                                               !std::any_of(alkylName.begin(), alkylName.end(), [](QChar c) { return c.isDigit(); })) {
-                                        alkylName += "oxy";
-                                        subName = alkylName;
-                                    } else {
-                                        subName = "(" + alkylName + ")oxy";
-                                    }
-                                }
-                            }
-                        } else if (winningType != GroupType::ALCOHOL) {
-                            subName = "hydroxy";
-                        }
-                    } else if (order == 2) {
-                        if (winningType != GroupType::ALDEHYDE && winningType != GroupType::KETONE) {
-                            subName = "oxo";
-                        }
-                    }
-                } else if (nz == 7) {
-                    bool isAzide = false;
-                    for (size_t k = 0; k < g.nodes[nei].neighbors.size(); ++k) {
-                        int nNei = g.nodes[nei].neighbors[k];
-                        if (g.nodes[nei].bondOrders[k] >= 2 && isAzideNitrogen(nNei, nei, g)) { isAzide = true; break; }
-                    }
-                    if (carbonAzide.count(rNode) && std::find(carbonAzide[rNode].begin(), carbonAzide[rNode].end(), nei) != carbonAzide[rNode].end()) {
-                        subName = "azido";
-                    } else if (isIsocyanateNitrogen(nei, rNode, g)) {
-                        subName = "isocyanato";
-                    } else if (isNitroNitrogen(nei, rNode, g)) {
-                        subName = "nitro";
-                    } else if (isNitrosoNitrogen(nei, rNode, g)) {
-                        subName = "nitroso";
-                    } else if (!isAzide && order == 1 && winningType != GroupType::AMINE) {
-                        QString amidoName = tryNameAmidoSubstituent(nei, rNode, g, allSSSRRings, mol);
-                        if (!amidoName.isEmpty()) {
-                            subName = amidoName;
-                        } else if (isHydrazinylNitrogen(nei, rNode, g)) {
-                            subName = "hydrazinyl";
-                        } else {
-                            subName = nameAmineSubstituentPrefix(nei, rNode, g, allSSSRRings, {}, mol);
-                        }
-                    } else if (!isAzide && order == 2 && fgc.carbonImine.count(rNode) && fgc.carbonImine.at(rNode) == nei && winningType != GroupType::IMINE) {
-                        subName = "imino";
-                    }
-                } else if (nz == 16) {
-                    if (carbonSulfonicAcid.count(rNode) && carbonSulfonicAcid[rNode] == nei && winningType != GroupType::SULFONIC_ACID) {
-                        subName = "sulfo";
-                    } else if (carbonSulfonamide.count(rNode) && carbonSulfonamide[rNode] == nei && winningType != GroupType::SULFONAMIDE) {
-                        subName = "sulfamoyl";
-                    } else if (carbonSulfonylHalide.count(rNode) && carbonSulfonylHalide[rNode] == nei && winningType != GroupType::SULFONYL_HALIDE) {
-                        subName = halogenPrefix(sulfonylHalideZ[rNode]) + "sulfonyl";
-                    } else if (carbonSulfinylHalide.count(rNode) && carbonSulfinylHalide[rNode] == nei && winningType != GroupType::SULFINYL_HALIDE) {
-                        subName = halogenPrefix(sulfinylHalideZ[rNode]) + "sulfinyl";
-                    } else if (carbonSulfinicAcid.count(rNode) && carbonSulfinicAcid[rNode] == nei && winningType != GroupType::SULFINIC_ACID) {
-                        subName = "sulfino";
-                    } else if (carbonSulfinamide.count(rNode) && carbonSulfinamide[rNode] == nei && winningType != GroupType::SULFINAMIDE) {
-                        subName = "sulfinamoyl";
-                    } else if (fgc.carbonHydroperoxide.count(rNode) && fgc.carbonHydroperoxide.at(rNode) == nei && winningType != GroupType::HYDROPEROXIDE) {
-                        subName = "hydroperoxy";
-                    } else if (carbonThiol.count(rNode) && carbonThiol[rNode] == nei && winningType != GroupType::THIOL) {
-                        subName = "sulfanyl";
-                    } else if (order == 1) {
-                        if (thioetherSulfurs.count(nei)) {
-                            int alkylNei = -1;
-                            for (int sNei : g.nodes[nei].neighbors) { if (sNei != rNode) { alkylNei = sNei; break; } }
-                            if (alkylNei != -1) {
-                                QString alkylName = nameBranchGraph(g, alkylNei, nei, allSSSRRings, {}, {}, nullptr, mol);
-                                if (!alkylName.isEmpty()) subName = wrapCompoundSuffix(alkylName, "sulfanyl");
-                            }
-                        }
-                    }
-                } else if (nz == 34) {
-                    if (carbonSelenol.count(rNode) && carbonSelenol[rNode] == nei && winningType != GroupType::SELENOL) {
-                        subName = "selanyl";
-                    }
-                } else if (nz == 52) {
-                    if (carbonTellurol.count(rNode) && carbonTellurol[rNode] == nei && winningType != GroupType::TELLUROL) {
-                        subName = "tellanyl";
-                    }
-                } else if (nz == 15) {
-                    if (carbonPhosphonicAcid.count(rNode) && carbonPhosphonicAcid[rNode] == nei && winningType != GroupType::PHOSPHONIC_ACID) {
-                        subName = "phosphono";
-                    }
-                } else if (nz == 33) {
-                    if (carbonArsonicAcid.count(rNode) && carbonArsonicAcid[rNode] == nei && winningType != GroupType::ARSONIC_ACID) {
-                        subName = "arsono";
-                    }
-                } else if (nz == 5) {
-                    if (carbonBoronicAcid.count(rNode) && carbonBoronicAcid[rNode] == nei && winningType != GroupType::BORONIC_ACID) {
-                        subName = "borono";
-                    }
-                } else if (nz == 6) {
-                    if (carbonGroup.count(nei) && winningType != carbonGroup.at(nei)) {
-                        GroupType neiGroup = carbonGroup.at(nei);
-                        if (neiGroup == GroupType::ACID) subName = "carboxy";
-                        else if (neiGroup == GroupType::AMIDE) subName = "carbamoyl";
-                        else if (neiGroup == GroupType::THIOAMIDE) subName = "carbamothioyl";
-                        else if (neiGroup == GroupType::AMIDINE) subName = "carbamimidoyl";
-                    }
-                    if (subName.isEmpty()) {
-                        subName = nameBranchGraph(g, nei, rNode, allSSSRRings, ringNodeSet, {}, nullptr, mol);
-                        if (subName.startsWith("(") && subName.endsWith(")")) {
-                            QString inner = subName.mid(1, subName.length() - 2);
-                            if (!inner.isEmpty() && !inner[0].isDigit()) subName = inner;
-                        }
-                    }
-                }
-
-                if (subName.isEmpty()) {
-                    subName = nameFusedRingSubstituent(g, rNode, nei, ringNodeSet, allSSSRRings, mol, true);
-                }
-                if (subName.isEmpty()) {
-                    out.supported = false;
-                    out.unsupportedError = "Substituents on fused ring systems named via this mechanism are not yet supported.";
-                    return out;
-                }
-                out.ctx.handledExocyclicNeighbors.insert(nei);
-                out.extraSubs.push_back({rNode, subName});
-            }
-        }
-
-        return out;
-    };
-
-    auto hasAcyclicChainSeniorGroup = [&](const std::set<int> &systemNodes,
-                                          const FunctionalGroupClassification &fgc) -> bool {
-        for (const auto &pair : fgc.carbonGroup) {
-            if (pair.second != fgc.combinedWinner) continue;
-            int cNode = pair.first;
-            bool isOnRing = systemNodes.count(cNode) > 0;
-            if (!isOnRing) {
-                for (int nei : g.nodes[cNode].neighbors) {
-                    if (systemNodes.count(nei) > 0) { isOnRing = true; break; }
-                }
-            }
-            if (isOnRing) continue;
-            if (allSSSRNodes.count(cNode) == 0) {
-                bool exoToAnyRing = false;
-                for (int nei : g.nodes[cNode].neighbors) {
-                    if (allSSSRNodes.count(nei) > 0) { exoToAnyRing = true; break; }
-                }
-                if (!exoToAnyRing) return true;
-            }
-        }
-        return false;
-    };
-
     auto assembleFusedParentName = [&](const QString &baseStem,
                                        const std::map<int, QString> &locantMap,
                                        const PreparedFusedContext &prep,
@@ -28423,7 +29238,12 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
         bool hasHydroPrefix = retainedResult->baseName.contains("hydro");
         if (!hasExocyclicSubstituent) {
             if (computeRingCompStats() > 1) return std::nullopt;
-            if (!hasHeteroatom && !hasHydroPrefix) return std::nullopt;
+            if (!hasHeteroatom && !hasHydroPrefix) {
+                if (retainedResult->baseName == "indene") {
+                    return IupacResult{true, "1H-indene", "", NamingStatus::PreferredIupacName};
+                }
+                return std::nullopt;
+            }
             NamingStatus finalStatus = NamingStatus::SystematicIupacName;
             if (checkPreferredInChIKeys) {
                 QString inchikey = getInchiKeyForMol(mol);
@@ -28441,7 +29261,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
             return IupacResult{true, retainedResult->baseName, "", finalStatus};
         }
 
-        if (!hasHeteroatom && !hasHydroPrefix && !allowAllCarbonWhenSubstituted) {
+        if (!hasHeteroatom && !hasHydroPrefix && !allowAllCarbonWhenSubstituted && retainedResult->baseName != "indene") {
             return std::nullopt;
         }
 
@@ -28501,7 +29321,8 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
             if (!buildGraphLocantMap(cand, seedLocMap)) continue;
             QString fullName, errMsg;
             std::vector<int> pLocs, allSubLocs, alphaSubLocs;
-            if (!assembleFusedParentName(cand.baseName, seedLocMap, prep, allSystemNodes, fullName, errMsg,
+            QString effectiveBaseName = (!hasHydroPrefix && cand.baseName == "indene") ? QStringLiteral("1H-indene") : cand.baseName;
+            if (!assembleFusedParentName(effectiveBaseName, seedLocMap, prep, allSystemNodes, fullName, errMsg,
                                          &pLocs, &allSubLocs, &alphaSubLocs)) {
                 continue;
             }
@@ -28595,8 +29416,676 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                 break;
             }
         }
+
+        // --- Phase 28.2: Polycyclic Ring Assemblies (two identical fused systems joined by a single bond, P-28.2.1) ---
+        if (numRingComponents == 2) {
+            int cidA = -1, cidB = -1;
+            for (const auto &kv : compRingCount) {
+                if (cidA == -1) cidA = kv.first;
+                else cidB = kv.first;
+            }
+            if (cidA != -1 && cidB != -1 && compRingCount[cidA] >= 2 && compRingCount[cidB] >= 2) {
+                std::set<int> nodesA, nodesB;
+                std::vector<std::set<int>> indigoRingsA, indigoRingsB;
+                std::map<int, int> graphToIndigo;
+                for (const auto &kv : indigoToGraphIdx) graphToIndigo[kv.second] = kv.first;
+
+                for (int i = 0; i < N_rings; ++i) {
+                    std::set<int> indR;
+                    for (int gn : allSSSRRings[i]) {
+                        if (graphToIndigo.count(gn)) indR.insert(graphToIndigo[gn]);
+                    }
+                    if (ringCompId[i] == cidA) {
+                        nodesA.insert(allSSSRRings[i].begin(), allSSSRRings[i].end());
+                        indigoRingsA.push_back(std::move(indR));
+                    } else {
+                        nodesB.insert(allSSSRRings[i].begin(), allSSSRRings[i].end());
+                        indigoRingsB.push_back(std::move(indR));
+                    }
+                }
+                bool disjointNodes = true;
+                for (int n : nodesA) if (nodesB.count(n)) { disjointNodes = false; break; }
+
+                int attachA = -1, attachB = -1, interBonds = 0, interBondOrder = 0;
+                if (disjointNodes) {
+                    for (int u : nodesA) {
+                        for (size_t j = 0; j < g.nodes[u].neighbors.size(); ++j) {
+                            int v = g.nodes[u].neighbors[j];
+                            if (nodesB.count(v)) {
+                                interBonds++;
+                                attachA = u; attachB = v;
+                                interBondOrder = g.nodes[u].bondOrders[j];
+                            }
+                        }
+                    }
+                }
+                if (disjointNodes && interBonds == 1 && interBondOrder == 1) {
+                    std::vector<RingSystemNameResult> candsA, candsB;
+                    auto resA = tryRetainedBaseDecomposition(mol, &indigoRingsA, &candsA);
+                    auto resB = tryRetainedBaseDecomposition(mol, &indigoRingsB, &candsB);
+                    if (resA && resB && resA->success && resB->success && resA->baseName == resB->baseName) {
+                        if (candsA.empty()) candsA.push_back(*resA);
+                        if (candsB.empty()) candsB.push_back(*resB);
+
+                        std::set<int> allUnionNodes = nodesA;
+                        allUnionNodes.insert(nodesB.begin(), nodesB.end());
+                        FunctionalGroupClassification fgcAsm = classifyFunctionalGroups(
+                            g, mol, allUnionNodes, allSSSRRings,
+                            carbonAzide, carbonSulfonicAcid, carbonSulfonamide, carbonSulfonylHalide,
+                            carbonSulfinylHalide, carbonSulfinicAcid, carbonSulfinamide,
+                            carbonThiol, carbonSelenol, carbonTellurol,
+                            carbonBoronicAcid, carbonBorinicAcid, carbonPhosphonicAcid, carbonPhosphinicAcid,
+                            carbonPhosphonicDihalide, carbonArsonicAcid, carbonArsinicAcid, carbonArsonicDihalide,
+                            carbonStibonicAcid, carbonStibinicAcid, carbonPhosphine);
+                        if (!fgcAsm.hasEarlyResult && !hasAcyclicChainSeniorGroup(allUnionNodes, fgcAsm)) {
+                            PreparedFusedContext prep = prepareFusedParentContext(allUnionNodes, fgcAsm);
+                            if (prep.supported && prep.ctx.esterPrefix.isEmpty()) {
+                                std::vector<int> princA, princB;
+                                bool princOk = true;
+                                for (int pNode : prep.ctx.principalRingAtoms) {
+                                    if (nodesA.count(pNode)) princA.push_back(pNode);
+                                    else if (nodesB.count(pNode)) princB.push_back(pNode);
+                                    else { princOk = false; break; }
+                                }
+                                std::vector<std::pair<int, QString>> subsA, subsB;
+                                for (const auto &es : prep.extraSubs) {
+                                    QString sn = es.second;
+                                    if (sn.startsWith("(") && sn.endsWith(")")) {
+                                        QString inner = sn.mid(1, sn.length() - 2);
+                                        if (!inner.isEmpty() && !inner[0].isDigit()) sn = inner;
+                                    }
+                                    if (nodesA.count(es.first)) subsA.push_back({es.first, sn});
+                                    else subsB.push_back({es.first, sn});
+                                }
+                                bool subsOk = princOk;
+                                auto collectCompSubs = [&](const std::set<int> &compNodes, int otherAttach,
+                                                           std::vector<std::pair<int, QString>> &outSubs) {
+                                    for (int n : compNodes) {
+                                        for (int nei : g.nodes[n].neighbors) {
+                                            if (compNodes.count(nei) || nei == otherAttach || g.nodes[nei].atomicNumber == 1) continue;
+                                            if (prep.ctx.handledExocyclicNeighbors.count(nei)) continue;
+                                            QString sName = nameFusedRingSubstituent(g, n, nei, allUnionNodes, allSSSRRings, mol, false);
+                                            if (sName.isEmpty()) sName = nameBranchGraph(g, nei, n, allSSSRRings, allUnionNodes, {}, nullptr, mol);
+                                            if (sName.isEmpty()) { subsOk = false; return; }
+                                            if (sName.startsWith("(") && sName.endsWith(")")) {
+                                                QString inner = sName.mid(1, sName.length() - 2);
+                                                if (!inner.isEmpty() && !inner[0].isDigit()) sName = inner;
+                                            }
+                                            outSubs.push_back({n, sName});
+                                        }
+                                    }
+                                };
+                                if (subsOk) collectCompSubs(nodesA, attachB, subsA);
+                                if (subsOk) collectCompSubs(nodesB, attachA, subsB);
+
+                                if (subsOk) {
+                                    struct PolyAsmChoice {
+                                        int att0, att1;
+                                        std::vector<std::pair<int, int>> sortedPrincLocs;
+                                        std::vector<std::pair<int, int>> sortedSubLocs;
+                                        std::vector<std::pair<int, int>> alphaSubLocs;
+                                        std::vector<std::tuple<QString, int, int>> namedSubs;
+                                    };
+                                    std::optional<PolyAsmChoice> bestAsm;
+                                    auto evalOrder = [&](const std::vector<RingSystemNameResult> &primCands,
+                                                         int primAttach,
+                                                         const std::vector<int> &primPrinc,
+                                                         const std::vector<std::pair<int, QString>> &primSubs,
+                                                         const std::vector<RingSystemNameResult> &secCands,
+                                                         int secAttach,
+                                                         const std::vector<int> &secPrinc,
+                                                         const std::vector<std::pair<int, QString>> &secSubs) {
+                                        for (const auto &ca : primCands) {
+                                            std::map<int, int> mapA;
+                                            for (const auto &kv : ca.locantMap) {
+                                                if (!indigoToGraphIdx.count(kv.first)) continue;
+                                                bool ok = false; int v = kv.second.toInt(&ok);
+                                                if (ok) mapA[indigoToGraphIdx.at(kv.first)] = v;
+                                            }
+                                            if (!mapA.count(primAttach)) continue;
+                                            bool okA = true;
+                                            for (int p : primPrinc) if (!mapA.count(p)) { okA = false; break; }
+                                            for (const auto &ps : primSubs) if (!mapA.count(ps.first)) { okA = false; break; }
+                                            if (!okA) continue;
+
+                                            for (const auto &cb : secCands) {
+                                                std::map<int, int> mapB;
+                                                for (const auto &kv : cb.locantMap) {
+                                                    if (!indigoToGraphIdx.count(kv.first)) continue;
+                                                    bool ok = false; int v = kv.second.toInt(&ok);
+                                                    if (ok) mapB[indigoToGraphIdx.at(kv.first)] = v;
+                                                }
+                                                if (!mapB.count(secAttach)) continue;
+                                                bool okB = true;
+                                                for (int p : secPrinc) if (!mapB.count(p)) { okB = false; break; }
+                                                for (const auto &ss : secSubs) if (!mapB.count(ss.first)) { okB = false; break; }
+                                                if (!okB) continue;
+
+                                                PolyAsmChoice ch;
+                                                ch.att0 = mapA[primAttach];
+                                                ch.att1 = mapB[secAttach];
+                                                for (int p : primPrinc) ch.sortedPrincLocs.push_back({mapA[p], 0});
+                                                for (int p : secPrinc) ch.sortedPrincLocs.push_back({mapB[p], 1});
+                                                std::sort(ch.sortedPrincLocs.begin(), ch.sortedPrincLocs.end());
+
+                                                for (const auto &ps : primSubs) {
+                                                    ch.namedSubs.push_back({ps.second, mapA[ps.first], 0});
+                                                    ch.sortedSubLocs.push_back({mapA[ps.first], 0});
+                                                }
+                                                for (const auto &ss : secSubs) {
+                                                    ch.namedSubs.push_back({ss.second, mapB[ss.first], 1});
+                                                    ch.sortedSubLocs.push_back({mapB[ss.first], 1});
+                                                }
+                                                std::sort(ch.sortedSubLocs.begin(), ch.sortedSubLocs.end());
+                                                auto alphaCmp = [](const std::tuple<QString, int, int> &x, const std::tuple<QString, int, int> &y) {
+                                                    QString ax = alphabetizationKey(std::get<0>(x)).toLower();
+                                                    QString ay = alphabetizationKey(std::get<0>(y)).toLower();
+                                                    if (ax != ay) return ax < ay;
+                                                    return std::make_pair(std::get<1>(x), std::get<2>(x)) < std::make_pair(std::get<1>(y), std::get<2>(y));
+                                                };
+                                                std::vector<std::tuple<QString, int, int>> sortedNamed = ch.namedSubs;
+                                                std::sort(sortedNamed.begin(), sortedNamed.end(), alphaCmp);
+                                                for (const auto &sn : sortedNamed) ch.alphaSubLocs.push_back({std::get<1>(sn), std::get<2>(sn)});
+
+                                                auto isBetter = [&](const PolyAsmChoice &c, const PolyAsmChoice &b) {
+                                                    if (c.att0 != b.att0) return c.att0 < b.att0;
+                                                    if (c.att1 != b.att1) return c.att1 < b.att1;
+                                                    if (c.sortedPrincLocs != b.sortedPrincLocs) return c.sortedPrincLocs < b.sortedPrincLocs;
+                                                    if (c.sortedSubLocs != b.sortedSubLocs) return c.sortedSubLocs < b.sortedSubLocs;
+                                                    return c.alphaSubLocs < b.alphaSubLocs;
+                                                };
+                                                if (!bestAsm || isBetter(ch, *bestAsm)) bestAsm = std::move(ch);
+                                            }
+                                        }
+                                    };
+                                    evalOrder(candsA, attachA, princA, subsA, candsB, attachB, princB, subsB);
+                                    evalOrder(candsB, attachB, princB, subsB, candsA, attachA, princA, subsA);
+
+                                    if (bestAsm) {
+                                        const QString &baseStem = resA->baseName;
+                                        bool needsParens = (!baseStem.isEmpty() && (baseStem[0].isDigit() || baseStem.startsWith('[') || baseStem.contains('-')));
+                                        QString wrappedStem = needsParens ? ("(" + baseStem + ")") : baseStem;
+                                        QString biBlock = QString("%1,%2'-bi%3").arg(bestAsm->att0).arg(bestAsm->att1).arg(wrappedStem);
+
+                                        std::map<QString, std::vector<std::pair<int, int>>> grouped;
+                                        for (const auto &s : bestAsm->namedSubs) {
+                                            grouped[std::get<0>(s)].push_back({std::get<1>(s), std::get<2>(s)});
+                                        }
+                                        struct AsmPfx { QString key; QString text; };
+                                        std::vector<AsmPfx> pGroups;
+                                        for (auto &kv : grouped) {
+                                            std::sort(kv.second.begin(), kv.second.end());
+                                            QStringList locStrs;
+                                            for (const auto &lp : kv.second) {
+                                                locStrs.append(QString::number(lp.first) + (lp.second == 1 ? "'" : ""));
+                                            }
+                                            QString mPfx = (kv.second.size() > 1) ? multiPrefix(static_cast<int>(kv.second.size())) : QString();
+                                            pGroups.push_back({alphabetizationKey(kv.first).toLower(), locStrs.join(",") + "-" + mPfx + kv.first});
+                                        }
+                                        std::sort(pGroups.begin(), pGroups.end(), [](const AsmPfx &x, const AsmPfx &y) {
+                                            return x.key < y.key;
+                                        });
+                                        QStringList pParts;
+                                        for (const auto &pg : pGroups) pParts.append(pg.text);
+                                        QString subPfx = pParts.join("-");
+
+                                        QString stemWithSuffix = biBlock;
+                                        if (!prep.ctx.suffixWord.isEmpty() && !bestAsm->sortedPrincLocs.empty()) {
+                                            QStringList pLocStrs;
+                                            for (const auto &lp : bestAsm->sortedPrincLocs) {
+                                                pLocStrs.append(QString::number(lp.first) + (lp.second == 1 ? "'" : ""));
+                                            }
+                                            stemWithSuffix = QString("[%1]-%2-%3").arg(biBlock, pLocStrs.join(","), prep.ctx.suffixWord);
+                                        }
+                                        QString finalName = subPfx.isEmpty() ? stemWithSuffix : (subPfx + "-" + stemWithSuffix);
+                                        return {true, finalName, "", NamingStatus::SystematicIupacName};
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- Phase 28.3: Linear Assemblies of 3-6 Identical Monocyclic Rings (terphenyl, terpyridine, etc.) ---
+        if (numRingComponents >= 3 && numRingComponents <= 6 && N_rings == numRingComponents && !hasSeniorPrincipalGroup(g)) {
+            bool allSimpleDisjoint = true;
+            for (int i = 0; i < N_rings && allSimpleDisjoint; ++i) {
+                if (allSSSRRings[i].size() != 5 && allSSSRRings[i].size() != 6) allSimpleDisjoint = false;
+                for (int j = i + 1; j < N_rings && allSimpleDisjoint; ++j) {
+                    for (int a : allSSSRRings[i]) if (allSSSRRings[j].count(a)) { allSimpleDisjoint = false; break; }
+                }
+            }
+            if (allSimpleDisjoint) {
+                struct RingEdge { int otherRing; int myAtom; int otherAtom; };
+                std::vector<std::vector<RingEdge>> adj(N_rings);
+                bool singleLinksOk = true;
+                for (int i = 0; i < N_rings && singleLinksOk; ++i) {
+                    for (int j = i + 1; j < N_rings && singleLinksOk; ++j) {
+                        int bondsBetween = 0;
+                        int aI = -1, aJ = -1, bo = 0;
+                        for (int u : allSSSRRings[i]) {
+                            for (size_t k = 0; k < g.nodes[u].neighbors.size(); ++k) {
+                                int v = g.nodes[u].neighbors[k];
+                                if (allSSSRRings[j].count(v)) {
+                                    bondsBetween++;
+                                    aI = u; aJ = v; bo = g.nodes[u].bondOrders[k];
+                                }
+                            }
+                        }
+                        if (bondsBetween > 1 || (bondsBetween == 1 && bo != 1)) {
+                            singleLinksOk = false;
+                        } else if (bondsBetween == 1) {
+                            adj[i].push_back({j, aI, aJ});
+                            adj[j].push_back({i, aJ, aI});
+                        }
+                    }
+                }
+                std::vector<int> chainOrder;
+                if (singleLinksOk) {
+                    int startEnd = -1, deg1Cnt = 0, deg2Cnt = 0;
+                    for (int i = 0; i < N_rings; ++i) {
+                        if (adj[i].size() == 1) { deg1Cnt++; if (startEnd == -1) startEnd = i; }
+                        else if (adj[i].size() == 2) deg2Cnt++;
+                        else { deg1Cnt = -1; break; }
+                    }
+                    if (deg1Cnt == 2 && deg2Cnt == N_rings - 2 && startEnd != -1) {
+                        int cur = startEnd, prev = -1;
+                        while (cur != -1) {
+                            chainOrder.push_back(cur);
+                            int nxt = -1;
+                            for (const auto &e : adj[cur]) if (e.otherRing != prev) { nxt = e.otherRing; break; }
+                            prev = cur; cur = nxt;
+                        }
+                    }
+                }
+                if (static_cast<int>(chainOrder.size()) == N_rings) {
+                    struct ChainScore {
+                        std::vector<int> junctionLocs;
+                        std::vector<std::pair<int, int>> subLocs;
+                        QString name;
+                    };
+                    auto betterSC = [](const ChainScore &a, const ChainScore &b) {
+                        if (a.junctionLocs != b.junctionLocs) return a.junctionLocs < b.junctionLocs;
+                        if (a.subLocs != b.subLocs) return a.subLocs < b.subLocs;
+                        return a.name < b.name;
+                    };
+                    auto analyzeInDir = [&](const std::vector<int> &order) -> std::optional<ChainScore> {
+                        std::vector<RingAssemblyAnalysis> analyses(N_rings);
+                        for (int idx = 0; idx < N_rings; ++idx) {
+                            int rIdx = order[idx];
+                            int att1 = -1, lnk1 = -1, att2 = -1, lnk2 = -1;
+                            if (idx > 0) {
+                                int prevR = order[idx - 1];
+                                for (const auto &e : adj[rIdx]) if (e.otherRing == prevR) { att1 = e.myAtom; lnk1 = e.otherAtom; }
+                            }
+                            if (idx + 1 < N_rings) {
+                                int nextR = order[idx + 1];
+                                for (const auto &e : adj[rIdx]) if (e.otherRing == nextR) {
+                                    if (att1 == -1) { att1 = e.myAtom; lnk1 = e.otherAtom; }
+                                    else { att2 = e.myAtom; lnk2 = e.otherAtom; }
+                                }
+                            }
+                            analyses[idx] = computeRingAssemblyCandidates(g, allSSSRRings[rIdx], att1, lnk1, allSSSRRings,
+                                                                          carbonSulfonamide, carbonSulfinamide, mol, att2, lnk2);
+                            if (!analyses[idx].ok || analyses[idx].outErr) return std::nullopt;
+                            if (analyses[idx].bareParentName != analyses[0].bareParentName ||
+                                analyses[idx].rType != analyses[0].rType) return std::nullopt;
+                        }
+
+                        // Deduplicate candidates per ring with identical junction + substituent signature
+                        std::vector<std::vector<RingAssemblyCandidate>> dedupCands(N_rings);
+                        for (int idx = 0; idx < N_rings; ++idx) {
+                            int rIdx = order[idx];
+                            int leftAtt = -1, rightAtt = -1;
+                            for (const auto &e : adj[rIdx]) {
+                                if (idx > 0 && e.otherRing == order[idx - 1]) leftAtt = e.myAtom;
+                                if (idx + 1 < N_rings && e.otherRing == order[idx + 1]) rightAtt = e.myAtom;
+                            }
+                            std::set<std::tuple<int, int, std::vector<std::pair<QString, int>>>> seenSig;
+                            for (const auto &c : analyses[idx].candidates) {
+                                int lLoc = (leftAtt != -1 && c.locantOf.count(leftAtt)) ? c.locantOf.at(leftAtt) : 0;
+                                int rLoc = (rightAtt != -1 && c.locantOf.count(rightAtt)) ? c.locantOf.at(rightAtt) : 0;
+                                std::vector<std::pair<QString, int>> svec;
+                                for (const auto &sub : c.substituents) svec.push_back({sub.name, sub.locant});
+                                std::sort(svec.begin(), svec.end());
+                                if (seenSig.insert({lLoc, rLoc, svec}).second) dedupCands[idx].push_back(c);
+                            }
+                        }
+
+                        std::optional<ChainScore> bestChain;
+                        std::vector<const RingAssemblyCandidate *> chosen(N_rings, nullptr);
+                        std::function<void(int)> dfs = [&](int depth) {
+                            if (depth == N_rings) {
+                                std::vector<int> jLocs;
+                                QStringList jPairs;
+                                auto primesStr = [](int cnt) { return QString(cnt, '\''); };
+                                for (int idx = 0; idx + 1 < N_rings; ++idx) {
+                                    int rA = order[idx], rB = order[idx + 1];
+                                    int atA = -1, atB = -1;
+                                    for (const auto &e : adj[rA]) if (e.otherRing == rB) { atA = e.myAtom; atB = e.otherAtom; break; }
+                                    int lA = chosen[idx]->locantOf.at(atA);
+                                    int lB = chosen[idx + 1]->locantOf.at(atB);
+                                    jLocs.push_back(lA);
+                                    jLocs.push_back(lB);
+                                    jPairs.append(QString("%1%2,%3%4").arg(lA).arg(primesStr(idx)).arg(lB).arg(primesStr(idx + 1)));
+                                }
+                                std::vector<std::pair<int, int>> sLocs;
+                                std::map<QString, std::vector<std::pair<int, int>>> grouped;
+                                for (int idx = 0; idx < N_rings; ++idx) {
+                                    for (const auto &sub : chosen[idx]->substituents) {
+                                        sLocs.push_back({sub.locant, idx});
+                                        grouped[sub.name].push_back({sub.locant, idx});
+                                    }
+                                }
+                                std::sort(sLocs.begin(), sLocs.end());
+                                struct MPfx { QString k, txt; };
+                                std::vector<MPfx> pgs;
+                                for (auto &kv : grouped) {
+                                    std::sort(kv.second.begin(), kv.second.end());
+                                    QStringList ls;
+                                    for (const auto &lp : kv.second) ls.append(QString::number(lp.first) + primesStr(lp.second));
+                                    QString mp = (kv.second.size() > 1) ? multiPrefix(static_cast<int>(kv.second.size())) : QString();
+                                    pgs.push_back({alphabetizationKey(kv.first).toLower(), ls.join(",") + "-" + mp + kv.first});
+                                }
+                                std::sort(pgs.begin(), pgs.end(), [](const MPfx &x, const MPfx &y) { return x.k < y.k; });
+                                QStringList pp; for (const auto &pg : pgs) pp.append(pg.txt);
+                                QString subPfx = pp.join("-");
+
+                                static const char *asmMults[] = {"", "", "bi", "ter", "quater", "quinque", "sexi"};
+                                QString stemWord = (analyses[0].rType == RingType::BENZENE) ? "phenyl" : analyses[0].bareParentName;
+                                QString baseAsm = jPairs.join(":") + "-" + QString::fromLatin1(asmMults[N_rings]) + stemWord;
+                                QString fullName = subPfx.isEmpty() ? baseAsm : (subPfx + "-" + baseAsm);
+
+                                ChainScore sc{std::move(jLocs), std::move(sLocs), fullName};
+                                if (!bestChain || betterSC(sc, *bestChain)) bestChain = std::move(sc);
+                                return;
+                            }
+                            for (const auto &cand : dedupCands[depth]) {
+                                chosen[depth] = &cand;
+                                dfs(depth + 1);
+                            }
+                        };
+                        dfs(0);
+                        return bestChain;
+                    };
+
+                    std::vector<int> revOrder = chainOrder;
+                    std::reverse(revOrder.begin(), revOrder.end());
+                    auto fwdRes = analyzeInDir(chainOrder);
+                    auto revRes = analyzeInDir(revOrder);
+                    if (fwdRes && revRes) {
+                        QString win = betterSC(*fwdRes, *revRes) ? fwdRes->name : revRes->name;
+                        return {true, win, "", NamingStatus::SystematicIupacName};
+                    } else if (fwdRes) {
+                        return {true, fwdRes->name, "", NamingStatus::SystematicIupacName};
+                    } else if (revRes) {
+                        return {true, revRes->name, "", NamingStatus::SystematicIupacName};
+                    }
+                }
+            }
+        }
         
         if (hasBridged && numRingComponents <= 1) {
+            // --- Phase 30.5b: General Bridged Fused Polycyclics (P-25.4) ---
+            if (numRingComponents == 1 && N_rings >= 3) {
+                int br1 = -1, br2 = -1, bridgePairCount = 0;
+                for (int i = 0; i < N_rings; ++i) {
+                    for (int j = i + 1; j < N_rings; ++j) {
+                        std::vector<int> shared;
+                        for (int n : allSSSRRings[i]) if (allSSSRRings[j].count(n)) shared.push_back(n);
+                        if (shared.size() == 3 || shared.size() == 4) {
+                            bridgePairCount++;
+                            br1 = i; br2 = j;
+                        } else if (shared.size() > 4) {
+                            bridgePairCount = 99;
+                        }
+                    }
+                }
+                if (bridgePairCount == 1 && br1 != -1 && br2 != -1) {
+                    std::vector<int> sharedBR;
+                    for (int n : allSSSRRings[br1]) if (allSSSRRings[br2].count(n)) sharedBR.push_back(n);
+
+                    std::set<int> allRingUnionNodes;
+                    for (const auto &r : allSSSRRings) allRingUnionNodes.insert(r.begin(), r.end());
+
+                    std::vector<int> bridgeAtoms, bridgeheads;
+                    for (int n : sharedBR) {
+                        int degInUnion = 0;
+                        for (int nei : g.nodes[n].neighbors) {
+                            if (allRingUnionNodes.count(nei)) degInUnion++;
+                        }
+                        if (degInUnion == 2) bridgeAtoms.push_back(n);
+                        else if (degInUnion >= 3) bridgeheads.push_back(n);
+                    }
+                    // When SSSR decomposes a [2.2.2] cage along the two fusion faces
+                    // sharing {bh1, C4a, C10a, bh2}, bridgeAtoms sits in (br1 U br2) \ sharedBR.
+                    if (bridgeAtoms.empty() && sharedBR.size() == 4) {
+                        std::set<int> brPairUnion = allSSSRRings[br1];
+                        brPairUnion.insert(allSSSRRings[br2].begin(), allSSSRRings[br2].end());
+                        std::set<int> sharedSet(sharedBR.begin(), sharedBR.end());
+                        std::vector<std::vector<int>> deg2Chains;
+                        std::set<int> seenD2;
+                        for (int startN : brPairUnion) {
+                            if (seenD2.count(startN)) continue;
+                            int deg = 0;
+                            for (int nei : g.nodes[startN].neighbors) if (allRingUnionNodes.count(nei)) deg++;
+                            if (deg != 2) continue;
+                            std::vector<int> comp, q = {startN};
+                            seenD2.insert(startN);
+                            for (size_t head = 0; head < q.size(); ++head) {
+                                int cur = q[head];
+                                comp.push_back(cur);
+                                for (int nei : g.nodes[cur].neighbors) {
+                                    if (!brPairUnion.count(nei) || seenD2.count(nei)) continue;
+                                    int ndeg = 0;
+                                    for (int n2 : g.nodes[nei].neighbors) if (allRingUnionNodes.count(n2)) ndeg++;
+                                    if (ndeg == 2) { seenD2.insert(nei); q.push_back(nei); }
+                                }
+                            }
+                            if (comp.size() == 1 || comp.size() == 2) {
+                                std::set<int> compSet(comp.begin(), comp.end());
+                                std::vector<int> eps;
+                                for (int v : comp) {
+                                    for (int nei : g.nodes[v].neighbors) {
+                                        if (allRingUnionNodes.count(nei) && !compSet.count(nei) && sharedSet.count(nei)) {
+                                            eps.push_back(nei);
+                                        }
+                                    }
+                                }
+                                if (eps.size() == 2 && eps[0] != eps[1]) {
+                                    bridgeAtoms = comp;
+                                    bridgeheads = eps;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    QString bridgePrefix;
+                    bool validBridgeChain = false;
+                    if (bridgeheads.size() == 2 && (bridgeAtoms.size() == 1 || bridgeAtoms.size() == 2)) {
+                        if (bridgeAtoms.size() == 1) {
+                            int b = bridgeAtoms[0];
+                            bool exoClean = true;
+                            for (int nei : g.nodes[b].neighbors) if (!allRingUnionNodes.count(nei)) exoClean = false;
+                            if (exoClean) {
+                                int n0 = g.nodes[b].neighbors[0], n1 = g.nodes[b].neighbors[1];
+                                bool connectsBHs = ((n0 == bridgeheads[0] && n1 == bridgeheads[1]) ||
+                                                    (n0 == bridgeheads[1] && n1 == bridgeheads[0]));
+                                if (connectsBHs) {
+                                    if (g.nodes[b].atomicNumber == 8) bridgePrefix = "epoxy";
+                                    else if (g.nodes[b].atomicNumber == 6 && g.nodes[b].totalH == 2) bridgePrefix = "methano";
+                                    validBridgeChain = !bridgePrefix.isEmpty();
+                                }
+                            }
+                        } else if (bridgeAtoms.size() == 2) {
+                            int b0 = bridgeAtoms[0], b1 = bridgeAtoms[1];
+                            int bridgeBondOrder = 0;
+                            bool exoClean = true;
+                            int bh0Conn = -1, bh1Conn = -1;
+                            for (size_t k = 0; k < g.nodes[b0].neighbors.size(); ++k) {
+                                int nei = g.nodes[b0].neighbors[k];
+                                if (!allRingUnionNodes.count(nei)) exoClean = false;
+                                else if (nei == b1) bridgeBondOrder = g.nodes[b0].bondOrders[k];
+                                else bh0Conn = nei;
+                            }
+                            for (size_t k = 0; k < g.nodes[b1].neighbors.size(); ++k) {
+                                int nei = g.nodes[b1].neighbors[k];
+                                if (!allRingUnionNodes.count(nei)) exoClean = false;
+                                else if (nei != b0) bh1Conn = nei;
+                            }
+                            if (exoClean && bridgeBondOrder > 0 &&
+                                g.nodes[b0].atomicNumber == 6 && g.nodes[b1].atomicNumber == 6 &&
+                                ((bh0Conn == bridgeheads[0] && bh1Conn == bridgeheads[1]) ||
+                                 (bh0Conn == bridgeheads[1] && bh1Conn == bridgeheads[0]))) {
+                                if (bridgeBondOrder == 1) bridgePrefix = "ethano";
+                                else if (bridgeBondOrder == 2) bridgePrefix = "etheno";
+                                validBridgeChain = !bridgePrefix.isEmpty();
+                            }
+                        }
+                    }
+
+                    if (validBridgeChain) {
+                        std::set<int> bridgeAtomSet(bridgeAtoms.begin(), bridgeAtoms.end());
+                        std::set<int> parentNodes;
+                        for (int n : allRingUnionNodes) {
+                            if (!bridgeAtomSet.count(n)) parentNodes.insert(n);
+                        }
+                        int parentMol = indigoCreateMolecule();
+                        if (parentMol >= 0) {
+                            auto atomSym = [](int z) -> const char * {
+                                switch (z) {
+                                    case 7: return "N";
+                                    case 8: return "O";
+                                    case 15: return "P";
+                                    case 16: return "S";
+                                    case 33: return "As";
+                                    case 34: return "Se";
+                                    case 52: return "Te";
+                                    default: return "C";
+                                }
+                            };
+                            std::map<int, int> gToParentAtom;
+                            std::map<int, int> parentIdxToG;
+                            for (int gn : parentNodes) {
+                                const char *sym = atomSym(g.nodes[gn].atomicNumber);
+                                int ah = indigoAddAtom(parentMol, sym);
+                                if (ah >= 0) {
+                                    gToParentAtom[gn] = ah;
+                                    parentIdxToG[indigoIndex(ah)] = gn;
+                                }
+                            }
+                            std::map<std::pair<int, int>, int> kekBondOrders;
+                            int kekMol = indigoClone(mol);
+                            if (kekMol >= 0) {
+                                indigoDearomatize(kekMol);
+                                int bIter = indigoIterateBonds(kekMol);
+                                if (bIter >= 0) {
+                                    int bHandle = 0;
+                                    while ((bHandle = indigoNext(bIter)) != 0) {
+                                        int bs = indigoSource(bHandle), be = indigoDestination(bHandle);
+                                        int is = indigoIndex(bs), ie = indigoIndex(be);
+                                        int ord = indigoBondOrder(bHandle);
+                                        indigoFree(bs); indigoFree(be); indigoFree(bHandle);
+                                        if (indigoToGraphIdx.count(is) && indigoToGraphIdx.count(ie)) {
+                                            int gu = indigoToGraphIdx.at(is), gv = indigoToGraphIdx.at(ie);
+                                            if (parentNodes.count(gu) && parentNodes.count(gv) && ord >= 1 && ord <= 3) {
+                                                kekBondOrders[{std::min(gu, gv), std::max(gu, gv)}] = ord;
+                                            }
+                                        }
+                                    }
+                                    indigoFree(bIter);
+                                }
+                                indigoFree(kekMol);
+                            }
+                            for (const auto &gb : g.bonds) {
+                                if (parentNodes.count(gb.u) && parentNodes.count(gb.v)) {
+                                    auto key = std::make_pair(std::min(gb.u, gb.v), std::max(gb.u, gb.v));
+                                    int ord = kekBondOrders.count(key) ? kekBondOrders[key] : ((gb.order >= 1 && gb.order <= 3) ? gb.order : 1);
+                                    int bh = indigoAddBond(gToParentAtom[gb.u], gToParentAtom[gb.v], ord);
+                                    if (bh >= 0) indigoFree(bh);
+                                }
+                            }
+                            for (auto &kv : gToParentAtom) indigoFree(kv.second);
+                            indigoAromatize(parentMol);
+
+                            std::vector<RingSystemNameResult> parentCands;
+                            auto parentRes = tryRetainedBaseDecomposition(parentMol, nullptr, &parentCands);
+                            indigoFree(parentMol);
+
+                            if (parentRes && parentRes->success) {
+                                if (parentCands.empty()) parentCands.push_back(*parentRes);
+                                FunctionalGroupClassification fgcBr = classifyFunctionalGroups(
+                                    g, mol, allRingUnionNodes, allSSSRRings,
+                                    carbonAzide, carbonSulfonicAcid, carbonSulfonamide, carbonSulfonylHalide,
+                                    carbonSulfinylHalide, carbonSulfinicAcid, carbonSulfinamide,
+                                    carbonThiol, carbonSelenol, carbonTellurol,
+                                    carbonBoronicAcid, carbonBorinicAcid, carbonPhosphonicAcid, carbonPhosphinicAcid,
+                                    carbonPhosphonicDihalide, carbonArsonicAcid, carbonArsinicAcid, carbonArsonicDihalide,
+                                    carbonStibonicAcid, carbonStibinicAcid, carbonPhosphine);
+                                if (!fgcBr.hasEarlyResult && !hasAcyclicChainSeniorGroup(allRingUnionNodes, fgcBr)) {
+                                    PreparedFusedContext prep = prepareFusedParentContext(allRingUnionNodes, fgcBr);
+                                    if (prep.supported) {
+                                        for (int ba : bridgeAtoms) prep.ctx.handledExocyclicNeighbors.insert(ba);
+                                        int parentRingCount = N_rings - 1;
+
+                                        struct BridgedScore {
+                                            std::vector<int> pLocs;
+                                            int bh1, bh2;
+                                            std::vector<int> allSubLocs;
+                                            std::vector<int> alphaSubLocs;
+                                            QString fullName;
+                                        };
+                                        std::optional<BridgedScore> bestBr;
+                                        for (const auto &cand : parentCands) {
+                                            std::map<int, QString> pLocMap;
+                                            for (const auto &kv : cand.locantMap) {
+                                                if (parentIdxToG.count(kv.first)) pLocMap[parentIdxToG[kv.first]] = kv.second;
+                                            }
+                                            if (pLocMap.size() != parentNodes.size()) continue;
+                                            if (!pLocMap.count(bridgeheads[0]) || !pLocMap.count(bridgeheads[1])) continue;
+                                            bool ok1 = false, ok2 = false;
+                                            int bl1 = pLocMap[bridgeheads[0]].toInt(&ok1);
+                                            int bl2 = pLocMap[bridgeheads[1]].toInt(&ok2);
+                                            if (!ok1 || !ok2) continue;
+                                            if (bl1 > bl2) std::swap(bl1, bl2);
+
+                                            QString cleanBase = cand.baseName;
+                                            static const QRegularExpression reLeadingHydro("^[0-9a-z,]+-(?:di|tri|tetra|hexa|octa|deca)?hydro-?");
+                                            cleanBase.remove(reLeadingHydro);
+                                            bool brNeedsDihydro = (parentRingCount >= 3 || cleanBase != "naphthalene");
+                                            QString bridgeStem = brNeedsDihydro
+                                                ? QString("%1,%2-dihydro-%1,%2-%3%4").arg(bl1).arg(bl2).arg(bridgePrefix, cleanBase)
+                                                : QString("%1,%2-%3%4").arg(bl1).arg(bl2).arg(bridgePrefix, cleanBase);
+
+                                            QString fullName, errMsg;
+                                            std::vector<int> pLocs, allSubLocs, alphaSubLocs;
+                                            if (!assembleFusedParentName(bridgeStem, pLocMap, prep, parentNodes, fullName, errMsg,
+                                                                         &pLocs, &allSubLocs, &alphaSubLocs)) {
+                                                continue;
+                                            }
+                                            BridgedScore s{std::move(pLocs), bl1, bl2, std::move(allSubLocs), std::move(alphaSubLocs), fullName};
+                                            auto betterBr = [](const BridgedScore &a, const BridgedScore &b) {
+                                                if (a.pLocs != b.pLocs) return a.pLocs < b.pLocs;
+                                                if (a.bh1 != b.bh1) return a.bh1 < b.bh1;
+                                                if (a.bh2 != b.bh2) return a.bh2 < b.bh2;
+                                                if (a.allSubLocs != b.allSubLocs) return a.allSubLocs < b.allSubLocs;
+                                                if (a.alphaSubLocs != b.alphaSubLocs) return a.alphaSubLocs < b.alphaSubLocs;
+                                                return a.fullName < b.fullName;
+                                            };
+                                            if (!bestBr || betterBr(s, *bestBr)) bestBr = std::move(s);
+                                        }
+                                        if (bestBr) {
+                                            return {true, bestBr->fullName, "", NamingStatus::SystematicIupacName};
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             return {false, "", "bridged fused ring systems (P-25.4) are not yet supported."};
         }
         if (hasP25_5) {
@@ -28831,6 +30320,31 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
         QString fullName, errMsg;
         if (!assembleFusedParentName(p31.baseName, p31LocantMap, prep, allSystemNodes, fullName, errMsg)) {
             return {false, "", errMsg};
+        }
+        if ((p31.baseName == "2-benzofuran" || p31.baseName == "2-benzothiophene" ||
+             p31.baseName == "2-benzoselenophene" || p31.baseName == "2-benzotellurophene") &&
+            prep.ctx.suffixWord == "one" && fullName.endsWith("-one")) {
+            QString addedHLoc;
+            for (const auto &kv : p31LocantMap) {
+                int n = kv.first;
+                if (g.nodes[n].atomicNumber != 6) continue;
+                if (std::find(prep.ctx.principalRingAtoms.begin(), prep.ctx.principalRingAtoms.end(), n) != prep.ctx.principalRingAtoms.end()) continue;
+                int ringDeg = 0;
+                for (int nei : g.nodes[n].neighbors) if (allSystemNodes.count(nei)) ringDeg++;
+                if (ringDeg == 2 && !kv.second.endsWith("a") && !kv.second.endsWith("b")) {
+                    bool isSaturatedInRing = true;
+                    for (size_t j = 0; j < g.nodes[n].neighbors.size(); ++j) {
+                        if (allSystemNodes.count(g.nodes[n].neighbors[j]) && g.nodes[n].bondOrders[j] != 1) {
+                            isSaturatedInRing = false; break;
+                        }
+                    }
+                    if (isSaturatedInRing) { addedHLoc = kv.second; break; }
+                }
+            }
+            if (!addedHLoc.isEmpty()) {
+                fullName.chop(4);
+                fullName += QString("(%1H)-one").arg(addedHLoc);
+            }
         }
         return {true, fullName, ""};
     }
@@ -30479,9 +31993,9 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                                                     if (suffixOk && winningType != GroupType::NONE && !pLocants.empty()) {
                                                         int pCount = static_cast<int>(pLocants.size());
                                                         QString bareSuffix;
-                                                        if (winningType == GroupType::KETONE) bareSuffix = (pCount == 1) ? "one" : "dione";
-                                                        else if (winningType == GroupType::ALCOHOL) bareSuffix = (pCount == 1) ? "ol" : "diol";
-                                                        else if (winningType == GroupType::AMINE) bareSuffix = (pCount == 1) ? "amine" : "diamine";
+                                                        if (winningType == GroupType::KETONE) bareSuffix = ((pCount == 1) ? "" : multiPrefix(pCount)) + "one";
+                                                        else if (winningType == GroupType::ALCOHOL) bareSuffix = ((pCount == 1) ? "" : multiPrefix(pCount)) + "ol";
+                                                        else if (winningType == GroupType::AMINE) bareSuffix = ((pCount == 1) ? "" : multiPrefix(pCount)) + "amine";
                                                         QStringList locStrs;
                                                         for (int l : pLocants) locStrs.append(QString::number(l));
                                                         suffixSpiro = "-" + locStrs.join(",") + "-" + bareSuffix;
@@ -30668,9 +32182,9 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                                                         if (suffixOk && winningType != GroupType::NONE && !pLocants.empty()) {
                                                             int pCount = static_cast<int>(pLocants.size());
                                                             QString bareSuffix;
-                                                            if (winningType == GroupType::KETONE) bareSuffix = (pCount == 1) ? "one" : "dione";
-                                                            else if (winningType == GroupType::ALCOHOL) bareSuffix = (pCount == 1) ? "ol" : "diol";
-                                                            else if (winningType == GroupType::AMINE) bareSuffix = (pCount == 1) ? "amine" : "diamine";
+                                                            if (winningType == GroupType::KETONE) bareSuffix = ((pCount == 1) ? "" : multiPrefix(pCount)) + "one";
+                                                            else if (winningType == GroupType::ALCOHOL) bareSuffix = ((pCount == 1) ? "" : multiPrefix(pCount)) + "ol";
+                                                            else if (winningType == GroupType::AMINE) bareSuffix = ((pCount == 1) ? "" : multiPrefix(pCount)) + "amine";
                                                             QStringList locStrs;
                                                             for (int l : pLocants) locStrs.append(QString::number(l));
                                                             suffixBicyclo = "-" + locStrs.join(",") + "-" + bareSuffix;
@@ -31129,7 +32643,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                         if (!ringHasHeteroatom && (chainCount > ringCount || (chainCount == ringCount && chainDeepCount > 0))) {
                             if (isChainParentWithRingSubstituentSupported(combinedWinner)) {
                                 std::set<int> handledBranchStereoIds;
-                                QString chainName = nameChainParentWithRingSubstituent(mol, indigoToGraphIdx, g, ringNodeSet, allSSSRRings, carbonGroup, combinedWinner, stereoByGraphId, &handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide);
+                                QString chainName = nameChainParentWithRingSubstituent(mol, indigoToGraphIdx, g, ringNodeSet, allSSSRRings, carbonGroup, combinedWinner, stereoByGraphId, &handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide, ensureStereo);
                                 if (!chainName.isEmpty()) {
                                     return {true, chainName, ""};
                                 }
@@ -31214,7 +32728,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                         if (!ringHasHeteroatom && (chainCount > ringCount || (chainCount == ringCount && chainDeepCount > 0))) {
                             if (isChainParentWithRingSubstituentSupported(combinedWinner)) {
                                 std::set<int> handledBranchStereoIds;
-                                QString chainName = nameChainParentWithRingSubstituent(mol, indigoToGraphIdx, g, ringNodeSet, allSSSRRings, carbonGroup, combinedWinner, stereoByGraphId, &handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide);
+                                QString chainName = nameChainParentWithRingSubstituent(mol, indigoToGraphIdx, g, ringNodeSet, allSSSRRings, carbonGroup, combinedWinner, stereoByGraphId, &handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide, ensureStereo);
                                 if (!chainName.isEmpty()) {
                                     return {true, chainName, ""};
                                 }
@@ -31584,6 +33098,20 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                             if (!sub1 && !sub2) {
                                 return {true, "biphenyl", ""};
                             }
+                        }
+                    } else if (ring1Nodes.size() != ring2Nodes.size()) {
+                        // Blue Book P-44.2.2: when two plain directly-bonded rings differ in skeletal
+                        // atom count, the larger ring is the parent and the smaller is a substituent.
+                        const std::set<int> &parentRing = (ring1Nodes.size() > ring2Nodes.size()) ? ring1Nodes : ring2Nodes;
+                        const std::set<int> &subRing = (ring1Nodes.size() > ring2Nodes.size()) ? ring2Nodes : ring1Nodes;
+                        int attParent = (ring1Nodes.size() > ring2Nodes.size()) ? attach1 : attach2;
+                        int attSub = (ring1Nodes.size() > ring2Nodes.size()) ? attach2 : attach1;
+                        QString subName = nameRingAsSubstituent(g, subRing, attSub, attParent, allSSSRRings, parentRing, {}, nullptr, {}, {}, nullptr, mol);
+                        if (!subName.isEmpty()) {
+                            phase2ForcedRingNodeSet = parentRing;
+                            phase2ForcedRingSubstituentNames[attParent] = subName;
+                            phase2ForcedRingSubstituentNames[attSub] = subName;
+                            return namePhase2Monocyclic();
                         }
                     }
                 }

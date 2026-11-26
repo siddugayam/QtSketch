@@ -12,6 +12,7 @@
 struct SkeletonMatchResult {
     std::map<int,int> atomMap;
     QStringList hydroLocants;
+    QString indicatedHydrogenLocant;
 };
 
 // Returns full retained ring registry
@@ -28,7 +29,7 @@ bool skeletonMatchRetainedSystem(int mol, const std::set<int> &ringAtoms,
                                  SkeletonMatchResult &outResult);
 
 // Computes all symmetry automorphisms of a reference molecule
-std::vector<std::vector<int>> computeAutomorphisms(int refMol);
+std::vector<std::vector<int>> computeAutomorphisms(int refMol, bool preserveBondOrders = false);
 
 // Tries to decompose the molecule's fused-ring system into retained
 // polycyclic components (base + attached prefixes) per Blue Book

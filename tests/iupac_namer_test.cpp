@@ -6248,15 +6248,17 @@ int main() {
     }
 
     {
-        // Same bug, azelastine (azepane ring + phthalazinone-linked chlorophenyl ring).
+        // Azelastine (azepane ring + phthalazinone-linked chlorophenyl ring):
+        // previously falsely pulled into ringSubstituentInfos; now routes through
+        // Phase 31 phthalazinone naming to the systematic IUPAC name.
         int m = indigoLoadMoleculeFromString("CN1CCCC(n2nc(Cc3ccc(Cl)cc3)c3ccccc3c2=O)CC1");
         IupacResult r = IupacNamer::generateName(m);
         indigoFree(m);
-        if (!r.success && !r.error.isEmpty()) {
-            std::cout << "[PASS] azelastine dual-ring fabricated chain now rejected -> " << r.error.toStdString() << "\n";
+        if (r.success && r.name == "4-[(4-chlorophenyl)methyl]-2-(1-methylazepan-4-yl)phthalazin-1-one") {
+            std::cout << "[PASS] azelastine systematic IUPAC name -> " << r.name.toStdString() << "\n";
             passed++;
         } else {
-            std::cout << "[FAIL] azelastine dual-ring fabricated chain -> got success=" << r.success << " name='" << r.name.toStdString() << "'\n";
+            std::cout << "[FAIL] azelastine systematic IUPAC name -> got success=" << r.success << " name='" << r.name.toStdString() << "' err='" << r.error.toStdString() << "'\n";
             failed++;
         }
     }
@@ -8996,7 +8998,104 @@ int main() {
             {"poly-mono spiro spiro[cyclopenta-2,4-diene-1,1'-indene]", "c1ccc2c(c1)C=CC21C=CC=C1", "spiro[cyclopenta-2,4-diene-1,1'-indene]", false, ""},
             {"poly-mono spiro spiro[cyclohexane-1,1'-indene]", "c1ccc2c(c1)C=CC21CCCCC1", "spiro[cyclohexane-1,1'-indene]", false, ""},
             {"poly-mono spiro 1',2'-dihydrospiro[cyclohexane-1,2'-indene]", "C1CCC2(CC1)Cc1ccccc1C2", "1',2'-dihydrospiro[cyclohexane-1,2'-indene]", false, ""},
-            {"poly-mono spiro spiro[indene-1,4'-piperidine]", "c1ccc2c(c1)C=CC21CCNCC1", "spiro[indene-1,4'-piperidine]", false, ""}
+            {"poly-mono spiro spiro[indene-1,4'-piperidine]", "c1ccc2c(c1)C=CC21CCNCC1", "spiro[indene-1,4'-piperidine]", false, ""},
+
+            // P-28.2.1 polycyclic ring assemblies, P-25.4 bridged fused polycyclics, P-25.2 7-ring benzoheterocycles:
+            {"polycyclic ring assembly 1,1'-binaphthalene", "c1ccc2ccccc2c1-c1cccc2ccccc12", "1,1'-binaphthalene", false, ""},
+            {"polycyclic ring assembly 2,2'-binaphthalene", "c1ccc2cc(-c3ccc4ccccc4c3)ccc2c1", "2,2'-binaphthalene", false, ""},
+            {"polycyclic ring assembly 2,2'-biquinoline", "c1ccc2nc(-c3ccc4ccccc4n3)ccc2c1", "2,2'-biquinoline", false, ""},
+            {"polycyclic ring assembly 4-methyl-1,1'-binaphthalene", "Cc1ccc(-c2cccc3ccccc23)c2ccccc12", "4-methyl-1,1'-binaphthalene", false, ""},
+            {"bridged fused 9,10-dihydro-9,10-ethanoanthracene", "c1ccc2c(c1)C1c3ccccc3C2CC1", "9,10-dihydro-9,10-ethanoanthracene", false, ""},
+            {"bridged fused 9,10-dihydro-9,10-methanoanthracene", "c1ccc2c(c1)C1c3ccccc3C2C1", "9,10-dihydro-9,10-methanoanthracene", false, ""},
+            {"bridged fused 9,10-dihydro-9,10-epoxyanthracene", "c1ccc2c(c1)C1c3ccccc3C2O1", "9,10-dihydro-9,10-epoxyanthracene", false, ""},
+            {"bridged fused 9,10-dihydro-9,10-ethenoanthracene", "c1ccc2c(c1)C1c3ccccc3C2C=C1", "9,10-dihydro-9,10-ethenoanthracene", false, ""},
+            {"bridged fused 5-methyl-1,4-epoxynaphthalene", "Cc1cccc2c1C1C=CC2O1", "5-methyl-1,4-epoxynaphthalene", false, ""},
+            {"benzo 7-ring 1H-1-benzazepine", "c1ccc2c(c1)C=CC=CN2", "1H-1-benzazepine", false, ""},
+            {"benzo 7-ring 1H-1,4-benzodiazepine", "c1ccc2c(c1)C=NC=CN2", "1H-1,4-benzodiazepine", false, ""},
+            {"benzo 7-ring 1H-1,5-benzodiazepine", "c1ccc2c(c1)N=CC=CN2", "1H-1,5-benzodiazepine", false, ""},
+            {"benzo 7-ring 1-benzoxepine", "O1C=CC=Cc2ccccc12", "1-benzoxepine", false, ""},
+
+            // P-24.3 polycyclic spirobi, P-28.2.1+P-58 suffix polycyclic assemblies, P-28.3 3-6 ring linear assemblies:
+            {"spirobi 1,1'-spirobi[indene]", "c1ccc2c(c1)C=CC21C=Cc2ccccc21", "1,1'-spirobi[indene]", false, ""},
+            {"spirobi 9,9'-spirobi[fluorene]", "c1ccc2c(c1)-c1ccccc1C21c2ccccc2-c2ccccc21", "9,9'-spirobi[fluorene]", false, ""},
+            {"binaphthalene suffix [1,1'-binaphthalene]-2,2'-diol", "Oc1ccc2ccccc2c1-c1c(O)ccc2ccccc12", "[1,1'-binaphthalene]-2,2'-diol", false, ""},
+            {"binaphthalene suffix [1,1'-binaphthalene]-2,2'-diamine", "Nc1ccc2ccccc2c1-c1c(N)ccc2ccccc12", "[1,1'-binaphthalene]-2,2'-diamine", false, ""},
+            {"binaphthalene suffix [1,1'-binaphthalene]-2,2'-dicarboxylic acid", "O=C(O)c1ccc2ccccc2c1-c1c(C(=O)O)ccc2ccccc12", "[1,1'-binaphthalene]-2,2'-dicarboxylic acid", false, ""},
+            {"ring assembly 1,1':4',1''-terphenyl", "c1ccccc1-c1ccc(-c2ccccc2)cc1", "1,1':4',1''-terphenyl", false, ""},
+            {"ring assembly 1,1':3',1''-terphenyl", "c1ccccc1-c1cccc(-c2ccccc2)c1", "1,1':3',1''-terphenyl", false, ""},
+            {"ring assembly 1,1':2',1''-terphenyl", "c1ccccc1-c1ccccc1-c1ccccc1", "1,1':2',1''-terphenyl", false, ""},
+            {"ring assembly 2,2':6',2''-terpyridine", "c1ccnc(-c2cccc(-c3ccccn3)n2)c1", "2,2':6',2''-terpyridine", false, ""},
+            {"ring assembly 2,2':5',2''-terthiophene", "c1ccsc1-c1ccc(-c2cccs2)s1", "2,2':5',2''-terthiophene", false, ""},
+            {"ring assembly 1,1':4',1''-tercyclohexane", "C1CCC(C2CCC(C3CCCCC3)CC2)CC1", "1,1':4',1''-tercyclohexane", false, ""},
+            {"ring assembly 1,1':4',1'':4'',1'''-quaterphenyl", "c1ccc(-c2ccc(-c3ccc(-c4ccccc4)cc3)cc2)cc1", "1,1':4',1'':4'',1'''-quaterphenyl", false, ""},
+            {"ring assembly 4-methyl-1,1':4',1''-terphenyl", "Cc1ccc(-c2ccc(-c3ccccc3)cc2)cc1", "4-methyl-1,1':4',1''-terphenyl", false, ""},
+
+            // P-24.2 spiro functional groups + P-28.2.2 double-bond ring assemblies:
+            {"spiro ketone spiro[4.5]decan-1-one", "O=C1CCCC12CCCCC2", "spiro[4.5]decan-1-one", false, ""},
+            {"azaspiro dione 2-azaspiro[4.5]decane-1,3-dione", "O=C1NC(=O)CC12CCCCC2", "2-azaspiro[4.5]decane-1,3-dione", false, ""},
+            {"azaspiro dione 3-azaspiro[5.5]undecane-2,4-dione", "O=C1CC2(CCCCC2)CC(=O)N1", "3-azaspiro[5.5]undecane-2,4-dione", false, ""},
+            {"oxaspiro ketone 3-oxaspiro[5.5]undecan-9-one", "O=C1CCC2(CC1)CCOCC2", "3-oxaspiro[5.5]undecan-9-one", false, ""},
+            {"spiro alcohol spiro[4.5]decan-8-ol", "OC1CCC2(CC1)CCCC2", "spiro[4.5]decan-8-ol", false, ""},
+            {"spiro acid spiro[4.5]decane-1-carboxylic acid", "O=C(O)C1CCCC12CCCCC2", "spiro[4.5]decane-1-carboxylic acid", false, ""},
+            {"spiro ester methyl spiro[4.5]decane-1-carboxylate", "COC(=O)C1CCCC12CCCCC2", "methyl spiro[4.5]decane-1-carboxylate", false, ""},
+            {"spiro enone spiro[4.5]dec-7-en-1-one", "O=C1CCCC12CC=CCC2", "spiro[4.5]dec-7-en-1-one", false, ""},
+            {"double-bond assembly 1,1'-bi(cyclopentylidene)", "C1CCC(=C2CCCC2)C1", "1,1'-bi(cyclopentylidene)", false, ""},
+            {"double-bond assembly 1,1'-bi(cyclohexylidene)", "C1CCC(=C2CCCCC2)CC1", "1,1'-bi(cyclohexylidene)", false, ""},
+            {"double-bond assembly 1,1'-bi(cyclobutylidene)", "C1CC(=C2CCC2)C1", "1,1'-bi(cyclobutylidene)", false, ""},
+            {"double-bond assembly 4,4'-dimethyl-1,1'-bi(cyclohexylidene)", "CC1CCC(=C2CCC(C)CC2)CC1", "4,4'-dimethyl-1,1'-bi(cyclohexylidene)", false, ""},
+
+            // P-25.2 / P-58.2 / P-31.1.4.2 / P-23.2.6.3 remaining fused gaps:
+            {"benzo anhydride 2-benzofuran-1,3-dione", "O=C1OC(=O)c2ccccc12", "2-benzofuran-1,3-dione", false, ""},
+            {"benzo 7-ring lactam 1,3-dihydro-2H-1,4-benzodiazepin-2-one", "O=C1CN=Cc2ccccc2N1", "1,3-dihydro-2H-1,4-benzodiazepin-2-one", false, ""},
+            {"carbazolone 1,2,3,9-tetrahydro-4H-carbazol-4-one", "O=C1CCCc2[nH]c3ccccc3c12", "1,2,3,9-tetrahydro-4H-carbazol-4-one", false, ""},
+            {"carbazolone 2,3,4,9-tetrahydro-1H-carbazol-1-one", "O=C1CCCc2c1[nH]c1ccccc21", "2,3,4,9-tetrahydro-1H-carbazol-1-one", false, ""},
+            {"benzo small ring bicyclo[4.2.0]octa-1,3,5-triene", "c1ccc2c(c1)CC2", "bicyclo[4.2.0]octa-1,3,5-triene", false, ""},
+            {"benzo small ring bicyclo[4.1.0]hepta-1,3,5-triene", "c1ccc2c(c1)C2", "bicyclo[4.1.0]hepta-1,3,5-triene", false, ""},
+            {"benzo small ring ketone bicyclo[4.2.0]octa-1,3,5-trien-7-one", "O=C1Cc2ccccc12", "bicyclo[4.2.0]octa-1,3,5-trien-7-one", false, ""},
+
+            // P-25.2 lactone, P-44.2.2 unequal two-ring pairs, P-25.7 1H-indene, P-23.2.5 heteropolycyclic cages:
+            {"benzo lactone 2-benzofuran-1(3H)-one", "O=C1OCc2ccccc12", "2-benzofuran-1(3H)-one", false, ""},
+            {"benzo lactone 5-chloro-2-benzofuran-1(3H)-one", "O=C1OCc2cc(Cl)ccc12", "5-chloro-2-benzofuran-1(3H)-one", false, ""},
+            {"unequal ring pair cyclopentylcyclohexane", "C1CCC(C2CCCCC2)C1", "cyclopentylcyclohexane", false, ""},
+            {"unequal ring pair cyclopropylcyclohexane", "C1CC1C1CCCCC1", "cyclopropylcyclohexane", false, ""},
+            {"unequal ring pair cyclopentylbenzene", "c1ccc(C2CCCC2)cc1", "cyclopentylbenzene", false, ""},
+            {"indene 1H-indene (C=C in 5-ring)", "C1=Cc2ccccc2C1", "1H-indene", false, ""},
+            {"indene 1H-indene (CC=C)", "c1ccc2c(c1)CC=C2", "1H-indene", false, ""},
+            {"heteropolycyclic methenamine 1,3,5,7-tetraazatricyclo[3.3.1.1^{3,7}]decane", "C1N2CN3CN1CN(C2)C3", "1,3,5,7-tetraazatricyclo[3.3.1.1^{3,7}]decane", false, ""},
+
+            // P-22.2 oxane/glutaric anhydrides, P-31 1,4-benzoxazine/benzothiazine, P-25.7 substituted indene, P-28.2.1 small bi(cycloalkane):
+            {"saturated 6-ring heterocycle oxane", "C1CCOCC1", "oxane", false, ""},
+            {"saturated 6-ring heterocycle thiane", "C1CCSCC1", "thiane", false, ""},
+            {"glutaric anhydride oxane-2,6-dione", "O=C1OC(=O)CCC1", "oxane-2,6-dione", false, ""},
+            {"glutaric trione oxane-2,4,6-trione", "O=C1CC(=O)OC(=O)C1", "oxane-2,4,6-trione", false, ""},
+            {"benzo 6-ring oxazine 3,4-dihydro-2H-1,4-benzoxazine", "c1ccc2c(c1)NCCO2", "3,4-dihydro-2H-1,4-benzoxazine", false, ""},
+            {"benzo 6-ring thiazine 3,4-dihydro-2H-1,4-benzothiazine", "c1ccc2c(c1)NCCS2", "3,4-dihydro-2H-1,4-benzothiazine", false, ""},
+            {"substituted indene 6-methyl-1H-indene", "Cc1ccc2c(c1)CC=C2", "6-methyl-1H-indene", false, ""},
+            {"indenone 1H-inden-1-one", "O=C1C=Cc2ccccc12", "1H-inden-1-one", false, ""},
+            {"small ring assembly 1,1'-bi(cyclopropane)", "C1CC1C2CC2", "1,1'-bi(cyclopropane)", false, ""},
+            {"small ring assembly 1,1'-bi(cyclobutane)", "C1CCC1C2CCC2", "1,1'-bi(cyclobutane)", false, ""},
+
+            // Isothiocyanates, skeletal replacement ordering, monocyclic boronic acids, unsaturated 5-ring lactones/anhydrides/imides, multi-ring phenol/aniline:
+            {"aryl isothiocyanate isothiocyanatobenzene", "S=C=Nc1ccccc1", "isothiocyanatobenzene", false, ""},
+            {"alkyl isothiocyanate isothiocyanatoethane", "CCN=C=S", "isothiocyanatoethane", false, ""},
+            {"tropane 8-methyl-8-azabicyclo[3.2.1]octane", "CN1C2CCC1CCC2", "8-methyl-8-azabicyclo[3.2.1]octane", false, ""},
+            {"tropinone 8-methyl-8-azabicyclo[3.2.1]octan-3-one", "CN1C2CCC1CC(=O)C2", "8-methyl-8-azabicyclo[3.2.1]octan-3-one", false, ""},
+            {"azaspiro 2-methyl-2-azaspiro[4.5]decane", "CN1CCC2(CCCCC2)C1", "2-methyl-2-azaspiro[4.5]decane", false, ""},
+            {"phenylboronic acid", "OB(O)c1ccccc1", "phenylboronic acid", false, ""},
+            {"4-methylphenylboronic acid", "Cc1ccc(B(O)O)cc1", "4-methylphenylboronic acid", false, ""},
+            {"pyridin-3-ylboronic acid", "OB(O)c1cccnc1", "pyridin-3-ylboronic acid", false, ""},
+            {"furan-2-ylboronic acid", "OB(O)c1ccco1", "furan-2-ylboronic acid", false, ""},
+            {"maleic anhydride furan-2,5-dione", "O=C1C=CC(=O)O1", "furan-2,5-dione", false, ""},
+            {"maleimide pyrrole-2,5-dione", "O=C1C=CC(=O)N1", "pyrrole-2,5-dione", false, ""},
+            {"butenolide furan-2(5H)-one", "O=C1OCC=C1", "furan-2(5H)-one", false, ""},
+            {"butenolide furan-2(3H)-one", "O=C1OC=CC1", "furan-2(3H)-one", false, ""},
+            {"substituted butenolide 5-methylfuran-2(5H)-one", "CC1OC(=O)C=C1", "5-methylfuran-2(5H)-one", false, ""},
+            {"thiolactone thiophen-2(5H)-one", "O=C1SCC=C1", "thiophen-2(5H)-one", false, ""},
+            {"dihydrofuran 2,3-dihydrofuran", "C1=COCC1", "2,3-dihydrofuran", false, ""},
+            {"dihydrofuran 2,5-dihydrofuran", "C1=CCOC1", "2,5-dihydrofuran", false, ""},
+            {"benzyl aniline 4-phenylmethylaniline", "Nc1ccc(Cc2ccccc2)cc1", "4-phenylmethylaniline", false, ""},
+            {"benzyl phenol 4-phenylmethylphenol", "Oc1ccc(Cc2ccccc2)cc1", "4-phenylmethylphenol", false, ""},
+            {"methylenedianiline clean rejection without --amine", "Nc1ccc(Cc2ccc(N)cc2)cc1", "", true, "Fused, bridged, spiro, or multiple ring systems are not supported in Phase 2."}
         };
         for (const auto &tc : agyCases) {
             int m = indigoLoadMoleculeFromString(tc.smiles.c_str());

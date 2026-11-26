@@ -101,7 +101,7 @@ static FusionComponent classifyMonocycle(int ringIdx, const std::set<int> &ringA
             comp.name = "thiophene"; comp.prefix = "thieno"; comp.seniorityRank = 21;
         } else if (numN == 1 && numO == 0 && numS == 0) {
             comp.name = "pyrrole"; comp.prefix = "pyrrolo"; comp.seniorityRank = 13;
-        } else if (numN == 2) {
+        } else if (numN == 2 && numO == 0 && numS == 0) {
             bool adjacent = false;
             if (nitrogens.size() == 2) {
                 int n1 = nitrogens[0], n2 = nitrogens[1];
@@ -114,6 +114,22 @@ static FusionComponent classifyMonocycle(int ringIdx, const std::set<int> &ringA
             } else {
                 comp.name = "imidazole"; comp.prefix = "imidazo"; comp.seniorityRank = 11;
             }
+        } else if (numN == 3 && numO == 0 && numS == 0) {
+            int adjPairs = 0;
+            for (size_t i = 0; i < nitrogens.size(); ++i) {
+                for (size_t j = i + 1; j < nitrogens.size(); ++j) {
+                    for (int nei : g.nodes[nitrogens[i]].neighbors) {
+                        if (nei == nitrogens[j]) adjPairs++;
+                    }
+                }
+            }
+            if (adjPairs >= 2) {
+                comp.name = "1,2,3-triazole"; comp.prefix = "[1,2,3]triazolo"; comp.seniorityRank = 5;
+            } else {
+                comp.name = "1,2,4-triazole"; comp.prefix = "[1,2,4]triazolo"; comp.seniorityRank = 6;
+            }
+        } else if (numN == 4 && numO == 0 && numS == 0) {
+            comp.name = "tetrazole"; comp.prefix = "tetrazolo"; comp.seniorityRank = 4;
         } else if (numO == 1 && numN == 1) {
             comp.name = "oxazole"; comp.prefix = "oxazolo"; comp.seniorityRank = 15;
         } else if (numS == 1 && numN == 1) {
@@ -122,23 +138,20 @@ static FusionComponent classifyMonocycle(int ringIdx, const std::set<int> &ringA
             comp.name = "heterocycle"; comp.prefix = "hetero"; comp.seniorityRank = 30;
         }
     } else if (nAtoms == 6) {
-        if (numN == 2) {
-            int dist = 3;
-            if (nitrogens.size() == 2) {
-                int n1 = nitrogens[0], n2 = nitrogens[1];
-                for (int nei : g.nodes[n1].neighbors) {
-                    if (nei == n2) { dist = 1; break; }
-                }
-                if (dist > 1) {
-                    for (int nei : g.nodes[n1].neighbors) {
-                        if (!ringAtoms.count(nei)) continue;
-                        for (int nei2 : g.nodes[n2].neighbors) {
-                            if (nei == nei2) { dist = 2; break; }
-                        }
-                        if (dist == 2) break;
-                    }
+        auto twoHeteroDist = [&](int a1, int a2) {
+            for (int nei : g.nodes[a1].neighbors) {
+                if (nei == a2) return 1;
+            }
+            for (int nei : g.nodes[a1].neighbors) {
+                if (!ringAtoms.count(nei)) continue;
+                for (int nei2 : g.nodes[a2].neighbors) {
+                    if (nei == nei2) return 2;
                 }
             }
+            return 3;
+        };
+        if (numN == 2 && numO == 0 && numS == 0) {
+            int dist = (nitrogens.size() == 2) ? twoHeteroDist(nitrogens[0], nitrogens[1]) : 3;
             if (dist == 1) {
                 comp.name = "pyridazine"; comp.prefix = "pyridazino"; comp.seniorityRank = 7;
             } else if (dist == 2) {
@@ -146,10 +159,76 @@ static FusionComponent classifyMonocycle(int ringIdx, const std::set<int> &ringA
             } else {
                 comp.name = "pyrazine"; comp.prefix = "pyrazino"; comp.seniorityRank = 9;
             }
+        } else if (numN == 3 && numO == 0 && numS == 0) {
+            int adjPairs = 0;
+            for (size_t i = 0; i < nitrogens.size(); ++i) {
+                for (size_t j = i + 1; j < nitrogens.size(); ++j) {
+                    for (int nei : g.nodes[nitrogens[i]].neighbors) {
+                        if (nei == nitrogens[j]) adjPairs++;
+                    }
+                }
+            }
+            if (adjPairs == 2) {
+                comp.name = "1,2,3-triazine"; comp.prefix = "[1,2,3]triazino"; comp.seniorityRank = 2;
+            } else if (adjPairs == 1) {
+                comp.name = "1,2,4-triazine"; comp.prefix = "[1,2,4]triazino"; comp.seniorityRank = 3;
+            } else {
+                comp.name = "1,3,5-triazine"; comp.prefix = "[1,3,5]triazino"; comp.seniorityRank = 3;
+            }
         } else if (numN == 1 && numO == 0 && numS == 0) {
             comp.name = "pyridine"; comp.prefix = "pyrido"; comp.seniorityRank = 12;
+        } else if (numO == 1 && numN == 0 && numS == 0) {
+            comp.name = "pyran"; comp.prefix = "pyrano"; comp.seniorityRank = 22;
+        } else if (numS == 1 && numN == 0 && numO == 0) {
+            comp.name = "thiopyran"; comp.prefix = "thiopyrano"; comp.seniorityRank = 23;
+        } else if (numO == 1 && numN == 1 && numS == 0) {
+            int oNode = -1;
+            for (int a : ringAtoms) if (g.nodes[a].atomicNumber == 8) { oNode = a; break; }
+            int d = (oNode != -1 && !nitrogens.empty()) ? twoHeteroDist(oNode, nitrogens[0]) : 3;
+            if (d == 1) { comp.name = "1,2-oxazine"; comp.prefix = "[1,2]oxazino"; }
+            else if (d == 2) { comp.name = "1,3-oxazine"; comp.prefix = "[1,3]oxazino"; }
+            else { comp.name = "1,4-oxazine"; comp.prefix = "[1,4]oxazino"; }
+            comp.seniorityRank = 17;
+        } else if (numS == 1 && numN == 1 && numO == 0) {
+            int sNode = -1;
+            for (int a : ringAtoms) if (g.nodes[a].atomicNumber == 16) { sNode = a; break; }
+            int d = (sNode != -1 && !nitrogens.empty()) ? twoHeteroDist(sNode, nitrogens[0]) : 3;
+            if (d == 1) { comp.name = "1,2-thiazine"; comp.prefix = "[1,2]thiazino"; }
+            else if (d == 2) { comp.name = "1,3-thiazine"; comp.prefix = "[1,3]thiazino"; }
+            else { comp.name = "1,4-thiazine"; comp.prefix = "[1,4]thiazino"; }
+            comp.seniorityRank = 18;
         } else {
             comp.name = "heterocycle"; comp.prefix = "hetero"; comp.seniorityRank = 14;
+        }
+    } else if (nAtoms == 7) {
+        if (numN == 1 && numO == 0 && numS == 0) {
+            comp.name = "azepine"; comp.prefix = "azepino"; comp.seniorityRank = 24;
+        } else if (numN == 2 && numO == 0 && numS == 0 && nitrogens.size() == 2) {
+            int d = 3;
+            for (int nei : g.nodes[nitrogens[0]].neighbors) if (nei == nitrogens[1]) { d = 1; break; }
+            if (d > 1) {
+                for (int nei : g.nodes[nitrogens[0]].neighbors) {
+                    if (!ringAtoms.count(nei)) continue;
+                    for (int nei2 : g.nodes[nitrogens[1]].neighbors) {
+                        if (nei == nei2) { d = 2; break; }
+                    }
+                    if (d == 2) break;
+                }
+            }
+            if (d == 1) { comp.name = "1,2-diazepine"; comp.prefix = "[1,2]diazepino"; }
+            else if (d == 2) { comp.name = "1,3-diazepine"; comp.prefix = "[1,3]diazepino"; }
+            else { comp.name = "1,4-diazepine"; comp.prefix = "[1,4]diazepino"; }
+            comp.seniorityRank = 25;
+        } else if (numO == 1 && numN == 0 && numS == 0) {
+            comp.name = "oxepine"; comp.prefix = "oxepino"; comp.seniorityRank = 26;
+        } else if (numS == 1 && numN == 0 && numO == 0) {
+            comp.name = "thiepine"; comp.prefix = "thiepino"; comp.seniorityRank = 27;
+        } else if (numO == 1 && numN == 1 && numS == 0) {
+            comp.name = "1,4-oxazepine"; comp.prefix = "[1,4]oxazepino"; comp.seniorityRank = 28;
+        } else if (numS == 1 && numN == 1 && numO == 0) {
+            comp.name = "1,4-thiazepine"; comp.prefix = "[1,4]thiazepino"; comp.seniorityRank = 29;
+        } else {
+            comp.name = "heterocycle"; comp.prefix = "hetero"; comp.seniorityRank = 35;
         }
     } else {
         comp.name = "heterocycle"; comp.prefix = "hetero"; comp.seniorityRank = 35;
