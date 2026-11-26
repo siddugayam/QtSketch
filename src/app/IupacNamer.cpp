@@ -2416,9 +2416,19 @@ QString tryNameAcyloxySubstituent(int oNode, int fromNode, const Graph &g,
     }
     QString rName = nameBranchGraph(g, rGroup, cAcyl, allIndependentRings, {}, {}, nullptr, mol);
     if (rName.isEmpty()) return "";
-    if (rName.endsWith("phenyl")) {
-        rName.chop(6);
-        return rName + "benzoyloxy";
+    QChar openCh, closeCh;
+    QString inner = rName;
+    if ((inner.startsWith("(") && inner.endsWith(")")) ||
+        (inner.startsWith("[") && inner.endsWith("]")) ||
+        (inner.startsWith("{") && inner.endsWith("}"))) {
+        openCh = inner.front();
+        closeCh = inner.back();
+        inner = inner.mid(1, inner.length() - 2);
+    }
+    if (inner.endsWith("phenyl")) {
+        inner.chop(6);
+        QString bName = inner + "benzoyloxy";
+        return openCh.isNull() ? bName : (openCh + bName + closeCh);
     }
     return wrapCompoundSuffix(rName, "carbonyloxy");
 }
@@ -2458,9 +2468,19 @@ QString tryNameAmidoSubstituent(int nNode, int fromNode, const Graph &g,
     }
     QString rName = nameBranchGraph(g, rGroup, cAcyl, allIndependentRings, {}, {}, nullptr, mol);
     if (rName.isEmpty()) return "";
-    if (rName.endsWith("phenyl")) {
-        rName.chop(6);
-        return rName + "benzamido";
+    QChar openCh, closeCh;
+    QString inner = rName;
+    if ((inner.startsWith("(") && inner.endsWith(")")) ||
+        (inner.startsWith("[") && inner.endsWith("]")) ||
+        (inner.startsWith("{") && inner.endsWith("}"))) {
+        openCh = inner.front();
+        closeCh = inner.back();
+        inner = inner.mid(1, inner.length() - 2);
+    }
+    if (inner.endsWith("phenyl")) {
+        inner.chop(6);
+        QString bName = inner + "benzamido";
+        return openCh.isNull() ? bName : (openCh + bName + closeCh);
     }
     return wrapCompoundSuffix(rName, "amido");
 }
@@ -2506,64 +2526,339 @@ ChalcogenOxidationSets classifyChalcogenOxidationStates(const Graph &g) {
     return out;
 }
 
-// Names ONE exocyclic substituent hanging off a ring atom (rNode) via neighbor
-// `nei` -- independent of which numbering candidate/rotation is in play, since
-// classifying what's attached doesn't depend on locants, only which locant it
-// gets cited at does (the caller's own concern). Shared between
-// nameRingAsSubstituent (a ring cited as a single "-yl" substituent) and
-// computeRingAssemblyCandidates (two rings joined "bi-" style, each of which
-// may itself carry further substituents) so both get identical, full
-// functional-group coverage from one maintained dispatch instead of two drifting
-// copies. Returns an empty string on failure (unsupported branch structure);
-// setting *outErr distinguishes the one case with its own honest diagnostic (an
-// N-substituted amino substituent beyond what nameAmineSubstituentPrefix
-// supports) from a generic "just not recognized" empty return.
-QString nameExocyclicRingSubstituent(const Graph &g, int rNode, int nei, int order,
-                                      const std::vector<std::set<int>> &allIndependentRings,
-                                      const std::set<int> &combinedForbidden,
-                                      const std::map<int, int> &carbonSulfonamide,
-                                      const std::map<int, int> &carbonSulfinamide,
-                                      const ChalcogenOxidationSets &chalc,
-                                      int mol, bool *outErr) {
-    int nZ = g.nodes[nei].atomicNumber;
+static void populateCarbonSulfonamides(
+    const Graph &g,
+    std::map<int, int> &carbonSulfonamide,
+    std::map<int, int> &carbonSulfinamide)
+{
+    for (size_t i = 0; i < g.nodes.size(); ++i) {
+        const GraphNode &node = g.nodes[i];
+        if (node.atomicNumber != 16) continue;
+        int dblO = 0, sglC = 0, sglN = 0;
+        std::vector<int> cNeighbors;
+        for (size_t j = 0; j < node.neighbors.size(); ++j) {
+            int nei = node.neighbors[j];
+            int order = node.bondOrders[j];
+            int nZ = g.nodes[nei].atomicNumber;
+            if (nZ == 8 && order == 2) dblO++;
+            else if (nZ == 6 && order == 1) {
+                sglC++;
+                cNeighbors.push_back(nei);
+            } else if (nZ == 7 && order == 1) {
+                sglN++;
+            }
+        }
+        if (dblO == 2 && sglN == 1 && sglC == 1 && node.neighbors.size() == 4) {
+            carbonSulfonamide[cNeighbors[0]] = static_cast<int>(i);
+        } else if (dblO == 1 && sglN == 1 && sglC == 1 && node.neighbors.size() == 3) {
+            carbonSulfinamide[cNeighbors[0]] = static_cast<int>(i);
+        }
+    }
+}
+
+QString formatBranchStereoPrefix(
+    const Graph &g,
+    int rootIdx,
+    int parentIdx,
+    const std::map<int, QChar> &stereoByGraphId,
+    std::set<int> &handledBranchStereoIds,
+    const std::vector<std::set<int>> &allRings,
+    const std::map<std::pair<int, int>, QChar> &branchBondStereo,
+    std::set<std::pair<int, int>> *handledBranchBonds);
+
+struct SubstituentContext;
+QString nameSubstituentSubtree(
+    int rootIdx,
+    int parentIdx,
+    const std::set<int> &forbiddenNodes,
+    SubstituentContext &ctx);
+
+static QString formatAlkoxycarbonylSubstituent(const QString &alkylName) {
+    if (alkylName.isEmpty()) return QString();
+    if (alkylName.endsWith("yl")) {
+        QString s = alkylName;
+        s.chop(2);
+        return s + "oxycarbonyl";
+    }
+    if (alkylName.startsWith("(") && alkylName.endsWith(")")) {
+        QString inner = alkylName.mid(1, alkylName.length() - 2);
+        if (inner.endsWith("yl")) {
+            inner.chop(2);
+            return "(" + inner + "oxycarbonyl)";
+        }
+        return "[(" + inner + ")oxycarbonyl]";
+    }
+    return wrapCompoundSuffix(alkylName, "oxycarbonyl");
+}
+
+// Shared context for recursive substituent-subtree naming (P-44/P-57/P-62..P-66
+// unification across monocyclic, fused, bicyclic, spiro, and chain parents).
+struct SubstituentContext {
+    const Graph &g;
+    int mol;
+    const std::vector<std::set<int>> &allIndependentRings;
+    const ChalcogenOxidationSets &chalc;
+    const std::map<int, int> &carbonSulfonamide;
+    const std::map<int, int> &carbonSulfinamide;
+    const std::map<int, QChar> &stereoByGraphId;
+    const std::function<void()> &ensureStereoFn;
+    std::set<int> *handledBranchStereoIds = nullptr;
+    const std::map<std::pair<int, int>, QChar> *branchBondStereo = nullptr;
+    std::set<std::pair<int, int>> *handledBranchBonds = nullptr;
+    const std::set<int> *parentSystemNodes = nullptr;
+    bool *outErr = nullptr;
+    bool stripSimpleChainBranchParens = false;
+};
+
+static QString formatNSubstitutedAmideGroup(
+    const QString &suffix,
+    int nNode,
+    int attachFromN,
+    const std::set<int> &nextForbidden,
+    SubstituentContext &ctx)
+{
+    const Graph &g = ctx.g;
+    for (const auto &r : ctx.allIndependentRings) {
+        if (r.count(nNode)) return QString();
+    }
+    std::vector<int> nSubs;
+    for (int nei : g.nodes[nNode].neighbors) {
+        if (nei != attachFromN && g.nodes[nei].atomicNumber > 1) nSubs.push_back(nei);
+    }
+    if (nSubs.empty()) return suffix;
+    if (nSubs.size() > 2) return QString();
+
+    std::set<int> nForbidden = nextForbidden;
+    nForbidden.insert(nNode);
+    std::vector<QString> subNames;
+    for (int s : nSubs) {
+        QString nm = nameSubstituentSubtree(s, nNode, nForbidden, ctx);
+        if (nm.isEmpty()) return QString();
+        subNames.push_back(nm);
+    }
+    if (subNames.size() == 1) {
+        return "(" + subNames[0] + suffix + ")";
+    }
+
+    auto stripWrap = [](const QString &s) -> QString {
+        if ((s.startsWith("(") && s.endsWith(")")) || (s.startsWith("[") && s.endsWith("]"))) {
+            return s.mid(1, s.length() - 2);
+        }
+        return s;
+    };
+    QString clean1 = stripWrap(subNames[0]), clean2 = stripWrap(subNames[1]);
+    if (clean1 == clean2) {
+        bool needsWrap = subNames[0].startsWith("(") || subNames[0].startsWith("[");
+        if (!needsWrap) {
+            for (QChar c : clean1) {
+                if (c.isDigit()) { needsWrap = true; break; }
+            }
+        }
+        return "(" + (needsWrap ? ("bis(" + clean1 + ")") : ("di" + clean1)) + suffix + ")";
+    }
+    bool firstBefore = alphabetizationKey(clean1).toLower() < alphabetizationKey(clean2).toLower();
+    QString a = firstBefore ? subNames[0] : subNames[1];
+    QString b = firstBefore ? subNames[1] : subNames[0];
+    QString bWrapped = ((b.startsWith("(") && b.endsWith(")")) || (b.startsWith("[") && b.endsWith("]"))) ? b : ("(" + b + ")");
+    return "(" + a + bWrapped + suffix + ")";
+}
+
+static QString tryNameSulfonamidoSubstituent(
+    int nNode,
+    int fromNode,
+    const std::set<int> &nextForbidden,
+    SubstituentContext &ctx)
+{
+    const Graph &g = ctx.g;
+    if (nNode < 0 || g.nodes[nNode].atomicNumber != 7) return QString();
+    std::vector<int> heavyNeis;
+    for (int nei : g.nodes[nNode].neighbors) {
+        if (nei != fromNode && g.nodes[nei].atomicNumber > 1) heavyNeis.push_back(nei);
+    }
+    if (heavyNeis.size() != 1) return QString();
+    int sNode = heavyNeis[0];
+    if (g.nodes[sNode].atomicNumber != 16) return QString();
+    for (size_t k = 0; k < g.nodes[nNode].neighbors.size(); ++k) {
+        if (g.nodes[nNode].neighbors[k] == sNode && g.nodes[nNode].bondOrders[k] != 1) return QString();
+    }
+
+    int dblO = 0, sglO = 0, sglC = 0, cRoot = -1;
+    for (size_t k = 0; k < g.nodes[sNode].neighbors.size(); ++k) {
+        int nei = g.nodes[sNode].neighbors[k];
+        if (nei == nNode) continue;
+        int ord = g.nodes[sNode].bondOrders[k];
+        int nz = g.nodes[nei].atomicNumber;
+        if (nz == 8 && ord == 2) dblO++;
+        else if (nz == 8 && ord == 1) sglO++;
+        else if (nz == 6 && ord == 1) { sglC++; cRoot = nei; }
+    }
+    if (sglO != 0 || sglC != 1 || cRoot == -1) return QString();
+    QString suffix;
+    if (dblO == 2 && g.nodes[sNode].neighbors.size() == 4) suffix = "sulfonamido";
+    else if (dblO == 1 && g.nodes[sNode].neighbors.size() == 3) suffix = "sulfinamido";
+    else return QString();
+
+    QString alk = nameAcyclicChainParentWithSubstituents(g, {cRoot}, {cRoot}, {sNode}, {}, GroupType::NONE, -1, ctx.mol);
+    if (!alk.isEmpty()) return alk + suffix;
+
+    std::set<int> sForbidden = nextForbidden;
+    sForbidden.insert(sNode);
+    QString cName = nameSubstituentSubtree(cRoot, sNode, sForbidden, ctx);
+    if (cName.isEmpty()) return QString();
+    if (cName == "phenyl") return "benzene" + suffix;
+    if (cName.startsWith("(") && cName.endsWith(")")) {
+        QString inner = cName.mid(1, cName.length() - 2);
+        if (inner.endsWith("phenyl")) {
+            inner.chop(6);
+            return "(" + inner + "benzene" + suffix + ")";
+        }
+    }
+    return wrapCompoundSuffix(cName, suffix);
+}
+
+// Recursively names a substituent subtree rooted at `rootIdx` attached via a
+// single stem bond to `parentIdx`, enforcing single-attachment / no-reentry into
+// `forbiddenNodes` (and `*ctx.parentSystemNodes`), handling functional groups,
+// nested linkers, nested rings, and branch stereocenters uniformly.
+QString nameSubstituentSubtree(
+    int rootIdx,
+    int parentIdx,
+    const std::set<int> &forbiddenNodes,
+    SubstituentContext &ctx)
+{
+    const Graph &g = ctx.g;
+    if (rootIdx < 0 || rootIdx >= static_cast<int>(g.nodes.size())) return QString();
+    if (forbiddenNodes.count(rootIdx)) return QString();
+
+    // Multi-point / cycle back into forbidden or parent system guard
+    {
+        std::set<int> componentNodes;
+        std::vector<int> q = {rootIdx};
+        componentNodes.insert(rootIdx);
+        size_t head = 0;
+        while (head < q.size()) {
+            int u = q[head++];
+            for (int v : g.nodes[u].neighbors) {
+                if (g.nodes[v].atomicNumber == 1) continue;
+                bool inParentSys = (ctx.parentSystemNodes && ctx.parentSystemNodes->count(v));
+                if (inParentSys || forbiddenNodes.count(v)) {
+                    if (u != rootIdx || v != parentIdx) {
+                        return QString();
+                    }
+                    continue;
+                }
+                if (componentNodes.insert(v).second) {
+                    q.push_back(v);
+                }
+            }
+        }
+    }
+
+    int order = 1;
+    if (parentIdx >= 0 && parentIdx < static_cast<int>(g.nodes.size())) {
+        const auto &pNode = g.nodes[parentIdx];
+        for (size_t k = 0; k < pNode.neighbors.size(); ++k) {
+            if (pNode.neighbors[k] == rootIdx) {
+                order = pNode.bondOrders[k];
+                break;
+            }
+        }
+    }
+
+    std::set<int> nextForbidden = forbiddenNodes;
+    if (parentIdx >= 0) nextForbidden.insert(parentIdx);
+    nextForbidden.insert(rootIdx);
+
+    const std::map<std::pair<int, int>, QChar> emptyBondStereo;
+    const auto &bondStereo = ctx.branchBondStereo ? *ctx.branchBondStereo : emptyBondStereo;
+
+    if (ctx.ensureStereoFn && (ctx.mol <= 0 || indigoCountStereocenters(ctx.mol) > 0)) {
+        ctx.ensureStereoFn();
+    }
+
+    int nZ = g.nodes[rootIdx].atomicNumber;
     QString subName;
+    bool usedBranchGraphFallback = false;
 
     if (nZ == 8 && order == 2) {
         subName = "oxo";
-    } else if (nZ == 7 && order == 2 && g.nodes[nei].totalH >= 1 && g.nodes[nei].neighbors.size() == 1) {
-        subName = "imino";
+    } else if (nZ == 7 && order == 2) {
+        if (g.nodes[rootIdx].totalH >= 1 && g.nodes[rootIdx].neighbors.size() == 1) {
+            subName = "imino";
+        } else if (g.nodes[rootIdx].neighbors.size() == 2) {
+            int oNei = -1;
+            for (int nn : g.nodes[rootIdx].neighbors) {
+                if (nn != parentIdx) { oNei = nn; break; }
+            }
+            if (oNei != -1 && g.nodes[oNei].atomicNumber == 8) {
+                if (g.nodes[oNei].totalH >= 1 || g.nodes[oNei].neighbors.size() == 1) {
+                    subName = "hydroxyimino";
+                } else {
+                    int alkNei = -1;
+                    for (int oo : g.nodes[oNei].neighbors) {
+                        if (oo != rootIdx && g.nodes[oo].atomicNumber > 1) { alkNei = oo; break; }
+                    }
+                    if (alkNei != -1) {
+                        std::set<int> oxForbidden = nextForbidden;
+                        oxForbidden.insert(oNei);
+                        QString alk = nameSubstituentSubtree(alkNei, oNei, oxForbidden, ctx);
+                        if (!alk.isEmpty()) {
+                            QString oxy = (alk == "methyl" || alk == "ethyl" || alk == "propyl" || alk == "butyl" || alk == "phenyl")
+                                ? (alk.left(alk.length() - 2) + "oxy")
+                                : wrapCompoundSuffix(alk, "oxy");
+                            subName = oxy + "imino";
+                        }
+                    }
+                }
+            }
+        }
     } else if (nZ == 8 && order == 1) {
-        subName = tryNameAcyloxySubstituent(nei, rNode, g, allIndependentRings, mol);
+        subName = tryNameAcyloxySubstituent(rootIdx, parentIdx, g, ctx.allIndependentRings, ctx.mol);
         if (subName.isEmpty()) {
             int alkylNei = -1;
-            for (int oNei : g.nodes[nei].neighbors) {
-                if (oNei != rNode) { alkylNei = oNei; break; }
+            for (int oNei : g.nodes[rootIdx].neighbors) {
+                if (oNei != parentIdx) { alkylNei = oNei; break; }
             }
             if (alkylNei != -1 && g.nodes[alkylNei].atomicNumber == 8 &&
                 g.nodes[alkylNei].totalH >= 1 && g.nodes[alkylNei].neighbors.size() == 1) {
                 subName = "hydroperoxy";
             } else if (alkylNei != -1) {
-                QString alkylName = nameBranchGraph(g, alkylNei, nei, allIndependentRings, {}, {}, nullptr, mol);
+                QString alkylName = nameSubstituentSubtree(alkylNei, rootIdx, nextForbidden, ctx);
                 if (alkylName.isEmpty()) return QString();
                 if (alkylName.startsWith("(") && alkylName.endsWith(")")) {
-                    // Same substituted-phenyl -> phenoxy contraction as the
-                    // sibling copy in nameBranchGraph's own ether dispatch
-                    // (see its comment) -- kept in sync so the two don't drift.
                     QString inner = alkylName.mid(1, alkylName.length() - 2);
                     if (inner.endsWith("phenyl")) {
                         inner.chop(2);
                         subName = "(" + inner + "oxy)";
+                    } else if (ctx.stripSimpleChainBranchParens) {
+                        subName = alkylName + "oxy";
                     } else {
                         subName = "[(" + inner + ")oxy]";
                     }
                 } else if (alkylName.startsWith("[") && alkylName.endsWith("]")) {
-                    subName = "{[" + alkylName.mid(1, alkylName.length() - 2) + "]oxy}";
+                    QString inner = alkylName.mid(1, alkylName.length() - 2);
+                    if (inner.endsWith("phenyl")) {
+                        inner.chop(2);
+                        subName = "[" + inner + "oxy]";
+                    } else {
+                        subName = "{[" + inner + "]oxy}";
+                    }
+                } else if (alkylName.startsWith("{") && alkylName.endsWith("}")) {
+                    QString inner = alkylName.mid(1, alkylName.length() - 2);
+                    if (inner.endsWith("phenyl")) {
+                        inner.chop(2);
+                        subName = "{" + inner + "oxy}";
+                    } else {
+                        subName = "[(" + alkylName + ")oxy]";
+                    }
                 } else if (alkylName == "methyl" || alkylName == "ethyl" || alkylName == "propyl" || alkylName == "butyl" || alkylName == "phenyl") {
                     alkylName.chop(2);
                     subName = alkylName + "oxy";
                 } else if (alkylName.endsWith("yl") && !alkylName.contains('(') && !alkylName.contains('[') &&
                            !std::any_of(alkylName.begin(), alkylName.end(), [](QChar c) { return c.isDigit(); })) {
                     subName = alkylName + "oxy";
+                } else if (ctx.stripSimpleChainBranchParens) {
+                    subName = "(" + alkylName + ")oxy";
                 } else {
                     subName = "[(" + alkylName + ")oxy]";
                 }
@@ -2571,255 +2866,332 @@ QString nameExocyclicRingSubstituent(const Graph &g, int rNode, int nei, int ord
                 subName = "hydroxy";
             }
         }
-    } else if (nZ == 7 && order == 1 && isAzideNitrogen(nei, rNode, g)) {
+    } else if (nZ == 7 && order == 1 && isAzideNitrogen(rootIdx, parentIdx, g)) {
         subName = "azido";
-    } else if (nZ == 7 && order == 1 && isAzoNitrogen(nei, rNode, g)) {
-        subName = tryNameDiazenylSubstituent(nei, rNode, g, allIndependentRings, combinedForbidden, mol);
-    } else if (nZ == 7 && order == 1 && isIsocyanateNitrogen(nei, rNode, g)) {
-        subName = isocyanateSubstituentPrefix(nei, rNode, g);
-    } else if (nZ == 7 && order == 1 && isNitroNitrogen(nei, rNode, g)) {
+    } else if (nZ == 7 && order == 1 && isAzoNitrogen(rootIdx, parentIdx, g)) {
+        subName = tryNameDiazenylSubstituent(rootIdx, parentIdx, g, ctx.allIndependentRings, nextForbidden, ctx.mol);
+    } else if (nZ == 7 && order == 1 && isIsocyanateNitrogen(rootIdx, parentIdx, g)) {
+        subName = isocyanateSubstituentPrefix(rootIdx, parentIdx, g);
+    } else if (nZ == 7 && order == 1 && isNitroNitrogen(rootIdx, parentIdx, g)) {
         subName = "nitro";
-    } else if (nZ == 7 && order == 1 && isNitrosoNitrogen(nei, rNode, g)) {
+    } else if (nZ == 7 && order == 1 && isNitrosoNitrogen(rootIdx, parentIdx, g)) {
         subName = "nitroso";
     } else if (nZ == 7 && order == 1) {
-        subName = tryNameAmidoSubstituent(nei, rNode, g, allIndependentRings, mol);
+        subName = tryNameAmidoSubstituent(rootIdx, parentIdx, g, ctx.allIndependentRings, ctx.mol);
         if (subName.isEmpty()) {
-            if (isHydrazinylNitrogen(nei, rNode, g)) {
+            subName = tryNameSulfonamidoSubstituent(rootIdx, parentIdx, nextForbidden, ctx);
+        }
+        if (subName.isEmpty()) {
+            if (isHydrazinylNitrogen(rootIdx, parentIdx, g)) {
                 subName = "hydrazinyl";
             } else {
-                subName = nameAmineSubstituentPrefix(nei, rNode, g, allIndependentRings, {}, mol);
+                subName = nameAmineSubstituentPrefix(rootIdx, parentIdx, g, ctx.allIndependentRings, nextForbidden, ctx.mol);
                 if (subName.isEmpty()) {
-                    if (outErr) *outErr = true;
+                    if (ctx.outErr) *ctx.outErr = true;
                     return QString();
                 }
             }
         }
-    } else if (nZ == 16 && chalc.thioetherSulfurs.count(nei)) {
+    } else if (nZ == 16 && ctx.chalc.thioetherSulfurs.count(rootIdx)) {
         int alkylNei = -1;
-        for (int sNei : g.nodes[nei].neighbors) {
-            if (sNei != rNode) { alkylNei = sNei; break; }
+        for (int sNei : g.nodes[rootIdx].neighbors) {
+            if (sNei != parentIdx) { alkylNei = sNei; break; }
         }
         if (alkylNei != -1) {
-            QString alkylName = nameBranchGraph(g, alkylNei, nei, allIndependentRings, combinedForbidden, {}, nullptr, mol);
+            QString alkylName = nameSubstituentSubtree(alkylNei, rootIdx, nextForbidden, ctx);
             if (!alkylName.isEmpty()) subName = wrapCompoundSuffix(alkylName, "sulfanyl");
         }
-    } else if (nZ == 16 && chalc.sulfoxideSulfurs.count(nei)) {
+    } else if (nZ == 16 && ctx.chalc.sulfoxideSulfurs.count(rootIdx)) {
         int alkylNei = -1;
-        for (int oNei : g.nodes[nei].neighbors) {
-            if (g.nodes[oNei].atomicNumber == 6 && oNei != rNode) { alkylNei = oNei; break; }
+        for (int oNei : g.nodes[rootIdx].neighbors) {
+            if (g.nodes[oNei].atomicNumber == 6 && oNei != parentIdx) { alkylNei = oNei; break; }
         }
         if (alkylNei != -1) {
-            QString alkylName = nameAcyclicChainParentWithSubstituents(g, {alkylNei}, {alkylNei}, {nei}, {}, GroupType::NONE, -1, mol);
-            if (alkylName.isEmpty()) alkylName = nameBranchGraph(g, alkylNei, nei, allIndependentRings, combinedForbidden, {}, nullptr, mol);
+            QString alkylName = nameAcyclicChainParentWithSubstituents(g, {alkylNei}, {alkylNei}, {rootIdx}, {}, GroupType::NONE, -1, ctx.mol);
+            if (alkylName.isEmpty()) alkylName = nameSubstituentSubtree(alkylNei, rootIdx, nextForbidden, ctx);
             if (!alkylName.isEmpty()) subName = wrapCompoundSuffix(alkylName, "sulfinyl");
         }
-    } else if (nZ == 16 && chalc.sulfoneSulfurs.count(nei)) {
+    } else if (nZ == 16 && ctx.chalc.sulfoneSulfurs.count(rootIdx)) {
         int alkylNei = -1;
-        for (int oNei : g.nodes[nei].neighbors) {
-            if (g.nodes[oNei].atomicNumber == 6 && oNei != rNode) { alkylNei = oNei; break; }
+        for (int oNei : g.nodes[rootIdx].neighbors) {
+            if (g.nodes[oNei].atomicNumber == 6 && oNei != parentIdx) { alkylNei = oNei; break; }
         }
         if (alkylNei != -1) {
-            QString alkylName = nameAcyclicChainParentWithSubstituents(g, {alkylNei}, {alkylNei}, {nei}, {}, GroupType::NONE, -1, mol);
-            if (alkylName.isEmpty()) alkylName = nameBranchGraph(g, alkylNei, nei, allIndependentRings, combinedForbidden, {}, nullptr, mol);
+            QString alkylName = nameAcyclicChainParentWithSubstituents(g, {alkylNei}, {alkylNei}, {rootIdx}, {}, GroupType::NONE, -1, ctx.mol);
+            if (alkylName.isEmpty()) alkylName = nameSubstituentSubtree(alkylNei, rootIdx, nextForbidden, ctx);
             if (!alkylName.isEmpty()) subName = wrapCompoundSuffix(alkylName, "sulfonyl");
         }
-    } else if (nZ == 34 && chalc.selenoetherSeleniums.count(nei)) {
+    } else if (nZ == 34 && g.nodes[rootIdx].neighbors.size() == 1 && g.nodes[rootIdx].totalH >= 1) {
+        subName = "selanyl";
+    } else if (nZ == 34 && ctx.chalc.selenoetherSeleniums.count(rootIdx)) {
         int alkylNei = -1;
-        for (int sNei : g.nodes[nei].neighbors) {
-            if (sNei != rNode) { alkylNei = sNei; break; }
+        for (int sNei : g.nodes[rootIdx].neighbors) {
+            if (sNei != parentIdx) { alkylNei = sNei; break; }
         }
         if (alkylNei != -1) {
-            QString alkylName = nameBranchGraph(g, alkylNei, nei, allIndependentRings, combinedForbidden, {}, nullptr, mol);
+            QString alkylName = nameSubstituentSubtree(alkylNei, rootIdx, nextForbidden, ctx);
             if (!alkylName.isEmpty()) subName = wrapCompoundSuffix(alkylName, "selanyl");
         }
-    } else if (nZ == 34 && chalc.selenoxideSeleniums.count(nei)) {
+    } else if (nZ == 34 && ctx.chalc.selenoxideSeleniums.count(rootIdx)) {
         int alkylNei = -1;
-        for (int oNei : g.nodes[nei].neighbors) {
-            if (g.nodes[oNei].atomicNumber == 6 && oNei != rNode) { alkylNei = oNei; break; }
+        for (int oNei : g.nodes[rootIdx].neighbors) {
+            if (g.nodes[oNei].atomicNumber == 6 && oNei != parentIdx) { alkylNei = oNei; break; }
         }
         if (alkylNei != -1) {
-            QString alkylName = nameAcyclicChainParentWithSubstituents(g, {alkylNei}, {alkylNei}, {nei}, {}, GroupType::NONE, -1, mol);
-            if (alkylName.isEmpty()) alkylName = nameBranchGraph(g, alkylNei, nei, allIndependentRings, combinedForbidden, {}, nullptr, mol);
+            QString alkylName = nameAcyclicChainParentWithSubstituents(g, {alkylNei}, {alkylNei}, {rootIdx}, {}, GroupType::NONE, -1, ctx.mol);
+            if (alkylName.isEmpty()) alkylName = nameSubstituentSubtree(alkylNei, rootIdx, nextForbidden, ctx);
             if (!alkylName.isEmpty()) subName = wrapCompoundSuffix(alkylName, "seleninyl");
         }
-    } else if (nZ == 34 && chalc.selenoneSeleniums.count(nei)) {
+    } else if (nZ == 34 && ctx.chalc.selenoneSeleniums.count(rootIdx)) {
         int alkylNei = -1;
-        for (int oNei : g.nodes[nei].neighbors) {
-            if (g.nodes[oNei].atomicNumber == 6 && oNei != rNode) { alkylNei = oNei; break; }
+        for (int oNei : g.nodes[rootIdx].neighbors) {
+            if (g.nodes[oNei].atomicNumber == 6 && oNei != parentIdx) { alkylNei = oNei; break; }
         }
         if (alkylNei != -1) {
-            QString alkylName = nameAcyclicChainParentWithSubstituents(g, {alkylNei}, {alkylNei}, {nei}, {}, GroupType::NONE, -1, mol);
-            if (alkylName.isEmpty()) alkylName = nameBranchGraph(g, alkylNei, nei, allIndependentRings, combinedForbidden, {}, nullptr, mol);
+            QString alkylName = nameAcyclicChainParentWithSubstituents(g, {alkylNei}, {alkylNei}, {rootIdx}, {}, GroupType::NONE, -1, ctx.mol);
+            if (alkylName.isEmpty()) alkylName = nameSubstituentSubtree(alkylNei, rootIdx, nextForbidden, ctx);
             if (!alkylName.isEmpty()) subName = wrapCompoundSuffix(alkylName, "selenonyl");
         }
-    } else if (nZ == 52 && chalc.telluroetherTelluriums.count(nei)) {
+    } else if (nZ == 52 && g.nodes[rootIdx].neighbors.size() == 1 && g.nodes[rootIdx].totalH >= 1) {
+        subName = "tellanyl";
+    } else if (nZ == 52 && ctx.chalc.telluroetherTelluriums.count(rootIdx)) {
         int alkylNei = -1;
-        for (int sNei : g.nodes[nei].neighbors) {
-            if (sNei != rNode) { alkylNei = sNei; break; }
+        for (int sNei : g.nodes[rootIdx].neighbors) {
+            if (sNei != parentIdx) { alkylNei = sNei; break; }
         }
         if (alkylNei != -1) {
-            QString alkylName = nameBranchGraph(g, alkylNei, nei, allIndependentRings, combinedForbidden, {}, nullptr, mol);
+            QString alkylName = nameSubstituentSubtree(alkylNei, rootIdx, nextForbidden, ctx);
             if (!alkylName.isEmpty()) subName = wrapCompoundSuffix(alkylName, "tellanyl");
         }
-    } else if (nZ == 52 && chalc.telluroxideTelluriums.count(nei)) {
+    } else if (nZ == 52 && ctx.chalc.telluroxideTelluriums.count(rootIdx)) {
         int alkylNei = -1;
-        for (int oNei : g.nodes[nei].neighbors) {
-            if (g.nodes[oNei].atomicNumber == 6 && oNei != rNode) { alkylNei = oNei; break; }
+        for (int oNei : g.nodes[rootIdx].neighbors) {
+            if (g.nodes[oNei].atomicNumber == 6 && oNei != parentIdx) { alkylNei = oNei; break; }
         }
         if (alkylNei != -1) {
-            QString alkylName = nameAcyclicChainParentWithSubstituents(g, {alkylNei}, {alkylNei}, {nei}, {}, GroupType::NONE, -1, mol);
-            if (alkylName.isEmpty()) alkylName = nameBranchGraph(g, alkylNei, nei, allIndependentRings, combinedForbidden, {}, nullptr, mol);
+            QString alkylName = nameAcyclicChainParentWithSubstituents(g, {alkylNei}, {alkylNei}, {rootIdx}, {}, GroupType::NONE, -1, ctx.mol);
+            if (alkylName.isEmpty()) alkylName = nameSubstituentSubtree(alkylNei, rootIdx, nextForbidden, ctx);
             if (!alkylName.isEmpty()) subName = wrapCompoundSuffix(alkylName, "tellurinyl");
         }
-    } else if (nZ == 52 && chalc.telluroneTelluriums.count(nei)) {
+    } else if (nZ == 52 && ctx.chalc.telluroneTelluriums.count(rootIdx)) {
         int alkylNei = -1;
-        for (int oNei : g.nodes[nei].neighbors) {
-            if (g.nodes[oNei].atomicNumber == 6 && oNei != rNode) { alkylNei = oNei; break; }
+        for (int oNei : g.nodes[rootIdx].neighbors) {
+            if (g.nodes[oNei].atomicNumber == 6 && oNei != parentIdx) { alkylNei = oNei; break; }
         }
         if (alkylNei != -1) {
-            QString alkylName = nameAcyclicChainParentWithSubstituents(g, {alkylNei}, {alkylNei}, {nei}, {}, GroupType::NONE, -1, mol);
-            if (alkylName.isEmpty()) alkylName = nameBranchGraph(g, alkylNei, nei, allIndependentRings, combinedForbidden, {}, nullptr, mol);
+            QString alkylName = nameAcyclicChainParentWithSubstituents(g, {alkylNei}, {alkylNei}, {rootIdx}, {}, GroupType::NONE, -1, ctx.mol);
+            if (alkylName.isEmpty()) alkylName = nameSubstituentSubtree(alkylNei, rootIdx, nextForbidden, ctx);
             if (!alkylName.isEmpty()) subName = wrapCompoundSuffix(alkylName, "telluronyl");
         }
     } else if (nZ == 6) {
-        int dblO = 0, dblS = 0, dblN = 0, sglO_OH = 0, sglN_NH2 = 0, tripleN = 0;
-        int halogenZ = -1, alkNode = -1, esterO = -1;
+        int dblO = 0, dblS = 0, dblN = 0, sglO_OH = 0, tripleN = 0;
+        int alkNode = -1, esterO = -1;
+        std::vector<int> sglN_Nodes;
         std::vector<int> halogens;
-        for (size_t k = 0; k < g.nodes[nei].neighbors.size(); ++k) {
-            int nn = g.nodes[nei].neighbors[k];
-            if (nn == rNode) continue;
+        for (size_t k = 0; k < g.nodes[rootIdx].neighbors.size(); ++k) {
+            int nn = g.nodes[rootIdx].neighbors[k];
+            if (nn == parentIdx) continue;
             int z = g.nodes[nn].atomicNumber;
-            int ord = g.nodes[nei].bondOrders[k];
+            int ord = g.nodes[rootIdx].bondOrders[k];
             if (z == 8 && ord == 2) dblO++;
             else if (z == 16 && ord == 2) dblS++;
             else if (z == 7 && ord == 2) dblN++;
             else if (z == 7 && ord == 3) tripleN++;
-            else if (z == 7 && ord == 1 && g.nodes[nn].totalH >= 2) sglN_NH2++;
+            else if (z == 7 && ord == 1) sglN_Nodes.push_back(nn);
             else if (z == 8 && ord == 1) {
                 if (g.nodes[nn].totalH >= 1 || g.nodes[nn].neighbors.size() == 1) sglO_OH++;
                 else {
                     for (int oNei : g.nodes[nn].neighbors) {
-                        if (oNei != nei && g.nodes[oNei].atomicNumber == 6) alkNode = oNei;
+                        if (oNei != rootIdx && g.nodes[oNei].atomicNumber == 6) alkNode = oNei;
                     }
                     if (alkNode != -1) esterO = nn;
                 }
+            } else if (ord == 1 && (z == 9 || z == 17 || z == 35 || z == 53)) {
+                halogens.push_back(nn);
             }
-            else if (ord == 1 && (z == 9 || z == 17 || z == 35 || z == 53)) halogens.push_back(nn);
         }
-        if (g.nodes[nei].neighbors.size() == 2 && tripleN == 1) {
+        if (g.nodes[rootIdx].neighbors.size() == 2 && tripleN == 1) {
             subName = "cyano";
-        } else if (g.nodes[nei].neighbors.size() == 3 && dblO == 1 && sglO_OH == 1) {
+        } else if (g.nodes[rootIdx].neighbors.size() == 3 && dblO == 1 && sglO_OH == 1) {
             subName = "carboxy";
-        } else if (g.nodes[nei].neighbors.size() == 3 && dblO == 1 && halogens.size() == 1) {
+        } else if (g.nodes[rootIdx].neighbors.size() == 3 && dblO == 1 && halogens.size() == 1) {
             subName = halogenPrefix(g.nodes[halogens[0]].atomicNumber) + "carbonyl";
-        } else if (g.nodes[nei].neighbors.size() == 3 && dblO == 1 && alkNode != -1) {
-            QString alkylName = nameBranchGraph(g, alkNode, esterO, allIndependentRings, combinedForbidden, {}, nullptr, mol);
-            if (!alkylName.isEmpty() && alkylName.endsWith("yl")) {
-                alkylName.chop(2);
-                alkylName += "oxycarbonyl";
-            }
-            subName = alkylName;
-        } else if (g.nodes[nei].neighbors.size() == 3 && dblO == 1 && sglN_NH2 == 1) {
-            subName = "carbamoyl";
-        } else if (g.nodes[nei].neighbors.size() == 3 && dblS == 1 && sglN_NH2 == 1) {
-            subName = "carbamothioyl";
-        } else if (g.nodes[nei].neighbors.size() == 3 && dblN == 1 && sglN_NH2 == 1) {
-            subName = "carbamimidoyl";
+        } else if (g.nodes[rootIdx].neighbors.size() == 3 && dblO == 1 && alkNode != -1) {
+            std::set<int> esterForbidden = nextForbidden;
+            esterForbidden.insert(esterO);
+            QString alkylName = nameSubstituentSubtree(alkNode, esterO, esterForbidden, ctx);
+            subName = formatAlkoxycarbonylSubstituent(alkylName);
+        } else if (g.nodes[rootIdx].neighbors.size() == 3 && dblO == 1 && sglN_Nodes.size() == 1) {
+            subName = formatNSubstitutedAmideGroup("carbamoyl", sglN_Nodes[0], rootIdx, nextForbidden, ctx);
+        } else if (g.nodes[rootIdx].neighbors.size() == 3 && dblS == 1 && sglN_Nodes.size() == 1) {
+            subName = formatNSubstitutedAmideGroup("carbamothioyl", sglN_Nodes[0], rootIdx, nextForbidden, ctx);
+        } else if (g.nodes[rootIdx].neighbors.size() == 3 && dblN == 1 && sglN_Nodes.size() == 1) {
+            subName = formatNSubstitutedAmideGroup("carbamimidoyl", sglN_Nodes[0], rootIdx, nextForbidden, ctx);
         }
 
         if (subName.isEmpty()) {
-            subName = nameBranchGraph(g, nei, rNode, allIndependentRings, combinedForbidden, {}, nullptr, mol);
+            usedBranchGraphFallback = true;
+            subName = nameBranchGraph(g, rootIdx, parentIdx, ctx.allIndependentRings, forbiddenNodes,
+                                      ctx.stereoByGraphId, ctx.handledBranchStereoIds, ctx.mol, bondStereo);
         }
     } else if (nZ == 5) {
         int sglO_OH = 0;
         int otherSub = -1;
-        for (size_t k = 0; k < g.nodes[nei].neighbors.size(); ++k) {
-            int nn = g.nodes[nei].neighbors[k];
-            if (nn == rNode) continue;
+        for (size_t k = 0; k < g.nodes[rootIdx].neighbors.size(); ++k) {
+            int nn = g.nodes[rootIdx].neighbors[k];
+            if (nn == parentIdx) continue;
             int z = g.nodes[nn].atomicNumber;
-            int ord = g.nodes[nei].bondOrders[k];
+            int ord = g.nodes[rootIdx].bondOrders[k];
             if (z == 8 && ord == 1 && (g.nodes[nn].totalH >= 1 || g.nodes[nn].neighbors.size() == 1)) sglO_OH++;
             else if (ord == 1) otherSub = nn;
         }
-        if (g.nodes[nei].neighbors.size() == 3 && sglO_OH == 2) {
+        if (g.nodes[rootIdx].neighbors.size() == 3 && sglO_OH == 2) {
             subName = "borono";
-        } else if (g.nodes[nei].neighbors.size() == 3 && sglO_OH == 1 && otherSub != -1) {
+        } else if (g.nodes[rootIdx].neighbors.size() == 3 && sglO_OH == 1 && otherSub != -1) {
             int oz = g.nodes[otherSub].atomicNumber;
             QString otherName = (oz == 9 || oz == 17 || oz == 35 || oz == 53)
                 ? halogenPrefix(oz)
-                : nameBranchGraph(g, otherSub, nei, allIndependentRings, combinedForbidden, {}, nullptr, mol);
+                : nameSubstituentSubtree(otherSub, rootIdx, nextForbidden, ctx);
             if (!otherName.isEmpty()) {
                 subName = wrapBorinicSubstituent(otherName);
             }
         }
         if (subName.isEmpty()) {
-            subName = nameBranchGraph(g, nei, rNode, allIndependentRings, combinedForbidden, {}, nullptr, mol);
+            usedBranchGraphFallback = true;
+            subName = nameBranchGraph(g, rootIdx, parentIdx, ctx.allIndependentRings, forbiddenNodes,
+                                      ctx.stereoByGraphId, ctx.handledBranchStereoIds, ctx.mol, bondStereo);
         }
     } else if (nZ == 15) {
         int dblO = 0, sglO_OH = 0;
         std::vector<int> halogens;
-        for (size_t k = 0; k < g.nodes[nei].neighbors.size(); ++k) {
-            int nn = g.nodes[nei].neighbors[k];
-            if (nn == rNode) continue;
+        for (size_t k = 0; k < g.nodes[rootIdx].neighbors.size(); ++k) {
+            int nn = g.nodes[rootIdx].neighbors[k];
+            if (nn == parentIdx) continue;
             int z = g.nodes[nn].atomicNumber;
-            int ord = g.nodes[nei].bondOrders[k];
+            int ord = g.nodes[rootIdx].bondOrders[k];
             if (z == 8 && ord == 2) dblO++;
             else if (z == 8 && ord == 1 && (g.nodes[nn].totalH >= 1 || g.nodes[nn].neighbors.size() == 1)) sglO_OH++;
             else if (ord == 1 && (z == 9 || z == 17 || z == 35 || z == 53)) halogens.push_back(nn);
         }
-        if (g.nodes[nei].neighbors.size() == 4 && dblO == 1 && sglO_OH == 2) {
+        if (g.nodes[rootIdx].neighbors.size() == 4 && dblO == 1 && sglO_OH == 2) {
             subName = "phosphono";
-        } else if (g.nodes[nei].neighbors.size() == 4 && dblO == 1 && halogens.size() == 2 && g.nodes[halogens[0]].atomicNumber == g.nodes[halogens[1]].atomicNumber) {
+        } else if (g.nodes[rootIdx].neighbors.size() == 4 && dblO == 1 && halogens.size() == 2 &&
+                   g.nodes[halogens[0]].atomicNumber == g.nodes[halogens[1]].atomicNumber) {
             subName = "di" + halogenPrefix(g.nodes[halogens[0]].atomicNumber) + "phosphoryl";
         }
         if (subName.isEmpty()) {
-            subName = nameBranchGraph(g, nei, rNode, allIndependentRings, combinedForbidden, {}, nullptr, mol);
+            usedBranchGraphFallback = true;
+            subName = nameBranchGraph(g, rootIdx, parentIdx, ctx.allIndependentRings, forbiddenNodes,
+                                      ctx.stereoByGraphId, ctx.handledBranchStereoIds, ctx.mol, bondStereo);
         }
     } else if (nZ == 33) {
         int dblO = 0, sglO_OH = 0;
         std::vector<int> halogens;
-        for (size_t k = 0; k < g.nodes[nei].neighbors.size(); ++k) {
-            int nn = g.nodes[nei].neighbors[k];
-            if (nn == rNode) continue;
+        for (size_t k = 0; k < g.nodes[rootIdx].neighbors.size(); ++k) {
+            int nn = g.nodes[rootIdx].neighbors[k];
+            if (nn == parentIdx) continue;
             int z = g.nodes[nn].atomicNumber;
-            int ord = g.nodes[nei].bondOrders[k];
+            int ord = g.nodes[rootIdx].bondOrders[k];
             if (z == 8 && ord == 2) dblO++;
             else if (z == 8 && ord == 1 && (g.nodes[nn].totalH >= 1 || g.nodes[nn].neighbors.size() == 1)) sglO_OH++;
             else if (ord == 1 && (z == 9 || z == 17 || z == 35 || z == 53)) halogens.push_back(nn);
         }
-        if (g.nodes[nei].neighbors.size() == 4 && dblO == 1 && sglO_OH == 2) {
+        if (g.nodes[rootIdx].neighbors.size() == 4 && dblO == 1 && sglO_OH == 2) {
             subName = "arsono";
-        } else if (g.nodes[nei].neighbors.size() == 4 && dblO == 1 && halogens.size() == 2 && g.nodes[halogens[0]].atomicNumber == g.nodes[halogens[1]].atomicNumber) {
+        } else if (g.nodes[rootIdx].neighbors.size() == 4 && dblO == 1 && halogens.size() == 2 &&
+                   g.nodes[halogens[0]].atomicNumber == g.nodes[halogens[1]].atomicNumber) {
             subName = "di" + halogenPrefix(g.nodes[halogens[0]].atomicNumber) + "arsoryl";
         }
         if (subName.isEmpty()) {
-            subName = nameBranchGraph(g, nei, rNode, allIndependentRings, combinedForbidden, {}, nullptr, mol);
+            usedBranchGraphFallback = true;
+            subName = nameBranchGraph(g, rootIdx, parentIdx, ctx.allIndependentRings, forbiddenNodes,
+                                      ctx.stereoByGraphId, ctx.handledBranchStereoIds, ctx.mol, bondStereo);
         }
     } else if (nZ == 9 || nZ == 17 || nZ == 35 || nZ == 53) {
         subName = halogenPrefix(nZ);
-    } else if (nZ == 16 && carbonSulfonamide.count(rNode) && carbonSulfonamide.at(rNode) == nei) {
-        subName = "sulfamoyl";
-    } else if (nZ == 16 && carbonSulfinamide.count(rNode) && carbonSulfinamide.at(rNode) == nei) {
-        subName = "sulfinamoyl";
-    } else if (nZ == 16) {
+    } else if (nZ == 51) {
         int dblO = 0, sglO_OH = 0;
-        for (size_t k = 0; k < g.nodes[nei].neighbors.size(); ++k) {
-            int nn = g.nodes[nei].neighbors[k];
-            if (nn == rNode) continue;
+        for (size_t k = 0; k < g.nodes[rootIdx].neighbors.size(); ++k) {
+            int nn = g.nodes[rootIdx].neighbors[k];
+            if (nn == parentIdx) continue;
             int z = g.nodes[nn].atomicNumber;
-            int ord = g.nodes[nei].bondOrders[k];
+            int ord = g.nodes[rootIdx].bondOrders[k];
             if (z == 8 && ord == 2) dblO++;
             else if (z == 8 && ord == 1 && (g.nodes[nn].totalH >= 1 || g.nodes[nn].neighbors.size() == 1)) sglO_OH++;
         }
-        if (g.nodes[nei].neighbors.size() == 4 && dblO == 2 && sglO_OH == 1) {
+        if (g.nodes[rootIdx].neighbors.size() == 4 && dblO == 1 && sglO_OH == 2) {
+            subName = "stibono";
+        }
+    } else if (nZ == 16) {
+        int dblO = 0, sglO_OH = 0;
+        std::vector<int> sglN_Nodes, halogens;
+        for (size_t k = 0; k < g.nodes[rootIdx].neighbors.size(); ++k) {
+            int nn = g.nodes[rootIdx].neighbors[k];
+            if (nn == parentIdx) continue;
+            int z = g.nodes[nn].atomicNumber;
+            int ord = g.nodes[rootIdx].bondOrders[k];
+            if (z == 8 && ord == 2) dblO++;
+            else if (z == 8 && ord == 1 && (g.nodes[nn].totalH >= 1 || g.nodes[nn].neighbors.size() == 1)) sglO_OH++;
+            else if (z == 7 && ord == 1) sglN_Nodes.push_back(nn);
+            else if (ord == 1 && (z == 9 || z == 17 || z == 35 || z == 53)) halogens.push_back(nn);
+        }
+        if (order == 1 && g.nodes[rootIdx].neighbors.size() == 1 && g.nodes[rootIdx].totalH >= 1) {
+            subName = "sulfanyl";
+        } else if (g.nodes[rootIdx].neighbors.size() == 4 && dblO == 2 && sglN_Nodes.size() == 1 && halogens.empty() && sglO_OH == 0) {
+            subName = formatNSubstitutedAmideGroup("sulfamoyl", sglN_Nodes[0], rootIdx, nextForbidden, ctx);
+        } else if (g.nodes[rootIdx].neighbors.size() == 3 && dblO == 1 && sglN_Nodes.size() == 1 && halogens.empty() && sglO_OH == 0) {
+            subName = formatNSubstitutedAmideGroup("sulfinamoyl", sglN_Nodes[0], rootIdx, nextForbidden, ctx);
+        } else if (g.nodes[rootIdx].neighbors.size() == 4 && dblO == 2 && halogens.size() == 1) {
+            subName = halogenPrefix(g.nodes[halogens[0]].atomicNumber) + "sulfonyl";
+        } else if (g.nodes[rootIdx].neighbors.size() == 3 && dblO == 1 && halogens.size() == 1) {
+            subName = halogenPrefix(g.nodes[halogens[0]].atomicNumber) + "sulfinyl";
+        } else if (g.nodes[rootIdx].neighbors.size() == 4 && dblO == 2 && sglO_OH == 1) {
             subName = "sulfo";
-        } else if (g.nodes[nei].neighbors.size() == 3 && dblO == 1 && sglO_OH == 1) {
+        } else if (g.nodes[rootIdx].neighbors.size() == 3 && dblO == 1 && sglO_OH == 1) {
             subName = "sulfino";
+        } else if (ctx.carbonSulfonamide.count(parentIdx) && ctx.carbonSulfonamide.at(parentIdx) == rootIdx) {
+            subName = "sulfamoyl";
+        } else if (ctx.carbonSulfinamide.count(parentIdx) && ctx.carbonSulfinamide.at(parentIdx) == rootIdx) {
+            subName = "sulfinamoyl";
         } else {
-            subName = nameBranchGraph(g, nei, rNode, allIndependentRings, combinedForbidden, {}, nullptr, mol);
+            usedBranchGraphFallback = true;
+            subName = nameBranchGraph(g, rootIdx, parentIdx, ctx.allIndependentRings, forbiddenNodes,
+                                      ctx.stereoByGraphId, ctx.handledBranchStereoIds, ctx.mol, bondStereo);
         }
     } else {
-        subName = nameBranchGraph(g, nei, rNode, allIndependentRings, combinedForbidden, {}, nullptr, mol);
+        usedBranchGraphFallback = true;
+        subName = nameBranchGraph(g, rootIdx, parentIdx, ctx.allIndependentRings, forbiddenNodes,
+                                  ctx.stereoByGraphId, ctx.handledBranchStereoIds, ctx.mol, bondStereo);
+    }
+
+    if (!subName.isEmpty() && usedBranchGraphFallback) {
+        bool rootInRing = false;
+        for (const auto &r : ctx.allIndependentRings) {
+            if (r.count(rootIdx)) {
+                rootInRing = true;
+                break;
+            }
+        }
+        if (!rootInRing) {
+            if (ctx.ensureStereoFn && (ctx.mol <= 0 || indigoCountStereocenters(ctx.mol) > 0)) {
+                ctx.ensureStereoFn();
+            }
+            bool hadParens = subName.startsWith("(") && subName.endsWith(")");
+            std::set<int> localHandledStereo;
+            std::set<int> &handledStereoTarget = ctx.handledBranchStereoIds ? *ctx.handledBranchStereoIds : localHandledStereo;
+            QString branchStereo = formatBranchStereoPrefix(
+                g, rootIdx, parentIdx, ctx.stereoByGraphId, handledStereoTarget,
+                ctx.allIndependentRings, bondStereo, ctx.handledBranchBonds);
+            if (!branchStereo.isEmpty()) {
+                QString inner = hadParens ? subName.mid(1, subName.length() - 2) : subName;
+                subName = QString("[%1%2]").arg(branchStereo, inner);
+            } else if (ctx.stripSimpleChainBranchParens && hadParens) {
+                QString inner = subName.mid(1, subName.length() - 2);
+                if (!inner.isEmpty() && !inner[0].isDigit()) {
+                    subName = inner;
+                }
+            }
+        }
     }
 
     return subName;
@@ -3167,10 +3539,18 @@ QString nameRingAsSubstituent(const Graph &g, const std::set<int> &ringNodes, in
                 if (ringNodes.count(nei)) continue;
                 if (rNode == attachmentNode && nei == parentLinkNode) continue;
 
-                int order = g.nodes[rNode].bondOrders[j];
                 bool thisOutErr = false;
-                QString subName = nameExocyclicRingSubstituent(g, rNode, nei, order, allIndependentRings, combinedForbidden,
-                                                                 carbonSulfonamide, carbonSulfinamide, chalc, mol, &thisOutErr);
+                std::set<int> substForbidden = combinedForbidden;
+                substForbidden.insert(ringNodes.begin(), ringNodes.end());
+                if (parentLinkNode >= 0) substForbidden.insert(parentLinkNode);
+                std::function<void()> noEnsureStereo;
+                SubstituentContext ringSubCtx{
+                    g, mol, allIndependentRings, chalc,
+                    carbonSulfonamide, carbonSulfinamide,
+                    stereoByGraphId, noEnsureStereo, handledBranchStereoIds,
+                    nullptr, nullptr, &ringNodes, &thisOutErr, false
+                };
+                QString subName = nameSubstituentSubtree(nei, rNode, substForbidden, ringSubCtx);
                 if (thisOutErr && outErr) *outErr = true;
 
                 if (subName.isEmpty()) { candValid = false; break; }
@@ -3692,10 +4072,19 @@ RingAssemblyAnalysis computeRingAssemblyCandidates(const Graph &g, const std::se
                 if (ringNodes.count(nei)) continue;
                 if (rNode == attachmentNode && nei == parentLinkNode) continue;
                 if (rNode == otherAttachNode && nei == otherLinkNode) continue;
-                int order = g.nodes[rNode].bondOrders[j];
                 bool thisOutErr = false;
-                QString subName = nameExocyclicRingSubstituent(g, rNode, nei, order, allIndependentRings, ringNodes,
-                                                                 carbonSulfonamide, carbonSulfinamide, chalc, mol, &thisOutErr);
+                std::set<int> asmForbidden = ringNodes;
+                if (parentLinkNode >= 0) asmForbidden.insert(parentLinkNode);
+                if (otherLinkNode >= 0) asmForbidden.insert(otherLinkNode);
+                std::map<int, QChar> emptyStereo;
+                std::function<void()> noEnsureStereo;
+                SubstituentContext asmSubCtx{
+                    g, mol, allIndependentRings, chalc,
+                    carbonSulfonamide, carbonSulfinamide,
+                    emptyStereo, noEnsureStereo, nullptr,
+                    nullptr, nullptr, &ringNodes, &thisOutErr, false
+                };
+                QString subName = nameSubstituentSubtree(nei, rNode, asmForbidden, asmSubCtx);
                 if (thisOutErr) result.outErr = true;
                 if (subName.isEmpty()) {
                     // Every candidate here shares the same physical ring atoms and
@@ -5307,7 +5696,13 @@ QString nameRingSystemAsSubstituent(
     const std::vector<std::set<int>> &allIndependentRings,
     const std::set<int> &forbiddenNodes = {},
     const std::map<int, QChar> &stereoByGraphId = {},
-    int parentIdx = -1) {
+    int parentIdx = -1,
+    const std::map<int, int> &carbonSulfonamide = {},
+    const std::map<int, int> &carbonSulfinamide = {},
+    const std::function<void()> &ensureStereoFn = {},
+    std::set<int> *handledBranchStereoIds = nullptr,
+    const std::map<std::pair<int, int>, QChar> &branchBondStereo = {},
+    std::set<std::pair<int, int>> *handledBranchBonds = nullptr) {
     // Step 1: Classify the ring system and try each mechanism
 
     // Build indigoToGraphIdx map locally from g.nodes -- no Indigo API call
@@ -5455,56 +5850,32 @@ QString nameRingSystemAsSubstituent(
         fullSystemNodes = ringSystemNodes;
     }
 
+    ChalcogenOxidationSets chalc = classifyChalcogenOxidationStates(g);
+    std::map<int, int> localCarbonSulfonamide = carbonSulfonamide;
+    std::map<int, int> localCarbonSulfinamide = carbonSulfinamide;
+    if (localCarbonSulfonamide.empty() && localCarbonSulfinamide.empty()) {
+        populateCarbonSulfonamides(g, localCarbonSulfonamide, localCarbonSulfinamide);
+    }
+    SubstituentContext subCtx{
+        g, mol, allIndependentRings, chalc,
+        localCarbonSulfonamide, localCarbonSulfinamide,
+        stereoByGraphId, ensureStereoFn, handledBranchStereoIds,
+        &branchBondStereo, handledBranchBonds,
+        &fullSystemNodes, nullptr, false
+    };
+    std::set<int> baseForbidden = forbiddenNodes;
+    baseForbidden.insert(fullSystemNodes.begin(), fullSystemNodes.end());
+    if (parentIdx >= 0) baseForbidden.insert(parentIdx);
+
     std::vector<std::pair<int, QString>> extraBranches;
     for (int ringAtom : fullSystemNodes) {
         for (int nei : g.nodes[ringAtom].neighbors) {
             if (g.nodes[nei].atomicNumber == 1) continue;
             if (fullSystemNodes.count(nei)) continue;
             if (nei == parentIdx) continue;
+            if (forbiddenNodes.count(nei)) return "";
 
-            if (forbiddenNodes.count(nei)) {
-                return "";
-            }
-
-            // Walk connected component of non-ring atoms
-            std::set<int> componentNodes;
-            std::vector<int> q = {nei};
-            componentNodes.insert(nei);
-            size_t head = 0;
-            bool multiPoint = false;
-            while (head < q.size()) {
-                int u = q[head++];
-                for (int v : g.nodes[u].neighbors) {
-                    if (g.nodes[v].atomicNumber == 1) continue;
-                    if (fullSystemNodes.count(v)) {
-                        if (u != nei || v != ringAtom) {
-                            multiPoint = true;
-                            break;
-                        }
-                        continue;
-                    }
-                    if (forbiddenNodes.count(v)) {
-                        multiPoint = true;
-                        break;
-                    }
-                    if (!componentNodes.count(v)) {
-                        componentNodes.insert(v);
-                        q.push_back(v);
-                    }
-                }
-                if (multiPoint) break;
-            }
-            if (multiPoint) return "";
-
-            for (int node : componentNodes) {
-                if (stereoByGraphId.count(node)) {
-                    return "";
-                }
-            }
-
-            std::set<int> branchForbidden = forbiddenNodes;
-            branchForbidden.insert(fullSystemNodes.begin(), fullSystemNodes.end());
-            QString branchName = nameBranchGraph(g, nei, ringAtom, allIndependentRings, branchForbidden, {}, nullptr, mol);
+            QString branchName = nameSubstituentSubtree(nei, ringAtom, baseForbidden, subCtx);
             if (branchName.isEmpty()) return "";
             extraBranches.push_back({ringAtom, branchName});
         }
@@ -6144,7 +6515,7 @@ QString nameBranchGraph(const Graph &g, int rootIdx, int parentIdx, const std::v
                 if (isFusedOrBridged) {
                     std::set<int> combinedForbidden = forbiddenNodes;
                     combinedForbidden.insert(parentIdx);
-                    return nameRingSystemAsSubstituent(g, mol, rootIdx, rNodes, allIndependentRings, combinedForbidden, stereoByGraphId, parentIdx);
+                    return nameRingSystemAsSubstituent(g, mol, rootIdx, rNodes, allIndependentRings, combinedForbidden, stereoByGraphId, parentIdx, {}, {}, {}, handledBranchStereoIds, branchBondStereo);
                 }
 
                 std::set<int> combinedForbidden = forbiddenNodes;
@@ -6535,7 +6906,10 @@ QString nameBranchGraph(const Graph &g, int rootIdx, int parentIdx, const std::v
                 if (z == 9 || z == 17 || z == 35 || z == 53) {
                     locantPrefixes[locant].append(halogenPrefix(z));
                 } else if (z == 6 || z == 8 || z == 7) {
-                    QString subBranch = nameBranchGraph(g, nei, cNode, allIndependentRings, {}, {}, nullptr, mol, branchBondStereo);
+                    std::set<int> sideForbidden = forbiddenNodes;
+                    sideForbidden.insert(pathSet.begin(), pathSet.end());
+                    if (parentIdx >= 0) sideForbidden.insert(parentIdx);
+                    QString subBranch = nameBranchGraph(g, nei, cNode, allIndependentRings, sideForbidden, stereoByGraphId, handledBranchStereoIds, mol, branchBondStereo);
                     if (subBranch.isEmpty()) return "";
                     locantPrefixes[locant].append(subBranch);
                 } else {
@@ -7351,11 +7725,22 @@ static QString nameFusedRingSubstituent(const Graph &g, int ringAtom, int exoNei
     QString subName = simpleRingSubstituentName(g, ringAtom, exoNei, ringUnionNodes, mol);
     if (!subName.isEmpty()) return subName;
 
-    // 2. Try nameExocyclicRingSubstituent
+    // 2. Try unified recursive substituent subtree namer
+    // Keep local chalcogen/sulfonamide maps empty here (matching legacy
+    // nameExocyclicRingSubstituent behavior for fused parent contexts like
+    // Phase 31 / prepareFusedParentContext).
     bool outErr = false;
-    subName = nameExocyclicRingSubstituent(g, ringAtom, exoNei, order,
-                                          allIndependentRings, ringUnionNodes,
-                                          {}, {}, {}, mol, &outErr);
+    std::map<int, QChar> emptyStereo;
+    std::function<void()> noEnsureStereo;
+    ChalcogenOxidationSets localChalc;
+    std::map<int, int> localCarbonSulfonamide, localCarbonSulfinamide;
+    SubstituentContext fusedSubCtx{
+        g, mol, allIndependentRings, localChalc,
+        localCarbonSulfonamide, localCarbonSulfinamide,
+        emptyStereo, noEnsureStereo, nullptr,
+        nullptr, nullptr, &ringUnionNodes, &outErr, false
+    };
+    subName = nameSubstituentSubtree(exoNei, ringAtom, ringUnionNodes, fusedSubCtx);
     if (!subName.isEmpty()) return subName;
 
     // 3. Fallback: try nameBranchGraph directly
@@ -8298,6 +8683,27 @@ QString nameAcidChainFrom(const Graph &g, int startCarbon, const std::set<int> &
                                                   extraSubstituents, GroupType::ACID, -1, mol);
 }
 
+static QString formatOxySubstituentPrefix(QString alkylName) {
+    if (alkylName.isEmpty()) return "";
+    if (alkylName.startsWith("(") && alkylName.endsWith(")")) {
+        QString inner = alkylName.mid(1, alkylName.length() - 2);
+        if (inner.endsWith("phenyl")) {
+            inner.chop(2);
+            return "(" + inner + "oxy)";
+        }
+        return alkylName + "oxy";
+    }
+    if (alkylName == "methyl" || alkylName == "ethyl" || alkylName == "propyl" || alkylName == "butyl" || alkylName == "phenyl") {
+        alkylName.chop(2);
+        return alkylName + "oxy";
+    }
+    if (alkylName.endsWith("yl") && !alkylName.contains('(') && !alkylName.contains('[') &&
+        !std::any_of(alkylName.begin(), alkylName.end(), [](QChar c) { return c.isDigit(); })) {
+        return alkylName + "oxy";
+    }
+    return "(" + alkylName + ")oxy";
+}
+
 QString nameChainParentWithRingSubstituent(int mol, const std::map<int, int> &indigoToGraphIdx,
                                           const Graph &g,
                                           const std::set<int> &ringNodeSet,
@@ -8377,13 +8783,10 @@ QString nameChainParentWithRingSubstituent(int mol, const std::map<int, int> &in
         }
     }
 
-    // 3. Find the single ring<->chain attachment: a ring atom with a carbon
-    //    neighbour that belongs to chainSet. Ring-borne alkyl substituents that
-    //    are NOT reachable from the principal carbons (e.g. a methyl on the ring)
-    //    are left out of chainSet on purpose; nameRingAsSubstituent picks them
-    //    up as ring substituents. Multiple ring->chain attachments are out of
-    //    scope here.
+    // 3. Find the single ring<->chain attachment: either a direct C-C bond or
+    //    a single divalent ether/thioether bridge (ring - O/S - chainCarbon).
     int ipsoRingNode = -1, chainAttachCarbon = -1, attachCount = 0;
+    int bridgeAtom = -1, bridgeZ = 0, bridgeAttachCount = 0;
     for (int rNode : ringNodeSet) {
         for (int nei : g.nodes[rNode].neighbors) {
             if (g.nodes[nei].atomicNumber != 6) continue;
@@ -8394,6 +8797,40 @@ QString nameChainParentWithRingSubstituent(int mol, const std::map<int, int> &in
                     chainAttachCarbon = nei;
                 } else if (rNode != ipsoRingNode) {
                     return "";
+                }
+            }
+        }
+    }
+    if (attachCount == 0) {
+        std::set<int> allRingNodesSet;
+        for (const auto &ring : allSSSRRings) {
+            allRingNodesSet.insert(ring.begin(), ring.end());
+        }
+        for (int rNode : ringNodeSet) {
+            for (size_t bi = 0; bi < g.nodes[rNode].neighbors.size(); ++bi) {
+                int bNei = g.nodes[rNode].neighbors[bi];
+                if (ringNodeSet.count(bNei) || allRingNodesSet.count(bNei)) continue;
+                int bz = g.nodes[bNei].atomicNumber;
+                if ((bz == 8 || bz == 16) && g.nodes[rNode].bondOrders[bi] == 1 &&
+                    g.nodes[bNei].neighbors.size() == 2 &&
+                    g.nodes[bNei].bondOrders.size() == 2 &&
+                    g.nodes[bNei].bondOrders[0] == 1 && g.nodes[bNei].bondOrders[1] == 1) {
+                    int other = (g.nodes[bNei].neighbors[0] == rNode)
+                                    ? g.nodes[bNei].neighbors[1]
+                                    : g.nodes[bNei].neighbors[0];
+                    if (chainSet.count(other) &&
+                        !(principalCarbons.count(other) &&
+                          isPrincipalGroupHeteroNeighbor(winningType, g, other, bNei, 1))) {
+                        ++bridgeAttachCount;
+                        if (bridgeAttachCount == 1) {
+                            ipsoRingNode = rNode;
+                            bridgeAtom = bNei;
+                            bridgeZ = bz;
+                            chainAttachCarbon = other;
+                        } else {
+                            return "";
+                        }
+                    }
                 }
             }
         }
@@ -8448,7 +8885,10 @@ QString nameChainParentWithRingSubstituent(int mol, const std::map<int, int> &in
     // 4. Name the ring as a substituent prefix (handles ring-borne substituents
     //    such as a methyl via its own locant). This is class-agnostic.
     if (ensureStereoFn) ensureStereoFn();
-    QString ringPrefix = nameRingAsSubstituent(g, ringNodeSet, ipsoRingNode, chainAttachCarbon, allSSSRRings, ringNodeSet, stereoByGraphId, handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide, nullptr, mol);
+    int ringAttachParent = (bridgeAtom != -1) ? bridgeAtom : chainAttachCarbon;
+    std::set<int> ringForbid = chainSet;
+    if (bridgeAtom != -1) ringForbid.insert(bridgeAtom);
+    QString ringPrefix = nameRingAsSubstituent(g, ringNodeSet, ipsoRingNode, ringAttachParent, allSSSRRings, ringNodeSet, stereoByGraphId, handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide, nullptr, mol);
     if (ringPrefix.isEmpty()) {
         // nameRingAsSubstituent only handles a simple, single ring -- ringNodeSet
         // here may be a fused/branching multi-ring system (e.g. anthracene), which
@@ -8456,9 +8896,14 @@ QString nameChainParentWithRingSubstituent(int mol, const std::map<int, int> &in
         // correctly detects a fused system via allSSSRRings and dispatches to
         // nameRingSystemAsSubstituent. Passing chainSet as forbiddenNodes prevents
         // ring-substituent branch discovery from wandering back into the chain parent.
-        ringPrefix = nameBranchGraph(g, ipsoRingNode, chainAttachCarbon, allSSSRRings, chainSet, stereoByGraphId, handledBranchStereoIds, mol);
+        ringPrefix = nameBranchGraph(g, ipsoRingNode, ringAttachParent, allSSSRRings, ringForbid, stereoByGraphId, handledBranchStereoIds, mol);
     }
     if (ringPrefix.isEmpty()) return "";
+    if (bridgeAtom != -1) {
+        ringPrefix = (bridgeZ == 8) ? formatOxySubstituentPrefix(ringPrefix)
+                                    : wrapCompoundSuffix(ringPrefix, "sulfanyl");
+        if (ringPrefix.isEmpty()) return "";
+    }
 
     // 5. Build the chain-parent name with the ring injected as an extra
     //    substituent attached at the chain carbon that bonds to the ring. Ring
@@ -8543,8 +8988,11 @@ QString nameChainParentWithRingSubstituent(int mol, const std::map<int, int> &in
         }
     }
 
+    std::set<int> chainExcludeNodes = ringNodeSet;
+    if (bridgeAtom != -1) chainExcludeNodes.insert(bridgeAtom);
+
     QString baseName = nameAcyclicChainParentWithSubstituents(g, principalCarbons, principalCarbons,
-                                                   ringNodeSet, extraSubstituents, winningType, acylHalideHalogenZ, mol);
+                                                   chainExcludeNodes, extraSubstituents, winningType, acylHalideHalogenZ, mol);
     if (baseName.isEmpty()) return "";
     return esterAlkylPrefix + baseName;
 }
@@ -9015,6 +9463,32 @@ QString nameAmineSubstituentPrefix(int nNode, int fromNode, const Graph &g,
             }
         }
         if (g.nodes[r].atomicNumber == 16) {
+            int sDblO = 0, sSglO = 0;
+            std::vector<int> sCarbonNeis;
+            for (size_t sk = 0; sk < g.nodes[r].neighbors.size(); ++sk) {
+                int sNei = g.nodes[r].neighbors[sk];
+                if (sNei == nNode) continue;
+                int sOrd = g.nodes[r].bondOrders[sk];
+                int sZ = g.nodes[sNei].atomicNumber;
+                if (sZ == 8 && sOrd == 2) sDblO++;
+                else if (sZ == 8 && sOrd == 1) sSglO++;
+                else if (sZ == 6 && sOrd == 1) sCarbonNeis.push_back(sNei);
+            }
+            if (sSglO == 0 && sCarbonNeis.size() == 1 &&
+                ((sDblO == 2 && g.nodes[r].neighbors.size() == 4) ||
+                 (sDblO == 1 && g.nodes[r].neighbors.size() == 3))) {
+                QString sSuffix = (sDblO == 2) ? "sulfonyl" : "sulfinyl";
+                int cRoot = sCarbonNeis[0];
+                QString alk = nameAcyclicChainParentWithSubstituents(g, {cRoot}, {cRoot}, {r}, {}, GroupType::NONE, -1, mol);
+                if (!alk.isEmpty()) return alk + sSuffix;
+                std::set<int> sForbidden = forbiddenNodes;
+                sForbidden.insert(nNode);
+                sForbidden.insert(r);
+                QString cName = nameBranchGraph(g, cRoot, r, allIndependentRings, sForbidden, {}, nullptr, mol);
+                if (cName.isEmpty()) return "";
+                if (cName == "phenyl") return "benzene" + sSuffix;
+                return wrapCompoundSuffix(cName, sSuffix);
+            }
             std::vector<int> sHeavy;
             for (int sNei : g.nodes[r].neighbors) {
                 if (sNei != nNode && g.nodes[sNei].atomicNumber > 1) sHeavy.push_back(sNei);
@@ -13302,7 +13776,7 @@ static FunctionalGroupClassification classifyFunctionalGroups(
     std::set<int> &etherOxygens = result.etherOxygens;
     std::map<int, int> &carbonHydroperoxide = result.carbonHydroperoxide;
     std::map<int, int> &carbonImine = result.carbonImine;
-
+    bool hasDeferredOximeEarlyExit = false;
 
     for (size_t i = 0; i < g.nodes.size(); ++i) {
         const GraphNode &node = g.nodes[i];
@@ -13635,7 +14109,23 @@ static FunctionalGroupClassification classifyFunctionalGroups(
                              (g.nodes[singleN[0]].totalH >= 2 || g.nodes[singleN[0]].neighbors.size() == 1)) {
                       carbonGroup[i] = GroupType::AMIDINE;
                   } else {
-                      { result.hasEarlyResult = true; result.earlyResult = {false, "", "N-substituted imines, oximes, hydrazones, and amidines are not supported in this phase; only the unsubstituted C=NH imine and unsubstituted -C(=NH)NH2 amidine are supported."}; return result; }
+                      bool isOximeOnRing = false;
+                      if (singleN.empty() && doubleN.size() == 1 && ringNodeSet.count(static_cast<int>(i)) &&
+                          g.nodes[nNode].neighbors.size() == 2) {
+                          for (int nn : g.nodes[nNode].neighbors) {
+                              if (nn != static_cast<int>(i) && g.nodes[nn].atomicNumber == 8) {
+                                  isOximeOnRing = true;
+                                  break;
+                              }
+                          }
+                      }
+                      if (isOximeOnRing) {
+                          hasDeferredOximeEarlyExit = true;
+                      } else {
+                          result.hasEarlyResult = true;
+                          result.earlyResult = {false, "", "N-substituted imines, oximes, hydrazones, and amidines are not supported in this phase; only the unsubstituted C=NH imine and unsubstituted -C(=NH)NH2 amidine are supported."};
+                          return result;
+                      }
                   }
             } else if (!singleO.empty()) {
                 bool foundGroup = false;
@@ -13797,6 +14287,21 @@ static FunctionalGroupClassification classifyFunctionalGroups(
         }
     };
 
+    if (hasDeferredOximeEarlyExit) {
+        bool hasSeniorGroup = false;
+        for (const auto &kv : carbonGroup) {
+            if (groupRank(kv.second) < groupRank(GroupType::IMINE)) {
+                hasSeniorGroup = true;
+                break;
+            }
+        }
+        if (!hasSeniorGroup) {
+            result.hasEarlyResult = true;
+            result.earlyResult = {false, "", "N-substituted imines, oximes, hydrazones, and amidines are not supported in this phase; only the unsubstituted C=NH imine and unsubstituted -C(=NH)NH2 amidine are supported."};
+            return result;
+        }
+    }
+
     GroupType winningRingGroup = GroupType::NONE;
     GroupType winningChainGroup = GroupType::NONE;
 
@@ -13834,6 +14339,82 @@ static FunctionalGroupClassification classifyFunctionalGroups(
     result.winningRingGroup = winningRingGroup;
     result.winningChainGroup = winningChainGroup;
     return result;
+}
+
+enum class SeniorParentKind { RING_PARENT, CHAIN_PARENT };
+
+struct ParentChoice {
+    SeniorParentKind kind = SeniorParentKind::RING_PARENT;
+    GroupType winningClass = GroupType::NONE;
+    int ringCount = 0;
+    int chainCount = 0;
+    int chainDeepCount = 0;
+    bool ringHasHeteroatom = false;
+};
+
+// Unified P-44.1.1 / P-44.1.2 / P-44.1.2.2 chain-vs-ring parent selector.
+// Excludes functional groups located on or exocyclic to *other* rings in the
+// molecule so multi-ring parents do not falsely register as acyclic chains.
+static ParentChoice selectSeniorParent(
+    const Graph &g,
+    const std::set<int> &ringNodeSet,
+    const std::vector<std::set<int>> & /*allSSSRRings*/,
+    const FunctionalGroupClassification &fgc,
+    bool alwaysCheckHeteroatom = false)
+{
+    ParentChoice choice;
+    GroupType combinedWinner = fgc.combinedWinner;
+    choice.winningClass = combinedWinner;
+    if (combinedWinner == GroupType::NONE) {
+        return choice;
+    }
+
+    bool exoConsuming = isExocyclicCarbonConsumingGroup(combinedWinner);
+
+    for (const auto &pair : fgc.carbonGroup) {
+        if (pair.second != combinedWinner) continue;
+        int cNode = pair.first;
+        bool isOnThisRing = ringNodeSet.count(cNode) > 0;
+        if (!isOnThisRing && exoConsuming) {
+            for (int nei : g.nodes[cNode].neighbors) {
+                if (ringNodeSet.count(nei) > 0) { isOnThisRing = true; break; }
+            }
+        }
+        if (isOnThisRing) {
+            ++choice.ringCount;
+        } else {
+            ++choice.chainDeepCount;
+            ++choice.chainCount;
+        }
+    }
+
+    if (alwaysCheckHeteroatom || choice.ringCount > 0) {
+        for (int n : ringNodeSet) {
+            if (g.nodes[n].atomicNumber != 6) {
+                choice.ringHasHeteroatom = true;
+                break;
+            }
+        }
+    }
+
+    if (!choice.ringHasHeteroatom &&
+        (choice.chainCount > choice.ringCount ||
+         (choice.chainCount == choice.ringCount && choice.chainDeepCount > 0))) {
+        choice.kind = SeniorParentKind::CHAIN_PARENT;
+    }
+    return choice;
+}
+
+static bool shouldDemoteRingToSubstituent(
+    const FunctionalGroupClassification &fgcSubScan,
+    GroupType ringBestGroup)
+{
+    if (ringBestGroup == GroupType::NONE) {
+        return fgcSubScan.winningRingGroup == GroupType::NONE ||
+               groupSeniorityRank(fgcSubScan.winningChainGroup) <= groupSeniorityRank(fgcSubScan.winningRingGroup);
+    }
+    return fgcSubScan.winningChainGroup != GroupType::NONE &&
+           groupSeniorityRank(fgcSubScan.winningChainGroup) <= groupSeniorityRank(ringBestGroup);
 }
 
 static bool detectPeriFusion(const Graph &g, const std::vector<std::set<int>> &allSSSRRings, std::set<int> *outPeriCenters = nullptr) {
@@ -21391,18 +21972,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
             
             // Case 1: Multiple rings
             if (allSSSRRings.size() > 1) {
-                // Treat this ring as a substituent when:
-                // (a) the ring itself has no principal group and either no ring bears one or the chain
-                //     beats/ties the winning ring group (so 4-benzylphenol stays on the multi-ring path), OR
-                // (b) the chain beats/ties this ring's own principal group (e.g. diaryl ketones like
-                //     oxybenzone/tolcapone where KETONE (27) outranks ring ALCOHOL (29), or multi-ring
-                //     chains like ritodrine).
-                if ((ringBestGroup == GroupType::NONE &&
-                     (fgcSubScan.winningRingGroup == GroupType::NONE ||
-                      groupRank(fgcSubScan.winningChainGroup) <= groupRank(fgcSubScan.winningRingGroup))) ||
-                    (ringBestGroup != GroupType::NONE &&
-                     fgcSubScan.winningChainGroup != GroupType::NONE &&
-                     groupRank(fgcSubScan.winningChainGroup) <= groupRank(ringBestGroup))) {
+                if (shouldDemoteRingToSubstituent(fgcSubScan, ringBestGroup)) {
                     hasPrincipalGroupOrMultipleRings = true;
                 }
             }
@@ -21735,7 +22305,8 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                     }
                     if (!seedRing.empty()) {
                         ensureStereo();
-                        QString pName = nameRingSystemAsSubstituent(g, mol, attachRingNode, seedRing, allSSSRRings, {}, stereoByGraphId, foundAttachChainNode);
+                        std::set<int> ringInfoHandledStereoIds;
+                        QString pName = nameRingSystemAsSubstituent(g, mol, attachRingNode, seedRing, allSSSRRings, {}, stereoByGraphId, foundAttachChainNode, carbonSulfonamide, carbonSulfinamide, ensureStereo, &ringInfoHandledStereoIds);
                         if (!pName.isEmpty()) {
                             ringSubstituentInfos.push_back({allSSSRNodes, pName, foundAttachChainNode});
                         }
@@ -21753,6 +22324,59 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
 
     std::set<int> phase2ForcedRingNodeSet;
     std::map<int, QString> phase2ForcedRingSubstituentNames;
+
+    auto runChainParentSeniorDispatch = [&](const std::set<int> &ringNodeSet,
+                                            const FunctionalGroupClassification &fgc,
+                                            IupacResult &outRes) -> bool {
+        ParentChoice choice = selectSeniorParent(g, ringNodeSet, allSSSRRings, fgc);
+        if (choice.kind != SeniorParentKind::CHAIN_PARENT) return false;
+        GroupType combinedWinner = choice.winningClass;
+        const std::map<int, GroupType> &carbonGroup = fgc.carbonGroup;
+        if (combinedWinner == GroupType::BORONIC_ACID || combinedWinner == GroupType::PHOSPHINE) {
+            int pOrBCarbon = -1;
+            for (const auto &pair : carbonGroup) {
+                if (pair.second == combinedWinner) {
+                    bool isOnOrExocyclic = ringNodeSet.count(pair.first) > 0;
+                    if (!isOnOrExocyclic) {
+                        for (int nei : g.nodes[pair.first].neighbors) {
+                            if (ringNodeSet.count(nei) > 0) { isOnOrExocyclic = true; break; }
+                        }
+                    }
+                    if (!isOnOrExocyclic) {
+                        pOrBCarbon = pair.first;
+                        break;
+                    }
+                }
+            }
+            if (pOrBCarbon != -1) {
+                int pOrBNode = (combinedWinner == GroupType::PHOSPHINE) ? carbonPhosphine[pOrBCarbon] : carbonBoronicAcid[pOrBCarbon];
+                QString alkylName = nameBranchGraph(g, pOrBCarbon, pOrBNode, allSSSRRings, ringNodeSet, {}, nullptr, mol);
+                if (alkylName.isEmpty()) {
+                    outRes = {false, "", "Unsupported boronic acid/phosphine alkyl group."};
+                    return true;
+                }
+                if (alkylName.startsWith("(") && alkylName.endsWith(")")) {
+                    alkylName = alkylName.mid(1, alkylName.length() - 2);
+                }
+                QString fullName = alkylName + ((combinedWinner == GroupType::PHOSPHINE) ? "phosphine" : "boronic acid");
+                outRes = {true, fullName, ""};
+                return true;
+            }
+        } else if (isChainParentWithRingSubstituentSupported(combinedWinner)) {
+            std::set<int> handledBranchStereoIds;
+            QString chainName = nameChainParentWithRingSubstituent(mol, indigoToGraphIdx, g, ringNodeSet, allSSSRRings, carbonGroup, combinedWinner, stereoByGraphId, &handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide, ensureStereo);
+            if (!chainName.isEmpty()) {
+                std::set<int> pCarbons;
+                for (const auto &pair : carbonGroup) { if (pair.second == combinedWinner) pCarbons.insert(pair.first); }
+                auto res = checkPrincipalHeteroatomsUnsubstituted(g, pCarbons, combinedWinner, ringNodeSet);
+                if (res.hasError) { outRes = {false, "", res.msg}; return true; }
+                outRes = {true, chainName, ""};
+                return true;
+            }
+        }
+        outRes = {false, "", "A chain-based principal group outranks the ring in this structure; chain-as-parent seniority (P-44.1.1) for this ring/class combination is not yet supported."};
+        return true;
+    };
 
     auto namePhase2Monocyclic = [&]() -> IupacResult {
     // --- Phase 2: Monocyclic Ring Path (ringCount == 1) ---
@@ -22039,75 +22663,9 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
         return {false, "", "Unsupported stibinic acid geometry."};
     }
     if (combinedWinner != GroupType::NONE) {
-        int ringCount = 0, chainCount = 0, chainDeepCount = 0;
-        for (const auto &pair : carbonGroup) {
-            if (pair.second != combinedWinner) continue;
-            int cNode = pair.first;
-            bool isOnOrExocyclic = ringNodeSet.count(cNode) > 0;
-            if (!isOnOrExocyclic) {
-                if (isExocyclicCarbonConsumingGroup(combinedWinner)) {
-                    for (int nei : g.nodes[cNode].neighbors) {
-                        if (ringNodeSet.count(nei) > 0) { isOnOrExocyclic = true; break; }
-                    }
-                }
-                if (!isOnOrExocyclic) ++chainDeepCount;
-            }
-            if (isOnOrExocyclic) ++ringCount; else ++chainCount;
-        }
-        bool ringHasHeteroatom = false;
-        if (ringCount > 0) {
-            for (int n : ringNodeSet) {
-                if (g.nodes[n].atomicNumber != 6) { ringHasHeteroatom = true; break; }
-            }
-        }
-        if (!ringHasHeteroatom && (chainCount > ringCount || (chainCount == ringCount && chainDeepCount > 0))) {
-            // Chain is the senior parent structure. Name it as parent with the ring cited
-            // as a substituent prefix. Phase 54: this is no longer acid-only -- the
-            // supported classes (ACID, AMIDE, NITRILE, ALDEHYDE, KETONE, ALCOHOL, THIOL,
-            // AMINE, THIAL, THIONE, SULFONIC_ACID, ESTER, ACYL_HALIDE) are gated by isChainParentWithRingSubstituentSupported so both
-            // call sites stay in lockstep; unsupported classes still reject cleanly.
-            // Phase 61: BORONIC_ACID and PHOSPHINE are handled separately here because they
-            // name the alkyl chain differently (alkyl + "boronic acid"/"phosphine" suffix).
-            if (combinedWinner == GroupType::BORONIC_ACID || combinedWinner == GroupType::PHOSPHINE) {
-                int pOrBCarbon = -1;
-                for (const auto &pair : carbonGroup) {
-                    if (pair.second == combinedWinner) {
-                        bool isOnOrExocyclic = ringNodeSet.count(pair.first) > 0;
-                        if (!isOnOrExocyclic) {
-                            for (int nei : g.nodes[pair.first].neighbors) {
-                                if (ringNodeSet.count(nei) > 0) { isOnOrExocyclic = true; break; }
-                            }
-                        }
-                        if (!isOnOrExocyclic) {
-                            pOrBCarbon = pair.first;
-                            break;
-                        }
-                    }
-                }
-                if (pOrBCarbon != -1) {
-                    int pOrBNode = (combinedWinner == GroupType::PHOSPHINE) ? carbonPhosphine[pOrBCarbon] : carbonBoronicAcid[pOrBCarbon];
-                    QString alkylName = nameBranchGraph(g, pOrBCarbon, pOrBNode, allSSSRRings, ringNodeSet, {}, nullptr, mol);
-                    if (alkylName.isEmpty()) {
-                        return {false, "", "Unsupported boronic acid/phosphine alkyl group."};
-                    }
-                    if (alkylName.startsWith("(") && alkylName.endsWith(")")) {
-                        alkylName = alkylName.mid(1, alkylName.length() - 2);
-                    }
-                    QString fullName = alkylName + ((combinedWinner == GroupType::PHOSPHINE) ? "phosphine" : "boronic acid");
-                    return {true, fullName, ""};
-                }
-            } else if (isChainParentWithRingSubstituentSupported(combinedWinner)) {
-                std::set<int> handledBranchStereoIds;
-                QString chainName = nameChainParentWithRingSubstituent(mol, indigoToGraphIdx, g, ringNodeSet, allSSSRRings, carbonGroup, combinedWinner, stereoByGraphId, &handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide, ensureStereo);
-                if (!chainName.isEmpty()) {
-                    std::set<int> pCarbons;
-                    for (const auto &pair : carbonGroup) { if (pair.second == combinedWinner) pCarbons.insert(pair.first); }
-                    auto res = checkPrincipalHeteroatomsUnsubstituted(g, pCarbons, combinedWinner, ringNodeSet);
-                    if (res.hasError) return {false, "", res.msg};
-                    return {true, chainName, ""};
-                }
-            }
-            return {false, "", "A chain-based principal group outranks the ring in this structure; chain-as-parent seniority (P-44.1.1) for this ring/class combination is not yet supported."};
+        IupacResult chainWinRes;
+        if (runChainParentSeniorDispatch(ringNodeSet, fgc, chainWinRes)) {
+            return chainWinRes;
         }
     }
 
@@ -22418,8 +22976,19 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
             }
         }
 
-        struct DeferredBranchStereo { int nei; int rNode; size_t subIndex; bool hadParens; };
-        std::vector<DeferredBranchStereo> deferredBranchStereos;
+        ChalcogenOxidationSets phase2Chalc{
+            thioetherSulfurs, sulfoxideSulfurs, sulfoneSulfurs,
+            selenoetherSeleniums, selenoxideSeleniums, selenoneSeleniums,
+            telluroetherTelluriums, telluroxideTelluriums, telluroneTelluriums
+        };
+        bool phase2SubErr = false;
+        SubstituentContext phase2SubCtx{
+            g, mol, allSSSRRings, phase2Chalc,
+            carbonSulfonamide, carbonSulfinamide,
+            stereoByGraphId, ensureStereo, &sig.handledBranchStereoIds,
+            &branchBondStereo, &sig.handledBranchBonds,
+            &ringNodeSet, &phase2SubErr, true
+        };
 
         for (int i = 0; i < ringSize; ++i) {
             int rNode = cand[i];
@@ -22438,23 +23007,6 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                         if (!isAzide && (nz == 7 || nz == 8 || nz == 16 || nz == 34 || nz == 52 || nz == 15 || nz == 33 || nz == 51 || (nz == 5 && winningType == GroupType::BORONIC_ACID))) continue;
                     }
                     if (principalCarbons.count(nei) > 0) {
-                        // Silent-drop bug (albuterol/pirbuterol): an exocyclic principal-group
-                        // carbon that also carries extra substituent structure beyond the group
-                        // itself (e.g. a branch continuing past the OH) used to vanish here with
-                        // no trace. Reject honestly instead of fabricating a shorter, wrong name.
-                        //
-                        // Scoped ONLY to the "single heteroatom substituent" classes (ALCOHOL,
-                        // THIOL, SELENOL, TELLUROL, HYDROPEROXIDE) where a bare, unextended
-                        // group has EXACTLY 2 heavy neighbors: the ring attachment and the
-                        // group's own heteroatom (e.g. a plain -CH2OH: ring bond + O). Any other
-                        // winningType (AMIDE, ACID, NITRILE, KETONE, ACYL_HALIDE, ...) inherently
-                        // has MORE heavy neighbors as part of the group's own required structure
-                        // (e.g. an exocyclic -C(=O)OH carbon has ring bond + =O + -OH = 3 heavy
-                        // neighbors with nothing extra) -- applying this same ">2" baseline there
-                        // broke every plain exocyclic acid/amide/nitrile/ester/acyl-halide test
-                        // (confirmed via full rebuild + test suite before landing this fix), so
-                        // those types keep the original silent `continue` until a properly
-                        // per-type baseline is worked out.
                         bool isSingleHeteroatomClass = (winningType == GroupType::ALCOHOL || winningType == GroupType::THIOL ||
                                                          winningType == GroupType::SELENOL || winningType == GroupType::TELLUROL ||
                                                          winningType == GroupType::HYDROPEROXIDE);
@@ -22485,275 +23037,25 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                             subName = inner;
                         }
                     }
-                } else if (nz == 9 || nz == 17 || nz == 35 || nz == 53) {
-                    subName = halogenPrefix(nz);
-                } else if (nz == 8) {
-                    if (order == 1) {
-                        subName = tryNameAcyloxySubstituent(nei, rNode, g, allSSSRRings, mol);
-                        if (subName.isEmpty()) {
-                            if (etherOxygens.count(nei)) {
-                                int alkylNei = -1;
-                                for (int oNei : g.nodes[nei].neighbors) {
-                                    if (oNei != rNode) { alkylNei = oNei; break; }
-                                }
-                                if (alkylNei != -1) {
-                                    QString alkylName = nameBranchGraph(g, alkylNei, nei, allSSSRRings, {}, {}, nullptr, mol);
-                                    if (alkylName.isEmpty()) {
-                                        // leave subName empty -- unnameable substituent
-                                    } else if (alkylName.startsWith("(") && alkylName.endsWith(")")) {
-                                        // Substituted phenyl still contracts to phenoxy, same
-                                        // as the bare "phenyl" case below (see nameBranchGraph's
-                                        // own ether dispatch for the full explanation).
-                                        QString inner = alkylName.mid(1, alkylName.length() - 2);
-                                        if (inner.endsWith("phenyl")) {
-                                            inner.chop(2);
-                                            subName = "(" + inner + "oxy)";
-                                        } else {
-                                            subName = alkylName + "oxy";
-                                        }
-                                    } else if (alkylName == "methyl" || alkylName == "ethyl" || alkylName == "propyl" || alkylName == "butyl" || alkylName == "phenyl") {
-                                        alkylName.chop(2); alkylName += "oxy";
-                                        subName = alkylName;
-                                    } else if (alkylName.endsWith("yl") && !alkylName.contains('(') && !alkylName.contains('[') &&
-                                               !std::any_of(alkylName.begin(), alkylName.end(), [](QChar c) { return c.isDigit(); })) {
-                                        alkylName += "oxy";
-                                        subName = alkylName;
-                                    } else {
-                                        subName = "(" + alkylName + ")oxy";
-                                    }
-                                }
-                            } else if (winningType != GroupType::ALCOHOL) {
-                                subName = "hydroxy";
-                            }
-                        }
-                    } else if (order == 2) {
-                        if (winningType != GroupType::ALDEHYDE && winningType != GroupType::KETONE) {
-                            subName = "oxo";
-                        }
+                } else {
+                    bool skipPrincipal = false;
+                    if (nz == 8 && order == 1 && !etherOxygens.count(nei) && winningType == GroupType::ALCOHOL &&
+                        (g.nodes[nei].totalH >= 1 || g.nodes[nei].neighbors.size() == 1)) {
+                        skipPrincipal = true;
+                    } else if (nz == 8 && order == 2 && (winningType == GroupType::ALDEHYDE || winningType == GroupType::KETONE)) {
+                        skipPrincipal = true;
+                    } else if (nz == 7 && order == 1 && winningType == GroupType::AMINE) {
+                        bool isDirectNPrefix = carbonAzide.count(rNode) && ringNodeSet.count(rNode) > 0 &&
+                                               std::find(carbonAzide[rNode].begin(), carbonAzide[rNode].end(), nei) != carbonAzide[rNode].end();
+                        isDirectNPrefix = isDirectNPrefix || isIsocyanateNitrogen(nei, rNode, g) ||
+                                          isNitroNitrogen(nei, rNode, g) || isNitrosoNitrogen(nei, rNode, g);
+                        if (!isDirectNPrefix) skipPrincipal = true;
                     }
-                } else if (nz == 7) {
-                    bool isAzide = false;
-                    for (size_t k = 0; k < g.nodes[nei].neighbors.size(); ++k) {
-                        int nNei = g.nodes[nei].neighbors[k];
-                        if (g.nodes[nei].bondOrders[k] >= 2 && isAzideNitrogen(nNei, nei, g)) {
-                            isAzide = true; break;
-                        }
-                    }
-                    if (carbonAzide.count(rNode) && ringNodeSet.count(rNode) > 0 && std::find(carbonAzide[rNode].begin(), carbonAzide[rNode].end(), nei) != carbonAzide[rNode].end()) {
-                        subName = "azido";
-                    } else if (isIsocyanateNitrogen(nei, rNode, g)) {
-                        subName = isocyanateSubstituentPrefix(nei, rNode, g);
-                    } else if (isNitroNitrogen(nei, rNode, g)) {
-                        subName = "nitro";
-                    } else if (isNitrosoNitrogen(nei, rNode, g)) {
-                        subName = "nitroso";
-                    } else if (!isAzide && order == 1 && winningType != GroupType::AMINE) {
-                        QString amidoName = tryNameAmidoSubstituent(nei, rNode, g, allSSSRRings, mol);
-                        if (!amidoName.isEmpty()) {
-                            subName = amidoName;
-                        } else if (isHydrazinylNitrogen(nei, rNode, g)) {
-                            subName = "hydrazinyl";
-                        } else {
-                            subName = nameAmineSubstituentPrefix(nei, rNode, g, allSSSRRings, {}, mol);
-                            if (subName.isEmpty()) {
-                                return {false, "", "N-substituted amino ring substituents are not supported"};
-                            }
-                        }
-                    } else if (!isAzide && order == 2 && carbonImine.count(rNode) && carbonImine[rNode] == nei && winningType != GroupType::IMINE) {
-                        subName = "imino";
-                    }
-                } else if (nz == 16) {
-                    if (carbonSulfonicAcid.count(rNode) && carbonSulfonicAcid[rNode] == nei && winningType != GroupType::SULFONIC_ACID) {
-                        subName = "sulfo";
-                    } else if (carbonSulfonamide.count(rNode) && carbonSulfonamide[rNode] == nei && winningType != GroupType::SULFONAMIDE) {
-                        subName = "sulfamoyl";
-                    } else if (carbonSulfonylHalide.count(rNode) && carbonSulfonylHalide[rNode] == nei && winningType != GroupType::SULFONYL_HALIDE) {
-                        subName = halogenPrefix(sulfonylHalideZ[rNode]) + "sulfonyl";
-                    } else if (carbonSulfinylHalide.count(rNode) && carbonSulfinylHalide[rNode] == nei && winningType != GroupType::SULFINYL_HALIDE) {
-                        subName = halogenPrefix(sulfinylHalideZ[rNode]) + "sulfinyl";
-                    } else if (carbonSulfinicAcid.count(rNode) && carbonSulfinicAcid[rNode] == nei && winningType != GroupType::SULFINIC_ACID) {
-                        subName = "sulfino";
-                    } else if (carbonSulfinamide.count(rNode) && carbonSulfinamide[rNode] == nei && winningType != GroupType::SULFINAMIDE) {
-                        subName = "sulfinamoyl";
-                    } else if (carbonHydroperoxide.count(rNode) && carbonHydroperoxide[rNode] == nei && winningType != GroupType::HYDROPEROXIDE) {
-                        subName = "hydroperoxy";
-                    } else if (carbonThiol.count(rNode) && carbonThiol[rNode] == nei && winningType != GroupType::THIOL) {
-                        subName = "sulfanyl";
-                    } else if (order == 1) {
-                        if (thioetherSulfurs.count(nei)) {
-                            int alkylNei = -1;
-                            for (int sNei : g.nodes[nei].neighbors) {
-                                if (sNei != rNode) { alkylNei = sNei; break; }
-                            }
-                            if (alkylNei != -1) {
-                                QString alkylName = nameBranchGraph(g, alkylNei, nei, allSSSRRings, {}, {}, nullptr, mol);
-                                if (!alkylName.isEmpty()) subName = wrapCompoundSuffix(alkylName, "sulfanyl");
-                            }
-                        } else if (sulfoxideSulfurs.count(nei)) {
-                            int alkylNei = -1;
-                            for (int oNei : g.nodes[nei].neighbors) {
-                                if (g.nodes[oNei].atomicNumber == 6 && oNei != rNode) { alkylNei = oNei; break; }
-                            }
-                            if (alkylNei != -1) {
-                                QString alkylName = nameAcyclicChainParentWithSubstituents(g, {alkylNei}, {alkylNei}, {nei}, {}, GroupType::NONE, -1, mol);
-                                if (alkylName.isEmpty()) alkylName = nameBranchGraph(g, alkylNei, nei, allSSSRRings, {}, {}, nullptr, mol);
-                                if (!alkylName.isEmpty()) subName = wrapCompoundSuffix(alkylName, "sulfinyl");
-                            }
-                        } else if (sulfoneSulfurs.count(nei)) {
-                            int alkylNei = -1;
-                            for (int oNei : g.nodes[nei].neighbors) {
-                                if (g.nodes[oNei].atomicNumber == 6 && oNei != rNode) { alkylNei = oNei; break; }
-                            }
-                            if (alkylNei != -1) {
-                                QString alkylName = nameAcyclicChainParentWithSubstituents(g, {alkylNei}, {alkylNei}, {nei}, {}, GroupType::NONE, -1, mol);
-                                if (alkylName.isEmpty()) alkylName = nameBranchGraph(g, alkylNei, nei, allSSSRRings, {}, {}, nullptr, mol);
-                                if (!alkylName.isEmpty()) subName = wrapCompoundSuffix(alkylName, "sulfonyl");
-                            }
-                        }
-                    }
-                } else if (nz == 34) {
-                    if (carbonSelenol.count(rNode) && carbonSelenol[rNode] == nei && winningType != GroupType::SELENOL) {
-                        subName = "selanyl";
-                    } else if (order == 1) {
-                        if (selenoetherSeleniums.count(nei)) {
-                            int alkylNei = -1;
-                            for (int sNei : g.nodes[nei].neighbors) {
-                                if (sNei != rNode) { alkylNei = sNei; break; }
-                            }
-                            if (alkylNei != -1) {
-                                QString alkylName = nameBranchGraph(g, alkylNei, nei, allSSSRRings, {}, {}, nullptr, mol);
-                                if (!alkylName.isEmpty()) subName = wrapCompoundSuffix(alkylName, "selanyl");
-                            }
-                        } else if (selenoxideSeleniums.count(nei)) {
-                            int alkylNei = -1;
-                            for (int oNei : g.nodes[nei].neighbors) {
-                                if (g.nodes[oNei].atomicNumber == 6 && oNei != rNode) { alkylNei = oNei; break; }
-                            }
-                            if (alkylNei != -1) {
-                                QString alkylName = nameAcyclicChainParentWithSubstituents(g, {alkylNei}, {alkylNei}, {nei}, {}, GroupType::NONE, -1, mol);
-                                if (alkylName.isEmpty()) alkylName = nameBranchGraph(g, alkylNei, nei, allSSSRRings, {}, {}, nullptr, mol);
-                                if (!alkylName.isEmpty()) subName = wrapCompoundSuffix(alkylName, "seleninyl");
-                            }
-                        } else if (selenoneSeleniums.count(nei)) {
-                            int alkylNei = -1;
-                            for (int oNei : g.nodes[nei].neighbors) {
-                                if (g.nodes[oNei].atomicNumber == 6 && oNei != rNode) { alkylNei = oNei; break; }
-                            }
-                            if (alkylNei != -1) {
-                                QString alkylName = nameAcyclicChainParentWithSubstituents(g, {alkylNei}, {alkylNei}, {nei}, {}, GroupType::NONE, -1, mol);
-                                if (alkylName.isEmpty()) alkylName = nameBranchGraph(g, alkylNei, nei, allSSSRRings, {}, {}, nullptr, mol);
-                                if (!alkylName.isEmpty()) subName = wrapCompoundSuffix(alkylName, "selenonyl");
-                            }
-                        }
-                    }
-                } else if (nz == 52) {
-                    if (carbonTellurol.count(rNode) && carbonTellurol[rNode] == nei && winningType != GroupType::TELLUROL) {
-                        subName = "tellanyl";
-                    } else if (order == 1) {
-                        if (telluroetherTelluriums.count(nei)) {
-                            int alkylNei = -1;
-                            for (int sNei : g.nodes[nei].neighbors) {
-                                if (sNei != rNode) { alkylNei = sNei; break; }
-                            }
-                            if (alkylNei != -1) {
-                                QString alkylName = nameBranchGraph(g, alkylNei, nei, allSSSRRings, {}, {}, nullptr, mol);
-                                if (!alkylName.isEmpty()) subName = wrapCompoundSuffix(alkylName, "tellanyl");
-                            }
-                        } else if (telluroxideTelluriums.count(nei)) {
-                            int alkylNei = -1;
-                            for (int oNei : g.nodes[nei].neighbors) {
-                                if (g.nodes[oNei].atomicNumber == 6 && oNei != rNode) { alkylNei = oNei; break; }
-                            }
-                            if (alkylNei != -1) {
-                                QString alkylName = nameAcyclicChainParentWithSubstituents(g, {alkylNei}, {alkylNei}, {nei}, {}, GroupType::NONE, -1, mol);
-                                if (alkylName.isEmpty()) alkylName = nameBranchGraph(g, alkylNei, nei, allSSSRRings, {}, {}, nullptr, mol);
-                                if (!alkylName.isEmpty()) subName = wrapCompoundSuffix(alkylName, "tellurinyl");
-                            }
-                        } else if (telluroneTelluriums.count(nei)) {
-                            int alkylNei = -1;
-                            for (int oNei : g.nodes[nei].neighbors) {
-                                if (g.nodes[oNei].atomicNumber == 6 && oNei != rNode) { alkylNei = oNei; break; }
-                            }
-                            if (alkylNei != -1) {
-                                QString alkylName = nameAcyclicChainParentWithSubstituents(g, {alkylNei}, {alkylNei}, {nei}, {}, GroupType::NONE, -1, mol);
-                                if (alkylName.isEmpty()) alkylName = nameBranchGraph(g, alkylNei, nei, allSSSRRings, {}, {}, nullptr, mol);
-                                if (!alkylName.isEmpty()) subName = wrapCompoundSuffix(alkylName, "telluronyl");
-                            }
-                        }
-                    }
-                } else if (nz == 15) {
-                    if (carbonPhosphonicAcid.count(rNode) && carbonPhosphonicAcid[rNode] == nei && winningType != GroupType::PHOSPHONIC_ACID) {
-                        subName = "phosphono";
-                    } else if (carbonPhosphonicDihalide.count(rNode) && carbonPhosphonicDihalide[rNode] == nei && winningType != GroupType::PHOSPHONIC_DIHALIDE) {
-                        subName = "di" + halogenPrefix(phosphonicDihalideZ[rNode]) + "phosphoryl";
-                    }
-                } else if (nz == 33) {
-                    if (carbonArsonicAcid.count(rNode) && carbonArsonicAcid[rNode] == nei && winningType != GroupType::ARSONIC_ACID) {
-                        subName = "arsono";
-                    } else if (carbonArsonicDihalide.count(rNode) && carbonArsonicDihalide[rNode] == nei && winningType != GroupType::ARSONIC_DIHALIDE) {
-                        subName = "di" + halogenPrefix(arsonicDihalideZ[rNode]) + "arsoryl";
-                    }
-                } else if (nz == 51) {
-                    if (carbonStibonicAcid.count(rNode) && carbonStibonicAcid[rNode] == nei && winningType != GroupType::STIBONIC_ACID) {
-                        subName = "stibono";
-                    }
-                } else if (nz == 5) {
-                    if (carbonBoronicAcid.count(rNode) && carbonBoronicAcid[rNode] == nei && winningType != GroupType::BORONIC_ACID) {
-                        subName = "borono";
-                    } else if (carbonBorinicAcid.count(rNode) && carbonBorinicAcid[rNode] == nei && winningType != GroupType::BORINIC_ACID) {
-                        int otherSub = -1;
-                        for (size_t k = 0; k < g.nodes[nei].neighbors.size(); ++k) {
-                            int nn = g.nodes[nei].neighbors[k];
-                            if (nn == rNode) continue;
-                            if (g.nodes[nn].atomicNumber == 8) continue;
-                            otherSub = nn;
-                            break;
-                        }
-                        if (otherSub != -1) {
-                            int oz = g.nodes[otherSub].atomicNumber;
-                            QString otherName = (oz == 9 || oz == 17 || oz == 35 || oz == 53)
-                                ? halogenPrefix(oz)
-                                : nameBranchGraph(g, otherSub, nei, allSSSRRings, {}, {}, nullptr, mol);
-                            if (!otherName.isEmpty()) {
-                                subName = wrapBorinicSubstituent(otherName);
-                            }
-                        }
-                    }
-                } else if (nz == 6) {
-                    if (carbonGroup.count(nei) && winningType != carbonGroup[nei]) {
-                        if (carbonGroup[nei] == GroupType::ACID) {
-                            subName = "carboxy";
-                        } else if (carbonGroup[nei] == GroupType::ACYL_HALIDE) {
-                            subName = halogenPrefix(acylHalideHalogen[nei]) + "carbonyl";
-                        } else if (carbonGroup[nei] == GroupType::ESTER) {
-                            int alkylRoot = esterAlkylRoot[nei];
-                            int sO = esterOxygen[nei];
-                            QString alkylName = nameBranchGraph(g, alkylRoot, sO, {}, {}, {}, nullptr, mol);
-                            if (alkylName.isEmpty()) {
-                                return {false, "", "Unsupported ester alkyl group."};
-                            }
-                            if (alkylName.endsWith("yl")) {
-                                alkylName.chop(2);
-                                alkylName += "oxycarbonyl";
-                            }
-                            subName = alkylName;
-                        } else if (carbonGroup[nei] == GroupType::AMIDE) {
-                            subName = "carbamoyl";
-                        } else if (carbonGroup[nei] == GroupType::THIOAMIDE) {
-                            subName = "carbamothioyl";
-                        } else if (carbonGroup[nei] == GroupType::AMIDINE) {
-                            subName = "carbamimidoyl";
-                        }
-                    }
-                    if (subName.isEmpty() && phase2ForcedRingSubstituentNames.count(nei)) {
-                        subName = phase2ForcedRingSubstituentNames[nei];
-                    } else if (subName.isEmpty() && phase2ForcedRingSubstituentNames.count(rNode)) {
-                        subName = phase2ForcedRingSubstituentNames[rNode];
-                    } else if (subName.isEmpty()) {
-                        subName = nameBranchGraph(g, nei, rNode, allSSSRRings, ringNodeSet, {}, nullptr, mol, branchBondStereo);
-                        if (!subName.isEmpty()) {
-                            bool hadParens = subName.startsWith("(") && subName.endsWith(")");
-                            deferredBranchStereos.push_back({nei, rNode, sig.namedSubstituents.size(), hadParens});
+                    if (!skipPrincipal) {
+                        phase2SubErr = false;
+                        subName = nameSubstituentSubtree(nei, rNode, ringNodeSet, phase2SubCtx);
+                        if (phase2SubErr) {
+                            return {false, "", "N-substituted amino ring substituents are not supported"};
                         }
                     }
                 }
@@ -22767,22 +23069,6 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                         return {false, "", ezRes.error};
                     }
                     return {false, "", "Unrecognized or unsupported substituent on ring."};
-                }
-            }
-        }
-        if (!deferredBranchStereos.empty()) {
-            ensureStereo();
-            for (const auto &dbs : deferredBranchStereos) {
-                QString &targetName = sig.namedSubstituents[dbs.subIndex].first;
-                QString branchStereo = formatBranchStereoPrefix(g, dbs.nei, dbs.rNode, stereoByGraphId, sig.handledBranchStereoIds, allSSSRRings, branchBondStereo, &sig.handledBranchBonds);
-                if (!branchStereo.isEmpty()) {
-                    QString inner = dbs.hadParens ? targetName.mid(1, targetName.length() - 2) : targetName;
-                    targetName = QString("[%1%2]").arg(branchStereo, inner);
-                } else if (dbs.hadParens) {
-                    QString inner = targetName.mid(1, targetName.length() - 2);
-                    if (!inner.isEmpty() && !inner[0].isDigit()) {
-                        targetName = inner;
-                    }
                 }
             }
         }
@@ -23542,75 +23828,9 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
         GroupType combinedWinner = fgc.combinedWinner;
         GroupType winningRingGroup = fgc.winningRingGroup;
         if (combinedWinner != GroupType::NONE) {
-            int ringCount = 0, chainCount = 0, chainDeepCount = 0;
-            for (const auto &pair : carbonGroup) {
-                if (pair.second != combinedWinner) continue;
-                int cNode = pair.first;
-                bool isOnOrExocyclic = ringNodeSet.count(cNode) > 0;
-                if (!isOnOrExocyclic) {
-                    if (isExocyclicCarbonConsumingGroup(combinedWinner)) {
-                        for (int nei : g.nodes[cNode].neighbors) {
-                            if (ringNodeSet.count(nei) > 0) { isOnOrExocyclic = true; break; }
-                        }
-                    }
-                    if (!isOnOrExocyclic) ++chainDeepCount;
-                }
-                if (isOnOrExocyclic) ++ringCount; else ++chainCount;
-            }
-            bool ringHasHeteroatom = false;
-            if (ringCount > 0) {
-                for (int n : ringNodeSet) {
-                    if (g.nodes[n].atomicNumber != 6) { ringHasHeteroatom = true; break; }
-                }
-            }
-            if (!ringHasHeteroatom && (chainCount > ringCount || (chainCount == ringCount && chainDeepCount > 0))) {
-                // Chain is the senior parent structure. Name it as parent with the ring cited
-                // as a substituent prefix. Phase 54: this is no longer acid-only -- the
-                // supported classes (ACID, AMIDE, NITRILE, ALDEHYDE, KETONE, ALCOHOL, THIOL,
-                // AMINE, THIAL, THIONE, SULFONIC_ACID, ESTER, ACYL_HALIDE) are gated by isChainParentWithRingSubstituentSupported so both
-                // call sites stay in lockstep; unsupported classes still reject cleanly.
-                // Phase 61: BORONIC_ACID and PHOSPHINE are handled separately here because they
-                // name the alkyl chain differently (alkyl + "boronic acid"/"phosphine" suffix).
-                if (combinedWinner == GroupType::BORONIC_ACID || combinedWinner == GroupType::PHOSPHINE) {
-                    int pOrBCarbon = -1;
-                    for (const auto &pair : carbonGroup) {
-                        if (pair.second == combinedWinner) {
-                            bool isOnOrExocyclic = ringNodeSet.count(pair.first) > 0;
-                            if (!isOnOrExocyclic) {
-                                for (int nei : g.nodes[pair.first].neighbors) {
-                                    if (ringNodeSet.count(nei) > 0) { isOnOrExocyclic = true; break; }
-                                }
-                            }
-                            if (!isOnOrExocyclic) {
-                                pOrBCarbon = pair.first;
-                                break;
-                            }
-                        }
-                    }
-                    if (pOrBCarbon != -1) {
-                        int pOrBNode = (combinedWinner == GroupType::PHOSPHINE) ? carbonPhosphine[pOrBCarbon] : carbonBoronicAcid[pOrBCarbon];
-                        QString alkylName = nameBranchGraph(g, pOrBCarbon, pOrBNode, allSSSRRings, ringNodeSet, {}, nullptr, mol);
-                        if (alkylName.isEmpty()) {
-                            return {false, "", "Unsupported boronic acid/phosphine alkyl group."};
-                        }
-                        if (alkylName.startsWith("(") && alkylName.endsWith(")")) {
-                            alkylName = alkylName.mid(1, alkylName.length() - 2);
-                        }
-                        QString fullName = alkylName + ((combinedWinner == GroupType::PHOSPHINE) ? "phosphine" : "boronic acid");
-                        return {true, fullName, ""};
-                    }
-                } else if (isChainParentWithRingSubstituentSupported(combinedWinner)) {
-                    std::set<int> handledBranchStereoIds;
-                    QString chainName = nameChainParentWithRingSubstituent(mol, indigoToGraphIdx, g, ringNodeSet, allSSSRRings, carbonGroup, combinedWinner, stereoByGraphId, &handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide, ensureStereo);
-                    if (!chainName.isEmpty()) {
-                        std::set<int> pCarbons;
-                        for (const auto &pair : carbonGroup) { if (pair.second == combinedWinner) pCarbons.insert(pair.first); }
-                        auto res = checkPrincipalHeteroatomsUnsubstituted(g, pCarbons, combinedWinner, ringNodeSet);
-                        if (res.hasError) return {false, "", res.msg};
-                        return {true, chainName, ""};
-                    }
-                }
-                return {false, "", "A chain-based principal group outranks the ring in this structure; chain-as-parent seniority (P-44.1.1) for this ring/class combination is not yet supported."};
+            IupacResult chainWinRes;
+            if (runChainParentSeniorDispatch(ringNodeSet, fgc, chainWinRes)) {
+                return chainWinRes;
             }
         }
 
@@ -26268,33 +26488,8 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                 std::map<int, GroupType> &carbonGroup = fgc.carbonGroup;
                 GroupType combinedWinner = fgc.combinedWinner;
 
-                bool ringCanCarryExocyclic = (combinedWinner == GroupType::ACID ||
-                                              combinedWinner == GroupType::AMIDE ||
-                                              combinedWinner == GroupType::THIOAMIDE ||
-                                              combinedWinner == GroupType::HYDRAZIDE ||
-                                              combinedWinner == GroupType::AMIDINE ||
-                                              combinedWinner == GroupType::NITRILE ||
-                                              combinedWinner == GroupType::ALDEHYDE ||
-                                              combinedWinner == GroupType::ESTER ||
-                                              combinedWinner == GroupType::ACYL_HALIDE);
-                int ringCountWin = 0, chainCountWin = 0, chainDeepCountWin = 0;
-                for (const auto &pair : carbonGroup) {
-                    if (pair.second != combinedWinner) continue;
-                    int cNode = pair.first;
-                    bool isOnOrExocyclic = allSSSRNodes.count(cNode) > 0;
-                    if (!isOnOrExocyclic && ringCanCarryExocyclic) {
-                        for (int nei : g.nodes[cNode].neighbors) {
-                            if (allSSSRNodes.count(nei) > 0) { isOnOrExocyclic = true; break; }
-                        }
-                    }
-                    if (!isOnOrExocyclic) ++chainDeepCountWin;
-                    if (isOnOrExocyclic) ++ringCountWin; else ++chainCountWin;
-                }
-                bool ringHasHeteroatom = false;
-                for (int n : allSSSRNodes) {
-                    if (g.nodes[n].atomicNumber != 6) { ringHasHeteroatom = true; break; }
-                }
-                if (!ringHasHeteroatom && (chainCountWin > ringCountWin || (chainCountWin == ringCountWin && chainDeepCountWin > 0))) {
+                ParentChoice pChoice = selectSeniorParent(g, allSSSRNodes, allSSSRRings, fgc, true);
+                if (pChoice.kind == SeniorParentKind::CHAIN_PARENT) {
                     if (isChainParentWithRingSubstituentSupported(combinedWinner)) {
                         std::set<int> handledBranchStereoIds;
                         QString chainName = nameChainParentWithRingSubstituent(mol, indigoToGraphIdx, g, allSSSRNodes, allSSSRRings, carbonGroup, combinedWinner, stereoByGraphId, &handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide, ensureStereo);
@@ -26628,33 +26823,8 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                     std::map<int, GroupType> &carbonGroup = fgc.carbonGroup;
                     GroupType combinedWinner = fgc.combinedWinner;
 
-                    bool ringCanCarryExocyclic = (combinedWinner == GroupType::ACID ||
-                                                  combinedWinner == GroupType::AMIDE ||
-                                                  combinedWinner == GroupType::THIOAMIDE ||
-                                                  combinedWinner == GroupType::HYDRAZIDE ||
-                                                  combinedWinner == GroupType::AMIDINE ||
-                                                  combinedWinner == GroupType::NITRILE ||
-                                                  combinedWinner == GroupType::ALDEHYDE ||
-                                                  combinedWinner == GroupType::ESTER ||
-                                                  combinedWinner == GroupType::ACYL_HALIDE);
-                    int ringCountWin = 0, chainCountWin = 0, chainDeepCountWin = 0;
-                    for (const auto &pair : carbonGroup) {
-                        if (pair.second != combinedWinner) continue;
-                        int cNode = pair.first;
-                        bool isOnOrExocyclic = ringUnionNodes.count(cNode) > 0;
-                        if (!isOnOrExocyclic && ringCanCarryExocyclic) {
-                            for (int nei : g.nodes[cNode].neighbors) {
-                                if (ringUnionNodes.count(nei) > 0) { isOnOrExocyclic = true; break; }
-                            }
-                        }
-                        if (!isOnOrExocyclic) ++chainDeepCountWin;
-                        if (isOnOrExocyclic) ++ringCountWin; else ++chainCountWin;
-                    }
-                    bool ringHasHeteroatom = false;
-                    for (int n : ringUnionNodes) {
-                        if (g.nodes[n].atomicNumber != 6) { ringHasHeteroatom = true; break; }
-                    }
-                    if (!ringHasHeteroatom && (chainCountWin > ringCountWin || (chainCountWin == ringCountWin && chainDeepCountWin > 0))) {
+                    ParentChoice pChoice = selectSeniorParent(g, ringUnionNodes, allSSSRRings, fgc, true);
+                    if (pChoice.kind == SeniorParentKind::CHAIN_PARENT) {
                         if (isChainParentWithRingSubstituentSupported(combinedWinner)) {
                             std::set<int> handledBranchStereoIds;
                             QString chainName = nameChainParentWithRingSubstituent(mol, indigoToGraphIdx, g, ringUnionNodes, allSSSRRings, carbonGroup, combinedWinner, stereoByGraphId, &handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide, ensureStereo);
@@ -26924,29 +27094,8 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
             std::map<int, GroupType> &carbonGroup = fgc.carbonGroup;
             GroupType combinedWinner = fgc.combinedWinner;
 
-            bool ringCanCarryExocyclic = (combinedWinner == GroupType::ACID ||
-                                          combinedWinner == GroupType::AMIDE ||
-                                          combinedWinner == GroupType::THIOAMIDE ||
-                                          combinedWinner == GroupType::HYDRAZIDE ||
-                                          combinedWinner == GroupType::AMIDINE ||
-                                          combinedWinner == GroupType::NITRILE ||
-                                          combinedWinner == GroupType::ALDEHYDE ||
-                                          combinedWinner == GroupType::ESTER ||
-                                          combinedWinner == GroupType::ACYL_HALIDE);
-            int ringCountWin = 0, chainCountWin = 0, chainDeepCountWin = 0;
-            for (const auto &pair : carbonGroup) {
-                if (pair.second != combinedWinner) continue;
-                int cNode = pair.first;
-                bool isOnOrExocyclic = ringUnionNodes.count(cNode) > 0;
-                if (!isOnOrExocyclic && ringCanCarryExocyclic) {
-                    for (int nei : g.nodes[cNode].neighbors) {
-                        if (ringUnionNodes.count(nei) > 0) { isOnOrExocyclic = true; break; }
-                    }
-                }
-                if (!isOnOrExocyclic) ++chainDeepCountWin;
-                if (isOnOrExocyclic) ++ringCountWin; else ++chainCountWin;
-            }
-            if (chainCountWin > ringCountWin || (chainCountWin == ringCountWin && chainDeepCountWin > 0)) {
+            ParentChoice pChoice = selectSeniorParent(g, ringUnionNodes, allSSSRRings, fgc);
+            if (pChoice.kind == SeniorParentKind::CHAIN_PARENT) {
                 if (isChainParentWithRingSubstituentSupported(combinedWinner)) {
                     std::set<int> handledBranchStereoIds;
                     QString chainName = nameChainParentWithRingSubstituent(mol, indigoToGraphIdx, g, ringUnionNodes, allSSSRRings, carbonGroup, combinedWinner, stereoByGraphId, &handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide, ensureStereo);
@@ -28017,7 +28166,10 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                 if (g.nodes[nei].atomicNumber == 1) continue;
                 if (out.ctx.handledExocyclicNeighbors.count(nei)) continue;
 
-                QString existingName = nameFusedRingSubstituent(g, rNode, nei, ringNodeSet, allSSSRRings, mol, true);
+                QString existingName = nameFusedRingSubstituent(g, rNode, nei, ringNodeSet, allSSSRRings, mol, false);
+                if (existingName.isEmpty()) {
+                    existingName = nameBranchGraph(g, nei, rNode, allSSSRRings, ringNodeSet, {}, nullptr, mol);
+                }
                 if (!existingName.isEmpty()) continue; // native path handles it
 
                 int nz = g.nodes[nei].atomicNumber;
@@ -32618,29 +32770,8 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                         if (fgc.hasEarlyResult) return fgc.earlyResult;
                         std::map<int, GroupType> &carbonGroup = fgc.carbonGroup;
                         GroupType combinedWinner = fgc.combinedWinner;
-                        // Reuse exact same chain-vs-ring seniority logic as naphthalene case
-                        int ringCount = 0, chainCount = 0, chainDeepCount = 0;
-                        for (const auto &pair : carbonGroup) {
-                            if (pair.second != combinedWinner) continue;
-                            int cNode = pair.first;
-                            bool isOnOrExocyclic = ringNodeSet.count(cNode) > 0;
-                            if (!isOnOrExocyclic) {
-                                if (isExocyclicCarbonConsumingGroup(combinedWinner)) {
-                                    for (int nei : g.nodes[cNode].neighbors) {
-                                        if (ringNodeSet.count(nei) > 0) { isOnOrExocyclic = true; break; }
-                                    }
-                                }
-                                if (!isOnOrExocyclic) ++chainDeepCount;
-                            }
-                            if (isOnOrExocyclic) ++ringCount; else ++chainCount;
-                        }
-                        bool ringHasHeteroatom = false;
-                        if (ringCount > 0) {
-                            for (int n : ringNodeSet) {
-                                if (g.nodes[n].atomicNumber != 6) { ringHasHeteroatom = true; break; }
-                            }
-                        }
-                        if (!ringHasHeteroatom && (chainCount > ringCount || (chainCount == ringCount && chainDeepCount > 0))) {
+                        ParentChoice pChoice = selectSeniorParent(g, ringNodeSet, allSSSRRings, fgc);
+                        if (pChoice.kind == SeniorParentKind::CHAIN_PARENT) {
                             if (isChainParentWithRingSubstituentSupported(combinedWinner)) {
                                 std::set<int> handledBranchStereoIds;
                                 QString chainName = nameChainParentWithRingSubstituent(mol, indigoToGraphIdx, g, ringNodeSet, allSSSRRings, carbonGroup, combinedWinner, stereoByGraphId, &handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide, ensureStereo);
@@ -32703,29 +32834,8 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                         if (fgc.hasEarlyResult) return fgc.earlyResult;
                         std::map<int, GroupType> &carbonGroup = fgc.carbonGroup;
                         GroupType combinedWinner = fgc.combinedWinner;
-                        // Reuse exact same chain-vs-ring seniority logic as naphthalene case
-                        int ringCount = 0, chainCount = 0, chainDeepCount = 0;
-                        for (const auto &pair : carbonGroup) {
-                            if (pair.second != combinedWinner) continue;
-                            int cNode = pair.first;
-                            bool isOnOrExocyclic = ringNodeSet.count(cNode) > 0;
-                            if (!isOnOrExocyclic) {
-                                if (isExocyclicCarbonConsumingGroup(combinedWinner)) {
-                                    for (int nei : g.nodes[cNode].neighbors) {
-                                        if (ringNodeSet.count(nei) > 0) { isOnOrExocyclic = true; break; }
-                                    }
-                                }
-                                if (!isOnOrExocyclic) ++chainDeepCount;
-                            }
-                            if (isOnOrExocyclic) ++ringCount; else ++chainCount;
-                        }
-                        bool ringHasHeteroatom = false;
-                        if (ringCount > 0) {
-                            for (int n : ringNodeSet) {
-                                if (g.nodes[n].atomicNumber != 6) { ringHasHeteroatom = true; break; }
-                            }
-                        }
-                        if (!ringHasHeteroatom && (chainCount > ringCount || (chainCount == ringCount && chainDeepCount > 0))) {
+                        ParentChoice pChoice = selectSeniorParent(g, ringNodeSet, allSSSRRings, fgc);
+                        if (pChoice.kind == SeniorParentKind::CHAIN_PARENT) {
                             if (isChainParentWithRingSubstituentSupported(combinedWinner)) {
                                 std::set<int> handledBranchStereoIds;
                                 QString chainName = nameChainParentWithRingSubstituent(mol, indigoToGraphIdx, g, ringNodeSet, allSSSRRings, carbonGroup, combinedWinner, stereoByGraphId, &handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide, ensureStereo);

@@ -9095,7 +9095,46 @@ int main() {
             {"dihydrofuran 2,5-dihydrofuran", "C1=CCOC1", "2,5-dihydrofuran", false, ""},
             {"benzyl aniline 4-phenylmethylaniline", "Nc1ccc(Cc2ccccc2)cc1", "4-phenylmethylaniline", false, ""},
             {"benzyl phenol 4-phenylmethylphenol", "Oc1ccc(Cc2ccccc2)cc1", "4-phenylmethylphenol", false, ""},
-            {"methylenedianiline clean rejection without --amine", "Nc1ccc(Cc2ccc(N)cc2)cc1", "", true, "Fused, bridged, spiro, or multiple ring systems are not supported in Phase 2."}
+            {"methylenedianiline clean rejection without --amine", "Nc1ccc(Cc2ccc(N)cc2)cc1", "", true, "Fused, bridged, spiro, or multiple ring systems are not supported in Phase 2."},
+
+            // Task 1 (P-44.1.1 / P-44.1.2): generalized chain-vs-ring seniority & tie-breaks:
+            {"P-44.1.1 oxybenzone ketone beats phenol", "COc1ccc(C(=O)c2ccccc2)c(O)c1", "(2-hydroxy-4-methoxyphenyl)phenylmethan-1-one", false, ""},
+            {"P-44.1.1 tolcapone ketone beats catechol", "Cc1ccc(C(=O)c2cc(O)c(O)c([N+](=O)[O-])c2)cc1", "(3,4-dihydroxy-5-nitrophenyl)(4-methylphenyl)methan-1-one", false, ""},
+            {"P-44.1.1 ritodrine chiral amino alcohol beats phenols", "CC(NCCc1ccc(O)cc1)[C@@H](O)c1ccc(O)cc1", "(1S)-2-[(2-(4-hydroxyphenyl)ethyl)amino]-1-(4-hydroxyphenyl)propan-1-ol", false, ""},
+            {"P-44.1.1 phenylephrine chiral amino alcohol beats phenol", "CNC[C@H](O)c1cccc(O)c1", "(1R)-1-(3-hydroxyphenyl)-2-methylaminoethanol", false, ""},
+            {"P-44 tie heteroatom ring vs chain alcohol (pyridine wins)", "Oc1ccncc1CO", "3-hydroxymethylpyridin-4-ol", false, ""},
+            {"P-44 tie exocyclic acid vs deep chain diacid (chain wins)", "O=C(O)c1ccc(CC(C(=O)O)CC(=O)O)cc1", "2-[(4-carboxyphenyl)methyl]butanedioic acid", false, ""},
+            {"P-44 fused naphthalene-2-yl propanoic acid", "O=C(O)CCc1ccc2ccccc2c1", "3-(naphthalen-2-yl)propanoic acid", false, ""},
+            {"P-44 bicyclic bicyclo[2.2.1]heptan-1-yl ethanoic acid", "O=C(O)CC12CCC(CC1)C2", "2-(bicyclo[2.2.1]heptan-1-yl)ethanoic acid", false, ""},
+            {"P-44.1.1 ether-linked aryloxy alkanoic acid (gemfibrozil motif)", "Cc1cc(OCCCC(C(O)=O)(C)C)c(C)cc1", "5-(2,5-dimethylphenoxy)-2,2-dimethylpentanoic acid", false, ""},
+            {"P-44.1.1 ether-linked aryloxy ester (clofibrate motif)", "CCOC(C(Oc1ccc(Cl)cc1)(C)C)=O", "ethyl 2-(4-chlorophenoxy)-2-methylpropanoate", false, ""},
+            {"P-44.1.1 ether-linked aryloxy propanediol (guaifenesin motif)", "COc1c(OCC(CO)O)cccc1", "3-(2-methoxyphenoxy)propane-1,2-diol", false, ""},
+            {"P-44.1.1 ether-linked aryloxy propanediol (mephenesin motif)", "Cc1c(OCC(CO)O)cccc1", "3-(2-methylphenoxy)propane-1,2-diol", false, ""},
+            {"P-44.1.1 ether-linked naphthyloxy alkanoic acid", "CC(C)(C(=O)O)Oc1ccc2ccccc2c1", "2-methyl-2-(naphthalen-2-yl)oxypropanoic acid", false, ""},
+            // Task 2: unified recursive nameSubstituentSubtree on fused/polycyclic ring substituents (linker depth 1-3 + stereo)
+            {"Task 2 fused carbamoyl", "O=C(O)c1ccc(-c2ccc3cc(C(=O)N)ccc3c2)cc1", "4-(6-carbamoylnaphthalen-2-yl)benzenecarboxylic acid", false, ""},
+            {"Task 2 fused methanesulfonyl", "O=C(O)c1ccc(-c2ccc3cc(S(C)(=O)=O)ccc3c2)cc1", "4-(6-methanesulfonylnaphthalen-2-yl)benzenecarboxylic acid", false, ""},
+            {"Task 2 fused cyano", "O=C(O)c1ccc(-c2ccc3cc(C#N)ccc3c2)cc1", "4-(6-cyanonaphthalen-2-yl)benzenecarboxylic acid", false, ""},
+            {"Task 2 fused methoxycarbonyl", "O=C(O)c1ccc(-c2ccc3cc(C(=O)OC)ccc3c2)cc1", "4-(6-methoxycarbonylnaphthalen-2-yl)benzenecarboxylic acid", false, ""},
+            {"Task 2 fused azido", "O=C(O)c1ccc(-c2ccc3cc(N=[N+]=[N-])ccc3c2)cc1", "4-(6-azidonaphthalen-2-yl)benzenecarboxylic acid", false, ""},
+            {"Task 2 fused ethanoyloxy", "O=C(O)CCc1ccc2cc(OC(=O)C)ccc2c1", "3-(6-ethanoyloxynaphthalen-2-yl)propanoic acid", false, ""},
+            {"Task 2 fused chiral 1-hydroxyethyl", "O=C(O)c1ccc(-c2ccc3cc([C@@H](C)O)ccc3c2)cc1", "4-(6-[(1R)-1-hydroxyethyl]naphthalen-2-yl)benzenecarboxylic acid", false, ""},
+            {"Task 2 fused chiral branch on chain parent", "O=C(O)CCc1ccc2cc([C@@H](C)O)ccc2c1", "3-(6-[(1R)-1-hydroxyethyl]naphthalen-2-yl)propanoic acid", false, ""},
+            {"Task 2 hetero-fused quinoline 4-azido", "O=C(O)c1ccc(-c2ccc3nccc(N=[N+]=[N-])c3c2)cc1", "4-azido-6-(4-carboxyphenyl)quinoline", false, ""},
+            {"Task 2 fused chiral sec-butoxy", "O=C(O)CCc1ccc2cc(O[C@@H](C)CC)ccc2c1", "3-(6-{[(1S)-1-methylpropyl]oxy}naphthalen-2-yl)propanoic acid", false, ""},
+            {"Task 2 fused depth-3 ether carbamoylphenyl", "O=C(O)CCc1ccc2cc(Oc3ccc(C(=O)N)cc3)ccc2c1", "3-(6-(4-carbamoylphenoxy)naphthalen-2-yl)propanoic acid", false, ""},
+            // Task 3: monocyclic unification + general P-57/P-62..P-66 heteroatom linkers
+            {"Task 3 monocyclic N-methanesulfonamido", "O=C(O)c1ccc(NS(=O)(=O)C)cc1", "4-methanesulfonamidobenzenecarboxylic acid", false, ""},
+            {"Task 3 fused N-methanesulfonamido", "O=C(O)CCc1ccc2cc(NS(=O)(=O)C)ccc2c1", "3-(6-methanesulfonamidonaphthalen-2-yl)propanoic acid", false, ""},
+            {"Task 3 monocyclic N-benzenesulfonamido", "O=C(O)c1ccc(NS(=O)(=O)c2ccccc2)cc1", "4-benzenesulfonamidobenzenecarboxylic acid", false, ""},
+            {"Task 3 monocyclic N-substituted methylcarbamoyl", "O=C(O)c1ccc(C(=O)NC)cc1", "4-(methylcarbamoyl)benzenecarboxylic acid", false, ""},
+            {"Task 3 monocyclic N,N-dimethylcarbamoyl", "O=C(O)c1ccc(C(=O)N(C)C)cc1", "4-(dimethylcarbamoyl)benzenecarboxylic acid", false, ""},
+            {"Task 3 monocyclic N-substituted methylsulfamoyl", "O=C(O)c1ccc(S(=O)(=O)NC)cc1", "4-(methylsulfamoyl)benzenecarboxylic acid", false, ""},
+            {"Task 3 monocyclic chloromethoxycarbonyl", "O=C(O)c1ccc(C(=O)OCCl)cc1", "4-chloromethoxycarbonylbenzenecarboxylic acid", false, ""},
+            {"Task 3 monocyclic ring-on-ring chiral branch", "O=C(O)c1ccc(Oc2ccc([C@@H](C)O)cc2)cc1", "4-{4-[(1R)-1-hydroxyethyl]phenoxy}benzenecarboxylic acid", false, ""},
+            {"Task 3 fused depth-3 ether chiral alcohol on phenyl", "O=C(O)CCc1ccc2cc(Oc3ccc([C@@H](C)O)cc3)ccc2c1", "3-(6-{4-[(1R)-1-hydroxyethyl]phenoxy}naphthalen-2-yl)propanoic acid", false, ""},
+            {"Task 3 monocyclic hydroxyimino", "O=C(O)C1CCC(=NO)CC1", "4-hydroxyiminocyclohexanecarboxylic acid", false, ""},
+            {"Task 3 monocyclic N-methylmethanesulfonamido", "O=C(O)c1ccc(N(C)S(=O)(=O)C)cc1", "4-methanesulfonyl(methyl)aminobenzenecarboxylic acid", false, ""}
         };
         for (const auto &tc : agyCases) {
             int m = indigoLoadMoleculeFromString(tc.smiles.c_str());
