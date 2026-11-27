@@ -2471,6 +2471,17 @@ QString formatBranchStereoPrefix(
     const std::map<std::pair<int, int>, QChar> &branchBondStereo,
     std::set<std::pair<int, int>> *handledBranchBonds);
 
+static QString spliceAcyclicBranchStereo(
+    QString subName,
+    const Graph &g,
+    int rootIdx,
+    int parentIdx,
+    const std::vector<std::set<int>> &allRings,
+    const std::map<int, QChar> &stereoByGraphId,
+    std::set<int> *handledBranchStereoIds,
+    const std::map<std::pair<int, int>, QChar> &branchBondStereo = {},
+    std::set<std::pair<int, int>> *handledBranchBonds = nullptr);
+
 // Structural check + construction for an N-acyl "amido" substituent (-NH-CO-R)
 // singly bonded to `fromNode`. Returns an empty string if `nNode` is not an
 // unsubstituted N-acyl nitrogen. Mirrors the equivalent logic already used
@@ -3521,7 +3532,9 @@ QString nameRingAsSubstituent(const Graph &g, const std::set<int> &ringNodes, in
                                      const std::map<int, int> &carbonSulfonamide = {},
                                      const std::map<int, int> &carbonSulfinamide = {},
                                      bool *outErr = nullptr,
-                                     int mol = -1) {
+                                     int mol = -1,
+                                     const std::map<std::pair<int, int>, QChar> &branchBondStereo = {},
+                                     std::set<std::pair<int, int>> *handledBranchBonds = nullptr) {
     if (ringNodes.empty() || !ringNodes.count(attachmentNode)) return "";
     std::set<int> combinedForbidden = forbiddenNodes;
     for (int n : ringNodes) combinedForbidden.insert(n);
@@ -3877,7 +3890,7 @@ QString nameRingAsSubstituent(const Graph &g, const std::set<int> &ringNodes, in
                         g, mol, allIndependentRings, chalc,
                         carbonSulfonamide, carbonSulfinamide,
                         stereoByGraphId, noEnsureStereo, handledBranchStereoIds,
-                        nullptr, nullptr, &ringNodes, &thisOutErr, false
+                        &branchBondStereo, handledBranchBonds, &ringNodes, &thisOutErr, false
                     };
                     subName = nameSubstituentSubtree(nei, rNode, substForbidden, ringSubCtx);
                     subEdgeCache[edgeKey] = {subName, thisOutErr};
@@ -6737,6 +6750,32 @@ QString nameRingSystemAsSubstituent(
     }
 
     // Step 3: Format the result
+    if (ensureStereoFn && (mol <= 0 || indigoCountStereocenters(mol) > 0)) {
+        ensureStereoFn();
+    }
+    QString ringStereoPrefix;
+    if (!stereoByGraphId.empty()) {
+        std::vector<std::pair<QString, QChar>> locantStereo;
+        for (const auto &kv : bestCandidate->locantMap) {
+            auto it = stereoByGraphId.find(kv.first);
+            if (it != stereoByGraphId.end()) {
+                locantStereo.push_back({kv.second, it->second});
+                if (handledBranchStereoIds) handledBranchStereoIds->insert(kv.first);
+            }
+        }
+        if (!locantStereo.empty()) {
+            std::sort(locantStereo.begin(), locantStereo.end(), [](const auto &a, const auto &b) {
+                bool okA = false, okB = false;
+                int nA = a.first.toInt(&okA), nB = b.first.toInt(&okB);
+                if (okA && okB && nA != nB) return nA < nB;
+                return a.first < b.first;
+            });
+            QStringList sParts;
+            for (const auto &p : locantStereo) sParts.append(p.first + p.second);
+            ringStereoPrefix = QString("(%1)-").arg(sParts.join(","));
+        }
+    }
+
     QString locantStr = bestCandidate->locantMap[rootAtom];
     QString stem = bestCandidate->baseName;
     
@@ -6751,7 +6790,7 @@ QString nameRingSystemAsSubstituent(
         // function produces has that shape) -- without this, concatenating onto
         // a following word (e.g. "ethanoic acid") produces an illegible run-on
         // like "anthracen-9-ylethanoic acid" instead of "(anthracen-9-yl)ethanoic acid".
-        return "(" + stem + "-" + locantStr + "-yl" + ")";
+        return "(" + ringStereoPrefix + stem + "-" + locantStr + "-yl" + ")";
     }
 
     std::map<QString, std::vector<int>> prefixLocantsMap;
@@ -6796,7 +6835,7 @@ QString nameRingSystemAsSubstituent(
 
     QStringList pStrs;
     for (const auto &pg : pGroups) pStrs.append(pg.formattedStr);
-    QString prefixPart = pStrs.join("-");
+    QString prefixPart = ringStereoPrefix + pStrs.join("-");
 
     QString sep = (!prefixPart.isEmpty() && !stem.isEmpty() && stem[0].isDigit()) ? "-" : "";
     return "(" + prefixPart + sep + stem + "-" + locantStr + "-yl" + ")";
@@ -6886,7 +6925,8 @@ QString nameBranchGraph(const Graph &g, int rootIdx, int parentIdx, const std::v
         if (alkylNei != -1) {
             std::set<int> newForbidden = forbiddenNodes;
             newForbidden.insert(rootIdx);
-            QString alkylName = nameBranchGraph(g, alkylNei, rootIdx, allIndependentRings, newForbidden, {}, nullptr, mol);
+            QString alkylName = nameBranchGraph(g, alkylNei, rootIdx, allIndependentRings, newForbidden, stereoByGraphId, handledBranchStereoIds, mol, branchBondStereo);
+            alkylName = spliceAcyclicBranchStereo(alkylName, g, alkylNei, rootIdx, allIndependentRings, stereoByGraphId, handledBranchStereoIds, branchBondStereo);
             if (alkylName.isEmpty()) return "";
             if (alkylName.startsWith("(") && alkylName.endsWith(")")) {
                 // Retained-prefix contraction: a SUBSTITUTED phenyl still
@@ -6961,7 +7001,8 @@ QString nameBranchGraph(const Graph &g, int rootIdx, int parentIdx, const std::v
                     QString stem = chainRoot(chainLen + 1);
                     if (!stem.isEmpty()) return stem + "anamido";
                 }
-                QString rName = nameBranchGraph(g, rGroup, cAcyl, allIndependentRings, forbiddenNodes, {}, nullptr, mol);
+                QString rName = nameBranchGraph(g, rGroup, cAcyl, allIndependentRings, forbiddenNodes, stereoByGraphId, handledBranchStereoIds, mol, branchBondStereo);
+                rName = spliceAcyclicBranchStereo(rName, g, rGroup, cAcyl, allIndependentRings, stereoByGraphId, handledBranchStereoIds, branchBondStereo);
                 if (!rName.isEmpty()) {
                     QString cleanName = rName;
                     if (cleanName.startsWith("(") && cleanName.endsWith(")")) {
@@ -6998,7 +7039,8 @@ QString nameBranchGraph(const Graph &g, int rootIdx, int parentIdx, const std::v
         // substituted-hydrazinyl "R" uniformly, and still correctly returns ""
         // for anything beyond that, e.g. a longer N-N-N chain or more than two
         // substituents).
-        return nameAmineSubstituentPrefix(rootIdx, parentIdx, g, allIndependentRings, forbiddenNodes, mol);
+        return nameAmineSubstituentPrefix(rootIdx, parentIdx, g, allIndependentRings, forbiddenNodes, mol,
+                                           stereoByGraphId, handledBranchStereoIds, branchBondStereo, nullptr);
     }
 
     if (rZ == 15) {
@@ -8816,16 +8858,30 @@ QString nameAcyclicChainParentWithSubstituents(
     }
 
     QString stereoPfx;
-    if (!stereoByGraphId.empty()) {
+    if (!stereoByGraphId.empty() || !branchBondStereo.empty()) {
         std::map<int, int> nodeLocantMap;
         for (size_t nl = 0; nl < bestSig.parentChain.size(); ++nl) {
             nodeLocantMap[bestSig.parentChain[nl]] = static_cast<int>(nl + 1);
+        }
+        std::map<int, QChar> parentStereoMap = stereoByGraphId;
+        for (size_t nl = 0; nl + 1 < bestSig.parentChain.size(); ++nl) {
+            int u = bestSig.parentChain[nl];
+            int v = bestSig.parentChain[nl + 1];
+            auto bKey = std::make_pair(std::min(u, v), std::max(u, v));
+            auto bIt = branchBondStereo.find(bKey);
+            if (bIt != branchBondStereo.end() && !bestSig.handledBondIds.count(bKey)) {
+                parentStereoMap[u] = bIt->second;
+                bestSig.handledBondIds.insert(bKey);
+                if (handledBranchBonds) {
+                    handledBranchBonds->insert(bKey);
+                }
+            }
         }
         std::set<int> combinedHandled = bestSig.handledStereoIds;
         if (handledBranchStereoIds) {
             combinedHandled.insert(handledBranchStereoIds->begin(), handledBranchStereoIds->end());
         }
-        StereoResult sRes = formatStereoPrefix(stereoByGraphId, nodeLocantMap, combinedHandled);
+        StereoResult sRes = formatStereoPrefix(parentStereoMap, nodeLocantMap, combinedHandled);
         if (!sRes.ok) return "";
         stereoPfx = sRes.prefix;
     }
@@ -8996,9 +9052,59 @@ static QString formatSortedNFragments(const std::vector<std::pair<QString, QStri
     return strs.join("-");
 }
 
+// Counts principal nitrogens carrying at least one heavy-atom substituent
+// so callers can confirm tryBuildPrincipalNSubstituentPrefix covered every
+// substituted N atom (preventing partial truncation on gem-diamines/amidines).
+static int countSubstitutedPrincipalNitrogens(const Graph &g, const std::set<int> &pCarbons,
+                                              const std::set<int> &excludeRingNodes,
+                                              GroupType winningType = GroupType::NONE)
+{
+    int count = 0;
+    for (int apc : pCarbons) {
+        for (size_t ni = 0; ni < g.nodes[apc].neighbors.size(); ++ni) {
+            int nn = g.nodes[apc].neighbors[ni];
+            if (winningType == GroupType::SULFONAMIDE || winningType == GroupType::SULFINAMIDE) {
+                if (g.nodes[nn].atomicNumber == 16) {
+                    for (size_t si = 0; si < g.nodes[nn].neighbors.size(); ++si) {
+                        int sNei = g.nodes[nn].neighbors[si];
+                        if (g.nodes[sNei].atomicNumber == 7 && g.nodes[nn].bondOrders[si] == 1 && !excludeRingNodes.count(sNei)) {
+                            for (int nNei : g.nodes[sNei].neighbors) {
+                                if (nNei != nn && g.nodes[nNei].atomicNumber > 1) {
+                                    ++count;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
+            if (g.nodes[nn].atomicNumber == 7 && g.nodes[apc].bondOrders[ni] == 1 && !excludeRingNodes.count(nn)) {
+                if (winningType == GroupType::AMINE &&
+                    (isNitroNitrogen(nn, apc, g) || isNitrosoNitrogen(nn, apc, g) ||
+                     isAzideNitrogen(nn, apc, g) || isIsocyanateNitrogen(nn, apc, g))) {
+                    continue;
+                }
+                for (int nNei : g.nodes[nn].neighbors) {
+                    if (nNei != apc && g.nodes[nNei].atomicNumber > 1) {
+                        ++count;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    return count;
+}
+
 static NSubstituentPrefixResult tryBuildPrincipalNSubstituentPrefix(
     const Graph &g, const std::set<int> &principalCarbons, GroupType winningType,
-    const std::vector<std::set<int>> &allSSSRRings, const std::set<int> &ringNodeSet, int mol)
+    const std::vector<std::set<int>> &allSSSRRings, const std::set<int> &ringNodeSet, int mol,
+    const std::map<int, QChar> &stereoByGraphId = {},
+    std::set<int> *handledBranchStereoIds = nullptr,
+    const std::map<std::pair<int, int>, QChar> &branchBondStereo = {},
+    std::set<std::pair<int, int>> *handledBranchBonds = nullptr,
+    const std::function<void()> &ensureStereoFn = {})
 {
     NSubstituentPrefixResult out;
     if (winningType != GroupType::AMIDE && winningType != GroupType::THIOAMIDE &&
@@ -9017,16 +9123,19 @@ static NSubstituentPrefixResult tryBuildPrincipalNSubstituentPrefix(
 
     ChalcogenOxidationSets emptyChalc;
     std::map<int, int> emptySulfonamide, emptySulfinamide;
-    std::map<int, QChar> emptyStereo;
-    std::function<void()> noEnsureStereo;
 
     auto nameNExtraNeighbor = [&](int ext, int nNode, int order) -> QString {
         if (order != 1) return "";
         if (g.nodes[ext].atomicNumber == 8 && g.nodes[ext].neighbors.size() == 1) {
             return "hydroxy";
         }
-        QString subName = nameBranchGraph(g, ext, nNode, allSSSRRings, ringNodeSet, {}, nullptr, mol);
-        if (!subName.isEmpty()) return subName;
+        if (ensureStereoFn && (mol <= 0 || indigoCountStereocenters(mol) > 0)) {
+            ensureStereoFn();
+        }
+        QString subName = nameBranchGraph(g, ext, nNode, allSSSRRings, ringNodeSet, stereoByGraphId, handledBranchStereoIds, mol, branchBondStereo);
+        if (!subName.isEmpty()) {
+            return spliceAcyclicBranchStereo(subName, g, ext, nNode, allSSSRRings, stereoByGraphId, handledBranchStereoIds, branchBondStereo, handledBranchBonds);
+        }
 
         bool subErr = false;
         std::set<int> forbidden = ringNodeSet;
@@ -9034,8 +9143,8 @@ static NSubstituentPrefixResult tryBuildPrincipalNSubstituentPrefix(
         SubstituentContext ctx{
             g, mol, allSSSRRings, emptyChalc,
             emptySulfonamide, emptySulfinamide,
-            emptyStereo, noEnsureStereo, nullptr,
-            nullptr, nullptr, &forbidden, &subErr, false
+            stereoByGraphId, ensureStereoFn, handledBranchStereoIds,
+            &branchBondStereo, handledBranchBonds, &forbidden, &subErr, false
         };
         subName = nameSubstituentSubtree(ext, nNode, forbidden, ctx);
         if (subErr) return "";
@@ -9229,7 +9338,10 @@ QString nameChainParentWithRingSubstituent(int mol, const std::map<int, int> &in
                                           std::set<int> *handledBranchStereoIds = nullptr,
                                           const std::map<int, int> &carbonSulfonamide = {},
                                           const std::map<int, int> &carbonSulfinamide = {},
-                                          const std::function<void()> &ensureStereoFn = {}) {
+                                          const std::function<void()> &ensureStereoFn = {},
+                                          const std::map<std::pair<int, int>, QChar> &branchBondStereo = {},
+                                          std::set<std::pair<int, int>> *handledBranchBonds = nullptr,
+                                          std::set<int> *outSelectedPrincipalCarbons = nullptr) {
     // 1. Collect the pure-chain principal carbons of the winning class (carbons
     //    of winningType that are neither part of the ring nor exocyclic to it).
     //    These are the chain-parent's principal characteristic groups; the
@@ -9266,23 +9378,98 @@ QString nameChainParentWithRingSubstituent(int mol, const std::map<int, int> &in
         }
         if (!hasDeep) return "";
     }
-    // 2. Determine the acyclic chain component reachable from the principal
-    //    carbons (all carbons reachable without crossing the ring).
+    // 2. Partition non-ring principalCarbons by maximal connected acyclic carbon component.
+    //    If multiple disconnected components carry principal groups of winningType (e.g.
+    //    ALBUTEROL's ethanol vs ring-attached CH2OH, CILASTATIN's hept-2-enoic vs cysteine,
+    //    RIVASTIGMINE's tertiary amine CH(CH3) vs N-CH3), select the strictly senior single
+    //    component per P-44.4.1; return "" if tied (multiplicative nomenclature cases).
     std::set<int> chainSet;
     {
-        std::vector<int> stack(principalCarbons.begin(), principalCarbons.end());
-        std::vector<bool> vis(g.nodes.size(), false);
-        for (int sc : principalCarbons) vis[sc] = true;
-        while (!stack.empty()) {
-            int cur = stack.back(); stack.pop_back();
-            chainSet.insert(cur);
-            for (int nei : g.nodes[cur].neighbors) {
-                if (g.nodes[nei].atomicNumber == 6 && !ringNodeSet.count(nei) && !vis[nei]) {
-                    vis[nei] = true;
-                    stack.push_back(nei);
+        struct ChainComp {
+            std::set<int> nodes;
+            std::set<int> principals;
+            std::tuple<int, int, int, int> score;
+        };
+        std::vector<ChainComp> comps;
+        std::set<int> assigned;
+        for (int seedPc : principalCarbons) {
+            if (assigned.count(seedPc)) continue;
+            ChainComp cc;
+            std::vector<int> stack = {seedPc};
+            std::set<int> vis = {seedPc};
+            while (!stack.empty()) {
+                int cur = stack.back();
+                stack.pop_back();
+                cc.nodes.insert(cur);
+                if (principalCarbons.count(cur)) {
+                    cc.principals.insert(cur);
+                    assigned.insert(cur);
+                }
+                for (int nei : g.nodes[cur].neighbors) {
+                    if (g.nodes[nei].atomicNumber == 6 && !ringNodeSet.count(nei) && !vis.count(nei)) {
+                        vis.insert(nei);
+                        stack.push_back(nei);
+                    }
                 }
             }
+            // Reject immediately before path-length DFS if this component enters any other ring,
+            // preventing exponential simple-path search on polycyclic ring skeletons (Step 2b guard).
+            for (int cNode : cc.nodes) {
+                for (const auto &ring : allSSSRRings) {
+                    if (ring.count(cNode)) return "";
+                }
+            }
+            // Measure longest simple path among carbons in cc.nodes and unsaturation/hetero count.
+            int longestC = 1;
+            int unsatBonds = 0;
+            int subHeavyCount = 0;
+            for (int u : cc.nodes) {
+                for (size_t k = 0; k < g.nodes[u].neighbors.size(); ++k) {
+                    int v = g.nodes[u].neighbors[k];
+                    int bo = g.nodes[u].bondOrders[k];
+                    if (cc.nodes.count(v)) {
+                        if (u < v && (bo == 2 || bo == 3)) ++unsatBonds;
+                    } else if (g.nodes[v].atomicNumber > 1 && !ringNodeSet.count(v)) {
+                        ++subHeavyCount;
+                    }
+                }
+                std::set<int> pVis{u};
+                auto dfsLen = [&](auto self, int cur, int depth) -> void {
+                    if (depth > longestC) longestC = depth;
+                    for (int nxt : g.nodes[cur].neighbors) {
+                        if (cc.nodes.count(nxt) && !pVis.count(nxt)) {
+                            pVis.insert(nxt);
+                            self(self, nxt, depth + 1);
+                            pVis.erase(nxt);
+                        }
+                    }
+                };
+                dfsLen(dfsLen, u, 1);
+            }
+            cc.score = std::make_tuple(static_cast<int>(cc.principals.size()), longestC, unsatBonds, subHeavyCount);
+            comps.push_back(std::move(cc));
         }
+        if (comps.empty()) return "";
+        if (comps.size() == 1) {
+            chainSet = comps[0].nodes;
+        } else {
+            size_t bestIdx = 0;
+            bool tieAtTop = false;
+            for (size_t i = 1; i < comps.size(); ++i) {
+                if (comps[i].score > comps[bestIdx].score) {
+                    bestIdx = i;
+                    tieAtTop = false;
+                } else if (comps[i].score == comps[bestIdx].score) {
+                    tieAtTop = true;
+                }
+            }
+            if (tieAtTop) return "";
+            principalCarbons = comps[bestIdx].principals;
+            chainSet = comps[bestIdx].nodes;
+        }
+    }
+    if (outSelectedPrincipalCarbons) {
+        *outSelectedPrincipalCarbons = principalCarbons;
     }
 
     // 2b. Check if the acyclic chain contains atoms from ANY other ring.
@@ -9375,12 +9562,13 @@ QString nameChainParentWithRingSubstituent(int mol, const std::map<int, int> &in
             if (amideNitrogen != -1 && ringAttachToN != -1) {
                 if (ensureStereoFn) ensureStereoFn();
                 // Name the ring as a substituent with the amide nitrogen as attachment point
-                QString ringPrefix = nameRingAsSubstituent(g, ringNodeSet, ringAttachToN, amideNitrogen, allSSSRRings, ringNodeSet, stereoByGraphId, handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide, nullptr, mol);
+                QString ringPrefix = nameRingAsSubstituent(g, ringNodeSet, ringAttachToN, amideNitrogen, allSSSRRings, ringNodeSet, stereoByGraphId, handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide, nullptr, mol, branchBondStereo, handledBranchBonds);
                 if (ringPrefix.isEmpty()) return "";
                 // Build base name without ring substituent (empty extraSubstituents)
                 QString baseName = nameAcyclicChainParentWithSubstituents(g, principalCarbons, principalCarbons,
                                                                        ringNodeSet, {}, winningType, -1, mol,
-                                                                       allSSSRRings, stereoByGraphId, handledBranchStereoIds);
+                                                                       allSSSRRings, stereoByGraphId, handledBranchStereoIds,
+                                                                       branchBondStereo, handledBranchBonds);
                 if (baseName.isEmpty()) return "";
                 // For 2-carbon AMIDE (acetamide), use "acetamide" instead of "ethanamide"
                 // to match Blue Book P-66.1.1.4.2 convention for anilides
@@ -9409,6 +9597,66 @@ QString nameChainParentWithRingSubstituent(int mol, const std::map<int, int> &in
                 return "N-" + ringPrefix + sep + baseName;
             }
         }
+        // Fallback: single-ring structure whose chain-parent component reaches ringNodeSet
+        // uniquely through a non-carbon functional/heteroatom linker (e.g. -NH-C(=O)-ring,
+        // -S(=O)2-NH-ring, -(OCH2CH2)n-ring, -NH-C(=N)-NH-C(=N)-NH-ring).
+        if (allSSSRRings.size() == 1 && winningType != GroupType::ESTER) {
+            std::vector<std::pair<int, int>> linkerEdges;
+            std::vector<int> linkerBondOrders;
+            for (int cNode : chainSet) {
+                for (size_t i = 0; i < g.nodes[cNode].neighbors.size(); ++i) {
+                    int nei = g.nodes[cNode].neighbors[i];
+                    if (chainSet.count(nei) || ringNodeSet.count(nei) || g.nodes[nei].atomicNumber <= 1) continue;
+                    std::set<int> visLink{cNode, nei};
+                    std::vector<int> qLink{nei};
+                    bool hitsRing = false;
+                    for (size_t qi = 0; qi < qLink.size() && !hitsRing; ++qi) {
+                        for (int nxt : g.nodes[qLink[qi]].neighbors) {
+                            if (ringNodeSet.count(nxt)) { hitsRing = true; break; }
+                            if (!chainSet.count(nxt) && g.nodes[nxt].atomicNumber > 1 && visLink.insert(nxt).second) {
+                                qLink.push_back(nxt);
+                            }
+                        }
+                    }
+                    if (hitsRing) {
+                        linkerEdges.push_back({cNode, nei});
+                        linkerBondOrders.push_back(g.nodes[cNode].bondOrders[i]);
+                    }
+                }
+            }
+            if (linkerEdges.size() == 1) {
+                int linkC = linkerEdges[0].first;
+                int linkAtom = linkerEdges[0].second;
+                bool isDirectAmineAniline = false;
+                if (winningType == GroupType::AMINE && g.nodes[linkAtom].atomicNumber == 7) {
+                    for (int nNei : g.nodes[linkAtom].neighbors) {
+                        if (ringNodeSet.count(nNei)) { isDirectAmineAniline = true; break; }
+                    }
+                }
+                bool isSulfonylLink = (winningType == GroupType::SULFONAMIDE || winningType == GroupType::SULFINAMIDE);
+                if (!isDirectAmineAniline && !isSulfonylLink) {
+                    if (ensureStereoFn) ensureStereoFn();
+                    std::set<int> localHandledStereo = handledBranchStereoIds ? *handledBranchStereoIds : std::set<int>();
+                    std::set<std::pair<int, int>> localHandledBonds = handledBranchBonds ? *handledBranchBonds : std::set<std::pair<int, int>>();
+                    // Pass empty excludeNodes so substituent traversal inside nameAcyclicChainParentWithSubstituents
+                    // can cross the heteroatom linker into ringNodeSet (chain DFS is already ring-isolated by
+                    // attachCount == 0).
+                    QString linkedBase = nameAcyclicChainParentWithSubstituents(
+                        g, principalCarbons, principalCarbons, {}, {},
+                        winningType, -1, mol, allSSSRRings, stereoByGraphId, &localHandledStereo,
+                        branchBondStereo, &localHandledBonds);
+                    if (!linkedBase.isEmpty()) {
+                        if (handledBranchStereoIds) {
+                            handledBranchStereoIds->insert(localHandledStereo.begin(), localHandledStereo.end());
+                        }
+                        if (handledBranchBonds) {
+                            handledBranchBonds->insert(localHandledBonds.begin(), localHandledBonds.end());
+                        }
+                        return linkedBase;
+                    }
+                }
+            }
+        }
         return "";
     }
 
@@ -9418,8 +9666,9 @@ QString nameChainParentWithRingSubstituent(int mol, const std::map<int, int> &in
     int ringAttachParent = (bridgeAtom != -1) ? bridgeAtom : chainAttachCarbon;
     std::set<int> ringForbid = chainSet;
     if (bridgeAtom != -1) ringForbid.insert(bridgeAtom);
-    QString ringPrefix = nameRingAsSubstituent(g, ringNodeSet, ipsoRingNode, ringAttachParent, allSSSRRings, ringNodeSet, stereoByGraphId, handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide, nullptr, mol);
     std::set<int> localChainHandledStereo = handledBranchStereoIds ? *handledBranchStereoIds : std::set<int>();
+    std::set<std::pair<int, int>> localChainHandledBonds = handledBranchBonds ? *handledBranchBonds : std::set<std::pair<int, int>>();
+    QString ringPrefix = nameRingAsSubstituent(g, ringNodeSet, ipsoRingNode, ringAttachParent, allSSSRRings, ringNodeSet, stereoByGraphId, &localChainHandledStereo, carbonSulfonamide, carbonSulfinamide, nullptr, mol, branchBondStereo, &localChainHandledBonds);
     if (ringPrefix.isEmpty()) {
         // nameRingAsSubstituent only handles a simple, single ring -- ringNodeSet
         // here may be a fused/branching multi-ring system (e.g. anthracene), which
@@ -9427,18 +9676,19 @@ QString nameChainParentWithRingSubstituent(int mol, const std::map<int, int> &in
         // correctly detects a fused system via allSSSRRings and dispatches to
         // nameRingSystemAsSubstituent. Passing chainSet as forbiddenNodes prevents
         // ring-substituent branch discovery from wandering back into the chain parent.
-        ringPrefix = nameBranchGraph(g, ipsoRingNode, ringAttachParent, allSSSRRings, ringForbid, stereoByGraphId, &localChainHandledStereo, mol);
+        ringPrefix = nameBranchGraph(g, ipsoRingNode, ringAttachParent, allSSSRRings, ringForbid, stereoByGraphId, &localChainHandledStereo, mol, branchBondStereo);
         if (!ringPrefix.isEmpty()) {
             // Polycyclic fused/von Baeyer skeletons handled via nameRingSystemAsSubstituent
             // do not emit ring-junction stereo prefixes; mark polycyclic ring nodes so
             // acyclic parent chain stereocenters (e.g. NAPROXEN, CHOLIC ACID) still format.
             localChainHandledStereo.insert(ringNodeSet.begin(), ringNodeSet.end());
-            if (handledBranchStereoIds) {
-                handledBranchStereoIds->insert(localChainHandledStereo.begin(), localChainHandledStereo.end());
-            }
         }
-    } else if (handledBranchStereoIds) {
-        localChainHandledStereo.insert(handledBranchStereoIds->begin(), handledBranchStereoIds->end());
+    }
+    if (!ringPrefix.isEmpty() && handledBranchStereoIds) {
+        handledBranchStereoIds->insert(localChainHandledStereo.begin(), localChainHandledStereo.end());
+    }
+    if (!ringPrefix.isEmpty() && handledBranchBonds) {
+        handledBranchBonds->insert(localChainHandledBonds.begin(), localChainHandledBonds.end());
     }
     if (ringPrefix.isEmpty()) return "";
     if (bridgeAtom != -1) {
@@ -9535,9 +9785,13 @@ QString nameChainParentWithRingSubstituent(int mol, const std::map<int, int> &in
 
     QString baseName = nameAcyclicChainParentWithSubstituents(g, principalCarbons, principalCarbons,
                                                    chainExcludeNodes, extraSubstituents, winningType, acylHalideHalogenZ, mol,
-                                                   allSSSRRings, stereoByGraphId, &localChainHandledStereo);
+                                                   allSSSRRings, stereoByGraphId, &localChainHandledStereo,
+                                                   branchBondStereo, &localChainHandledBonds);
     if (!baseName.isEmpty() && handledBranchStereoIds) {
         handledBranchStereoIds->insert(localChainHandledStereo.begin(), localChainHandledStereo.end());
+    }
+    if (!baseName.isEmpty() && handledBranchBonds) {
+        handledBranchBonds->insert(localChainHandledBonds.begin(), localChainHandledBonds.end());
     }
     if (baseName.isEmpty()) return "";
     return esterAlkylPrefix + baseName;
@@ -9690,6 +9944,31 @@ QString formatBranchStereoPrefix(
     }
 
     return QString("(%1)-").arg(parts.join(","));
+}
+
+static QString spliceAcyclicBranchStereo(
+    QString subName,
+    const Graph &g,
+    int rootIdx,
+    int parentIdx,
+    const std::vector<std::set<int>> &allRings,
+    const std::map<int, QChar> &stereoByGraphId,
+    std::set<int> *handledBranchStereoIds,
+    const std::map<std::pair<int, int>, QChar> &branchBondStereo,
+    std::set<std::pair<int, int>> *handledBranchBonds)
+{
+    if (subName.isEmpty() || stereoByGraphId.empty() || !handledBranchStereoIds) return subName;
+    for (const auto &r : allRings) {
+        if (r.count(rootIdx)) return subName;
+    }
+    QString bStereo = formatBranchStereoPrefix(
+        g, rootIdx, parentIdx, stereoByGraphId, *handledBranchStereoIds,
+        allRings, branchBondStereo, handledBranchBonds);
+    if (bStereo.isEmpty()) return subName;
+    bool hadParens = subName.startsWith("(") && subName.endsWith(")");
+    bool hadBrackets = subName.startsWith("[") && subName.endsWith("]");
+    QString inner = (hadParens || hadBrackets) ? subName.mid(1, subName.length() - 2) : subName;
+    return QString("[%1%2]").arg(bStereo, inner);
 }
 
 StereoResult processDoubleBondStereo(
@@ -15014,7 +15293,22 @@ static FunctionalGroupClassification classifyFunctionalGroups(
                                 }
                             }
                         }
-                        if (!isRingRingJunction) {
+                        bool hasAcylNeighbor = false;
+                        for (size_t nk = 0; nk < g.nodes[nNode].neighbors.size(); ++nk) {
+                            int nNei = g.nodes[nNode].neighbors[nk];
+                            if (nNei == static_cast<int>(i) || g.nodes[nNode].bondOrders[nk] != 1) continue;
+                            if (g.nodes[nNei].atomicNumber == 6) {
+                                for (size_t mk = 0; mk < g.nodes[nNei].neighbors.size(); ++mk) {
+                                    int aZ = g.nodes[g.nodes[nNei].neighbors[mk]].atomicNumber;
+                                    if ((aZ == 8 || aZ == 16) && g.nodes[nNei].bondOrders[mk] == 2) {
+                                        hasAcylNeighbor = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (hasAcylNeighbor) break;
+                        }
+                        if (!isRingRingJunction && !hasAcylNeighbor) {
                             hasNonRingN = true;
                         }
                     }
@@ -15187,7 +15481,11 @@ static QString formatMultiEsterAlkylPrefix(
     const Graph &g,
     const std::vector<std::set<int>> &allSSSRRings,
     const std::map<int, int> &indigoToGraphIdx,
-    int mol)
+    int mol,
+    const std::map<int, QChar> &stereoByGraphId = {},
+    std::set<int> *handledBranchStereoIds = nullptr,
+    const std::map<std::pair<int, int>, QChar> &branchBondStereo = {},
+    std::set<std::pair<int, int>> *handledBranchBonds = nullptr)
 {
     std::map<QString, int> counts;
     for (int ec : pEsters) {
@@ -15196,9 +15494,13 @@ static QString formatMultiEsterAlkylPrefix(
         if (itRoot == esterAlkylRoot.end() || itOx == esterOxygen.end()) return QString();
         int ar = itRoot->second;
         int sO = itOx->second;
-        QString an = isPlainBenzeneRing(mol, g, indigoToGraphIdx, ar, sO)
-            ? QStringLiteral("phenyl")
-            : nameBranchGraph(g, ar, sO, allSSSRRings, {}, {}, nullptr, mol);
+        QString an;
+        if (isPlainBenzeneRing(mol, g, indigoToGraphIdx, ar, sO)) {
+            an = QStringLiteral("phenyl");
+        } else {
+            an = nameBranchGraph(g, ar, sO, allSSSRRings, {}, stereoByGraphId, handledBranchStereoIds, mol, branchBondStereo);
+            an = spliceAcyclicBranchStereo(an, g, ar, sO, allSSSRRings, stereoByGraphId, handledBranchStereoIds, branchBondStereo, handledBranchBonds);
+        }
         if (an.isEmpty()) return QString();
         counts[an]++;
     }
@@ -23129,7 +23431,12 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
             validSubstituent = false;
         }
 
-        if (validSubstituent && (mainChainExoCount == 1 || twoRingsAreDisjoint) && foundAttachChainNode != -1 && attachRingNode != -1) {
+        bool allowDisambiguatedMultiExo = (allSSSRRings.size() == 1 &&
+                                          fgcSubScan.combinedWinner != GroupType::NONE &&
+                                          fgcSubScan.combinedWinner != GroupType::BORONIC_ACID &&
+                                          fgcSubScan.combinedWinner != GroupType::PHOSPHINE);
+        if (validSubstituent && (mainChainExoCount == 1 || twoRingsAreDisjoint || allowDisambiguatedMultiExo) &&
+            foundAttachChainNode != -1 && attachRingNode != -1) {
             // Determine whether this ring should be treated as a substituent.
             // Old heuristic: treat as substituent if (multiple rings) OR (single ring and chain has any heteroatom).
             // This was incorrect: "chain has any heteroatom" doesn't account for the ring's own principal
@@ -23688,22 +23995,58 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
         } else if (isChainParentWithRingSubstituentSupported(combinedWinner) ||
                    combinedWinner == GroupType::AMINE || combinedWinner == GroupType::SULFONAMIDE ||
                    combinedWinner == GroupType::SULFINAMIDE || combinedWinner == GroupType::THIOAMIDE) {
+            // Defer atom+bond CIP expansion until nameChainParentWithRingSubstituent
+            // passes its fast structural gates (avoiding >8s Indigo CIP hangs on
+            // polycyclic fused/bridged cages that immediately fall through).
+            std::map<std::pair<int, int>, QChar> chainBondStereo;
+            StereoResult chainEzRes{true, "", ""};
+            bool chainStereoPrepared = false;
+            auto ensureChainStereo = [&]() {
+                if (chainStereoPrepared) return;
+                chainStereoPrepared = true;
+                ensureStereo();
+                chainEzRes = processDoubleBondStereo(mol, g, ringNodeSet, {}, stereoByGraphId, chainBondStereo, false, allSSSRNodes);
+            };
             std::set<int> handledBranchStereoIds;
+            std::set<std::pair<int, int>> handledChainBonds;
+            std::set<int> selectedPC;
             QString chainName = isChainParentWithRingSubstituentSupported(combinedWinner)
-                ? nameChainParentWithRingSubstituent(mol, indigoToGraphIdx, g, ringNodeSet, allSSSRRings, carbonGroup, combinedWinner, stereoByGraphId, &handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide, ensureStereo)
+                ? nameChainParentWithRingSubstituent(mol, indigoToGraphIdx, g, ringNodeSet, allSSSRRings, carbonGroup, combinedWinner, stereoByGraphId, &handledBranchStereoIds, carbonSulfonamide, carbonSulfinamide, ensureChainStereo, chainBondStereo, &handledChainBonds, &selectedPC)
                 : QString();
+            if (!chainEzRes.ok) chainName.clear();
             std::set<int> pCarbons;
             for (const auto &pair : carbonGroup) { if (pair.second == combinedWinner) pCarbons.insert(pair.first); }
             if (!chainName.isEmpty()) {
+                const std::set<int> &activePCarbons = !selectedPC.empty() ? selectedPC : pCarbons;
                 bool handledN = chainName.startsWith("N-") || chainName.contains("-N-");
                 if (!handledN && (combinedWinner == GroupType::AMINE || combinedWinner == GroupType::AMIDE ||
                     combinedWinner == GroupType::THIOAMIDE || combinedWinner == GroupType::SULFONAMIDE ||
                     combinedWinner == GroupType::SULFINAMIDE || combinedWinner == GroupType::HYDRAZIDE)) {
-                    auto nsub = tryBuildPrincipalNSubstituentPrefix(g, pCarbons, combinedWinner, allSSSRRings, {}, mol);
-                    if (nsub.handled && !nsub.fragments.empty()) {
+                    ensureChainStereo();
+                    int subNCount = countSubstitutedPrincipalNitrogens(g, activePCarbons, ringNodeSet, combinedWinner);
+                    auto nsub = tryBuildPrincipalNSubstituentPrefix(g, activePCarbons, combinedWinner, allSSSRRings, {}, mol,
+                                                                     stereoByGraphId, &handledBranchStereoIds, chainBondStereo, &handledChainBonds, ensureStereo);
+                    if (nsub.handled && !nsub.fragments.empty() && static_cast<int>(nsub.fragments.size()) >= subNCount) {
                         QString nPrefix = formatSortedNFragments(nsub.fragments);
+                        QString leadStereo;
+                        if (chainName.startsWith("(")) {
+                            int closeIdx = chainName.indexOf(")-");
+                            if (closeIdx > 1) {
+                                bool allStereoChars = true;
+                                for (int si = 1; si < closeIdx; ++si) {
+                                    QChar ch = chainName[si];
+                                    if (!ch.isDigit() && ch != ',' && ch != 'R' && ch != 'S' && ch != 'E' && ch != 'Z') {
+                                        allStereoChars = false; break;
+                                    }
+                                }
+                                if (allStereoChars) {
+                                    leadStereo = chainName.left(closeIdx + 2);
+                                    chainName = chainName.mid(closeIdx + 2);
+                                }
+                            }
+                        }
                         QString sep = (!chainName.isEmpty() && chainName[0].isDigit()) ? "-" : "";
-                        chainName = nPrefix + sep + chainName;
+                        chainName = leadStereo + nPrefix + sep + chainName;
                         handledN = true;
                     }
                 }
@@ -23756,7 +24099,10 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                             else if (combinedWinner == GroupType::SULFINAMIDE) suffix = cRoot + "anesulfinamide";
                             else if (combinedWinner == GroupType::AMINE) suffix = cRoot + ((k <= 2) ? "anamine" : "an-1-amine");
                             if (!suffix.isEmpty()) {
-                                auto nsub = tryBuildPrincipalNSubstituentPrefix(g, pCarbons, combinedWinner, allSSSRRings, {}, mol);
+                                ensureStereo();
+                                std::set<int> linearNHandledStereo;
+                                auto nsub = tryBuildPrincipalNSubstituentPrefix(g, pCarbons, combinedWinner, allSSSRRings, {}, mol,
+                                                                                 stereoByGraphId, &linearNHandledStereo, {}, nullptr, ensureStereo);
                                 if (nsub.handled && !nsub.fragments.empty()) {
                                     outRes = {true, formatSortedNFragments(nsub.fragments) + suffix, ""};
                                     return true;
@@ -24733,6 +25079,35 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
     if (!ezRes.ok) {
         return {false, "", ezRes.error};
     }
+
+    bool usedNSubstituentPrefix = false;
+    NSubstituentPrefixResult preMonoNSub;
+    if (winningType == GroupType::AMINE || winningType == GroupType::AMIDE || winningType == GroupType::THIOAMIDE ||
+        winningType == GroupType::SULFONAMIDE || winningType == GroupType::SULFINAMIDE || winningType == GroupType::HYDRAZIDE) {
+        preMonoNSub = tryBuildPrincipalNSubstituentPrefix(g, principalCarbons, winningType, allSSSRRings, ringNodeSet, mol,
+                                                          stereoByGraphId, &bestSig.handledBranchStereoIds, branchBondStereo, &bestSig.handledBranchBonds, ensureStereo);
+        if (preMonoNSub.handled) {
+            usedNSubstituentPrefix = true;
+        }
+    }
+    QString preMonoEsterPrefix;
+    if (winningType == GroupType::ESTER) {
+        std::vector<int> pEsters;
+        for (int pc : principalCarbons) {
+            if (carbonGroup.count(pc) && carbonGroup[pc] == GroupType::ESTER) {
+                pEsters.push_back(pc);
+            }
+        }
+        if (!pEsters.empty()) {
+            preMonoEsterPrefix = formatMultiEsterAlkylPrefix(
+                pEsters, esterAlkylRoot, esterOxygen, g, allSSSRRings, indigoToGraphIdx, mol,
+                stereoByGraphId, &bestSig.handledBranchStereoIds, branchBondStereo, &bestSig.handledBranchBonds);
+            if (preMonoEsterPrefix.isEmpty()) {
+                return {false, "", "Unsupported ester alkyl group."};
+            }
+        }
+    }
+
     if (bestSig.handledBranchBonds.size() < branchBondStereo.size()) {
         return {false, "", "Stereogenic double bonds not on the primary substituent path are not supported in this phase."};
     }
@@ -24791,18 +25166,12 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
     // not "N-[2-(diethylamino)ethyl]-4-amino..."). Feed it into the SAME
     // pGroups vector, by its own substituent name (not "N-"), before the one
     // sort both share.
-    bool usedNSubstituentPrefix = false;
-    if (winningType == GroupType::AMINE || winningType == GroupType::AMIDE || winningType == GroupType::THIOAMIDE ||
-        winningType == GroupType::SULFONAMIDE || winningType == GroupType::SULFINAMIDE || winningType == GroupType::HYDRAZIDE) {
-        auto nsub = tryBuildPrincipalNSubstituentPrefix(g, principalCarbons, winningType, allSSSRRings, ringNodeSet, mol);
-        if (nsub.handled) {
-            for (const auto &frag : nsub.fragments) {
-                PrefixGroup pg;
-                pg.baseName = alphabetizationKey(frag.first);
-                pg.formattedStr = frag.second;
-                pGroups.push_back(pg);
-            }
-            usedNSubstituentPrefix = true;
+    if (usedNSubstituentPrefix) {
+        for (const auto &frag : preMonoNSub.fragments) {
+            PrefixGroup pg;
+            pg.baseName = alphabetizationKey(frag.first);
+            pg.formattedStr = frag.second;
+            pGroups.push_back(pg);
         }
     }
 
@@ -25064,21 +25433,8 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
         }
     }
 
-    if (winningType == GroupType::ESTER) {
-        std::vector<int> pEsters;
-        for (int pc : principalCarbons) {
-            if (carbonGroup.count(pc) && carbonGroup[pc] == GroupType::ESTER) {
-                pEsters.push_back(pc);
-            }
-        }
-        if (!pEsters.empty()) {
-            QString esterPrefix = formatMultiEsterAlkylPrefix(
-                pEsters, esterAlkylRoot, esterOxygen, g, allSSSRRings, indigoToGraphIdx, mol);
-            if (esterPrefix.isEmpty()) {
-                return {false, "", "Unsupported ester alkyl group."};
-            }
-            fullName = esterPrefix + " " + fullName;
-        }
+    if (winningType == GroupType::ESTER && !preMonoEsterPrefix.isEmpty()) {
+        fullName = preMonoEsterPrefix + " " + fullName;
     }
 
     {
@@ -26589,19 +26945,18 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                         if (isPrincipalC && (nz == 7 || nz == 8)) {
                         } else if (nz == 9 || nz == 17 || nz == 35 || nz == 53) {
                             subName = halogenPrefix(nz);
+                        } else if (allRingSubstituentNodes.count(nei)) {
+                            for (const auto &info : ringSubstituentInfos) {
+                                if (info.ringNodes.count(nei)) {
+                                    subName = info.prefixName;
+                                    break;
+                                }
+                            }
+                            if (subName.startsWith("(")) subName = subName.mid(1);
                         } else if (nz == 8 || nz == 7) {
                             subName = (nz == 8) ? "hydroxy" : "amino";
                         } else if (nz == 6) {
-                            if (allRingSubstituentNodes.count(nei)) {
-                                for (const auto &info : ringSubstituentInfos) {
-                                    if (info.ringNodes.count(nei)) {
-                                        subName = info.prefixName;
-                                        break;
-                                    }
-                                }
-                            } else {
-                                subName = nameBranchGraph(g, nei, c, allSSSRRings, chainSet, {}, nullptr, mol);
-                            }
+                            subName = nameBranchGraph(g, nei, c, allSSSRRings, chainSet, {}, nullptr, mol);
                             if (subName.startsWith("(")) subName = subName.mid(1);
                         }
                         if (!subName.isEmpty()) {
@@ -26933,7 +27288,7 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                         }
                         locantSubstituents[locant].append(alkylName);
                     }
-                } else if (z == 6 && allRingSubstituentNodes.count(nei)) {
+                } else if (allRingSubstituentNodes.count(nei)) {
                     for (const auto &info : ringSubstituentInfos) {
                         if (info.ringNodes.count(nei)) {
                             locantSubstituents[locant].append(info.prefixName);
@@ -26960,6 +27315,49 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
                     locantSubstituents[locant].append(subName);
                 }
             }
+        }
+
+        QString preEsterPrefix;
+        if (winningType == GroupType::ESTER) {
+            std::vector<int> pEsters;
+            for (int pc : principalCarbons) {
+                if (carbonGroup.count(pc) && carbonGroup[pc] == GroupType::ESTER) {
+                    pEsters.push_back(pc);
+                }
+            }
+            if (!pEsters.empty()) {
+                preEsterPrefix = formatMultiEsterAlkylPrefix(
+                    pEsters, esterAlkylRoot, esterOxygen, g, allSSSRRings, indigoToGraphIdx, mol,
+                    stereoByGraphId, &handledBranchStereoIds, branchBondStereo, &handledBranchBonds);
+                if (preEsterPrefix.isEmpty()) {
+                    return {false, "", "Unsupported ester alkyl group."};
+                }
+            }
+        }
+
+        bool usedNSubSection5 = false;
+        NSubstituentPrefixResult preNSubSection5;
+        if (winningType == GroupType::AMINE || winningType == GroupType::AMIDE || winningType == GroupType::THIOAMIDE ||
+            winningType == GroupType::SULFONAMIDE || winningType == GroupType::SULFINAMIDE || winningType == GroupType::HYDRAZIDE) {
+            std::set<int> effectivePrincipalCarbons = principalCarbons;
+            if (winningType == GroupType::AMINE) {
+                effectivePrincipalCarbons.clear();
+                for (int pc : principalCarbons) {
+                    if (chainSet.count(pc)) effectivePrincipalCarbons.insert(pc);
+                }
+            }
+            preNSubSection5 = tryBuildPrincipalNSubstituentPrefix(
+                g, effectivePrincipalCarbons, winningType, allSSSRRings, {}, mol,
+                stereoByGraphId, &handledBranchStereoIds, branchBondStereo, &handledBranchBonds, ensureStereo);
+            int subNCount = countSubstitutedPrincipalNitrogens(g, effectivePrincipalCarbons, allSSSRNodes, winningType);
+            if (preNSubSection5.handled && !preNSubSection5.fragments.empty() &&
+                static_cast<int>(preNSubSection5.fragments.size()) >= subNCount) {
+                usedNSubSection5 = true;
+            }
+        }
+        if (!usedNSubSection5) {
+            auto res = checkPrincipalHeteroatomsUnsubstituted(g, principalCarbons, winningType);
+            if (res.hasError) return {false, "", res.msg};
         }
 
         if (handledBranchBonds.size() < branchBondStereo.size()) {
@@ -27321,52 +27719,22 @@ IupacResult IupacNamer::generateNameImpl(int mol) {
         }
 
         bool stereoAppliedForEster = false;
-        if (winningType == GroupType::ESTER) {
-            std::vector<int> pEsters;
-            for (int pc : principalCarbons) {
-                if (carbonGroup.count(pc) && carbonGroup[pc] == GroupType::ESTER) {
-                    pEsters.push_back(pc);
-                }
-            }
-            if (!pEsters.empty()) {
-                QString esterPrefix = formatMultiEsterAlkylPrefix(
-                    pEsters, esterAlkylRoot, esterOxygen, g, allSSSRRings, indigoToGraphIdx, mol);
-                if (esterPrefix.isEmpty()) {
-                    return {false, "", "Unsupported ester alkyl group."};
-                }
-                // Stereo prefix belongs on the acyl portion ("ethyl (2S)-2-
-                // chloropropanoate"), not in front of the alkyl-ester prefix
-                // ("(2S)-ethyl 2-chloropropanoate" would be wrong) -- applied
-                // here, before the "alkylName + ' '" prefix goes on, and
-                // skipped in the generic stereoRes.prefix application below.
-                fullName = esterPrefix + " " + stereoRes.prefix + fullName;
-                stereoAppliedForEster = true;
-            }
+        if (winningType == GroupType::ESTER && !preEsterPrefix.isEmpty()) {
+            // Stereo prefix belongs on the acyl portion ("ethyl (2S)-2-
+            // chloropropanoate"), not in front of the alkyl-ester prefix
+            // ("(2S)-ethyl 2-chloropropanoate" would be wrong) -- applied
+            // here, before the "alkylName + ' '" prefix goes on, and
+            // skipped in the generic stereoRes.prefix application below.
+            fullName = preEsterPrefix + " " + stereoRes.prefix + fullName;
+            stereoAppliedForEster = true;
         }
 
-        bool usedNSubSection5 = false;
-        if (winningType == GroupType::AMINE || winningType == GroupType::AMIDE || winningType == GroupType::THIOAMIDE ||
-            winningType == GroupType::SULFONAMIDE || winningType == GroupType::SULFINAMIDE || winningType == GroupType::HYDRAZIDE) {
-            std::set<int> effectivePrincipalCarbons = principalCarbons;
-            if (winningType == GroupType::AMINE) {
-                effectivePrincipalCarbons.clear();
-                for (int pc : principalCarbons) {
-                    if (chainSet.count(pc)) effectivePrincipalCarbons.insert(pc);
-                }
+        if (usedNSubSection5) {
+            QString nPrefix = formatSortedNFragments(preNSubSection5.fragments);
+            if (!nPrefix.isEmpty()) {
+                QString sep = (!fullName.isEmpty() && fullName[0].isDigit()) ? "-" : "";
+                fullName = nPrefix + sep + fullName;
             }
-            auto nsub = tryBuildPrincipalNSubstituentPrefix(g, effectivePrincipalCarbons, winningType, allSSSRRings, {}, mol);
-            if (nsub.handled && !nsub.fragments.empty()) {
-                QString nPrefix = formatSortedNFragments(nsub.fragments);
-                if (!nPrefix.isEmpty()) {
-                    QString sep = (!fullName.isEmpty() && fullName[0].isDigit()) ? "-" : "";
-                    fullName = nPrefix + sep + fullName;
-                }
-                usedNSubSection5 = true;
-            }
-        }
-        if (!usedNSubSection5) {
-            auto res = checkPrincipalHeteroatomsUnsubstituted(g, principalCarbons, winningType);
-            if (res.hasError) return {false, "", res.msg};
         }
 
         if (!stereoAppliedForEster) {

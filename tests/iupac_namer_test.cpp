@@ -1022,7 +1022,7 @@ int main() {
         // Stereo on the ALKYL (O-) side of the ester is a separate, still
         // out-of-scope case (stereocenter isn't on the parent/acyl chain's
         // own locant map at all) -- correctly a different, honest rejection.
-        {"CC(=O)OC[C@H](Cl)C", "", true, "Stereocenters on substituent branches are not supported in this phase."},
+        {"CC(=O)OC[C@H](Cl)C", "[(2R)-2-chloropropyl] ethanoate"}, // Task 6A: ester O-alkyl stereocenter now handled via formatBranchStereoPrefix
         {"CC(=O)OC(=O)C", "ethanoic anhydride"},
 
         // Phase 9: Symmetric unbranched unsubstituted acid anhydrides
@@ -6332,8 +6332,8 @@ int main() {
         int m = indigoLoadMoleculeFromString("CC(C)(C)NCC(O)c1ccc(O)c(CO)c1"); // albuterol
         IupacResult r = IupacNamer::generateName(m);
         indigoFree(m);
-        if (!r.success && !r.error.isEmpty()) {
-            std::cout << "[PASS] albuterol vanished-branch now rejected -> " << r.error.toStdString() << "\n";
+        if (r.success && r.name == "2-[(1,1-dimethylethyl)amino]-1-[4-hydroxy-3-(hydroxymethyl)phenyl]ethanol") {
+            std::cout << "[PASS] albuterol vanished-branch now resolved (Phase 6B) -> " << r.name.toStdString() << "\n";
             passed++;
         } else {
             std::cout << "[FAIL] albuterol vanished-branch -> got success=" << r.success << " name='" << r.name.toStdString() << "'\n";
@@ -9212,7 +9212,36 @@ int main() {
             {"Task 11 benzenesulfonate anion", "c1ccccc1S(=O)(=O)[O-]", "benzenesulfonate(1-)", false, ""},
             {"Task 11 zwitterion carboxylate+quatN (LEVOCARNITINE)", "C[N+](C[C@@H](CC([O-])=O)O)(C)C", "(3R)-4-(trimethylazaniumyl)-3-hydroxybutanoate", false, ""},
             {"Task 11 bis-quaternary diester (SUXAMETHONIUM)", "C[N+](CCOC(CCC(OCC[N+](C)(C)C)=O)=O)(C)C", "bis[2-(trimethylazaniumyl)ethyl] butanedioate", false, ""},
-            {"Task 11 sulfonamide N-anion (SULFADIAZINE)", "Nc1ccc(S([N-]c2ncccn2)(=O)=O)cc1", "4-amino-N-(pyrimidin-2-yl)benzenesulfonamidide(1-)", false, ""}
+            {"Task 11 sulfonamide N-anion (SULFADIAZINE)", "Nc1ccc(S([N-]c2ncccn2)(=O)=O)cc1", "4-amino-N-(pyrimidin-2-yl)benzenesulfonamidide(1-)", false, ""},
+            // Phase 6A Task 2: branch stereocenters (9 named fixtures + 2 Review-Focus fixtures)
+            {"Task 6A branch stereo LINEZOLID", "CC(NC[C@@H]1OC(=O)N(c2cc(F)c(N3CCOCC3)cc2)C1)=O", "N-[{(5S)-3-[3-fluoro-4-(morpholin-4-yl)phenyl]-2-oxooxazolidin-5-yl}methyl]ethanamide", false, ""},
+            {"Task 6A branch stereo MEDROXYPROGESTERONE ACETATE", "CC(O[C@]1([C@]2(C)[C@H]([C@H]3[C@H](CC2)[C@]2(C)C(=CC(CC2)=O)[C@@H](C)C3)CC1)C(=O)C)=O", "((1S,2R,8S,10R,11S,14R,15S)-2,8,15-trimethyl-5-oxo-14-(1-oxoethyl)tetracyclo[8.7.0.0^{2,7}.0^{11,15}]heptadec-6-en-14-yl) ethanoate", false, ""},
+            {"Task 6A branch stereo HYDROCORTISONE ACETATE", "CC(OCC([C@@]1([C@]2(C)[C@H]([C@H]3[C@H]([C@H](C2)O)[C@]2(C)C(=CC(CC2)=O)CC3)CC1)O)=O)=O", "(2-((1S,2R,10S,11S,14R,15S,17S)-14,17-dihydroxy-2,15-dimethyl-5-oxotetracyclo[8.7.0.0^{2,7}.0^{11,15}]heptadec-6-en-14-yl)-2-oxoethyl) ethanoate", false, ""},
+            {"Task 6A branch stereo DILTIAZEM (downstream ester alkyl gate)", "COc1ccc([C@H]2[C@@H](OC(=O)C)C(=O)N(CCN(C)C)c3c(cccc3)S2)cc1", "", true, "Unsupported ester alkyl group."},
+            {"Task 6A branch stereo LOVASTATIN (downstream ester alkyl gate)", "CC[C@@H](C(O[C@@H]1[C@H]2C(C=C[C@@H]([C@@H]2CC[C@H]2OC(=O)C[C@H](O)C2)C)=C[C@H](C)C1)=O)C", "", true, "Unsupported ester alkyl group."},
+            {"Task 6A branch stereo SIMVASTATIN (downstream ester alkyl gate)", "CCC(C(O[C@@H]1[C@H]2C(C=C[C@@H]([C@@H]2CC[C@H]2OC(=O)C[C@H](O)C2)C)=C[C@H](C)C1)=O)(C)C", "", true, "Unsupported ester alkyl group."},
+            {"Task 6A branch stereo COLCHICINE (downstream amide N-branch gate)", "COc1c(OC)c(OC)c2-c3c([C@H](CCc2c1)NC(=O)C)cc(=O)c(OC)cc3", "", true, "Branched or ring N-substituents on amides are not supported"},
+            {"Task 6A branch stereo CHLORAMPHENICOL (downstream amide N-branch gate)", "O=C(C(Cl)Cl)N[C@@H]([C@@H](c1ccc([N+]([O-])=O)cc1)O)CO", "", true, "Branched or ring N-substituents on amides are not supported"},
+            {"Task 6A branch stereo SELEGILINE (downstream amine N-branch gate)", "C#CCN([C@@H](Cc1ccccc1)C)C", "", true, "Branched or ring N-substituents on amines are not supported"},
+            {"Task 6A bicyclic+quinoline branch stereo (QUININE)", "C=C[C@@H]1[C@@H]2C[C@@H]([C@@H](c3c4c(ccc(c4)OC)ncc3)O)N(CC2)C1", "(1R)-((2S,4S,5R)-5-ethenyl-1-azabicyclo[2.2.2]octan-2-yl)(6-methoxyquinolin-4-yl)methanol", false, ""},
+            {"Task 6A sugar ester ring+branch stereo (AZARIBINE)", "CC(OC[C@@H]1[C@@H](OC(=O)C)[C@@H](OC(=O)C)[C@H]([n]2c(=O)[nH]c(=O)cn2)O1)=O", "[(2R,3R,4R,5R)-5-(2,4-dioxo-1,3,6-triazin-1-yl)-3,4-diethanoyloxytetrahydrofuran-2-ylmethyl] ethanoate", false, ""},
+            {"Task 6A Review Focus two stereocenters in one branch", "O=C(O)c1ccc([C@H](O)[C@@H](Cl)CC)cc1", "4-[(1S,2S)-2-chloro-1-hydroxybutyl]benzenecarboxylic acid", false, ""},
+            {"Task 6A Review Focus boundary stereocenters ring+branch", "O=C(O)[C@@H]1CCC[C@H]1[C@@H](C)O", "(1R,2R)-2-[(1R)-1-hydroxyethyl]cyclopentanecarboxylic acid", false, ""},
+            // Phase 6B Task 4: chain-as-parent seniority (P-44.1.1) generalizations + Review Focus
+            {"Task 6B AMINOHIPPURIC ACID", "Nc1ccc(C(NCC(O)=O)=O)cc1", "2-(4-aminobenzamido)ethanoic acid", false, ""},
+            {"Task 6B ALBUTEROL", "CC(NCC(c1cc(CO)c(O)cc1)O)(C)C", "2-[(1,1-dimethylethyl)amino]-1-[4-hydroxy-3-(hydroxymethyl)phenyl]ethanol", false, ""},
+            {"Task 6B RIVASTIGMINE", "CCN(C(Oc1cc([C@@H](N(C)C)C)ccc1)=O)C", "(1S)-N,N-dimethyl-1-{3-[ethyl(methyl)aminocarbonyloxy]phenyl}ethanamine", false, ""},
+            {"Task 6B DIETHYLCARBAMAZINE", "CCN(C(N1CCN(C)CC1)=O)CC", "1-(diethylcarbamoyl)-4-methylpiperazine", false, ""},
+            {"Task 6B PROGUANIL", "CC(NC(NC(Nc1ccc(Cl)cc1)=N)=N)C", "N-[((4-chlorophenyl)carbamimidoyl)aminoiminomethyl]propan-2-amine", false, ""},
+            {"Task 6B FLUVOXAMINE (downstream oxime substituent gate)", "COCCCC/C(/c1ccc(C(F)(F)F)cc1)=N\\OCCN", "", true, "Substituted amine/hydrazine substituents are not supported in this phase."},
+            {"Task 6B CILASTATIN", "CC1([C@@H](C(N/C(/C(O)=O)=C\\CCCCSC[C@@H](C(O)=O)N)=O)C1)C", "(2Z)-7-[((2R)-2-amino-3-hydroxy-3-oxopropyl)sulfanyl]-2-[((1S)-2,2-dimethylcyclopropyl)amido]hept-2-enoic acid", false, ""},
+            {"Task 6B CARBOPROST (downstream alkenyl-stereo branch gate)", "CCCCC[C@@](/C=C/[C@H]1[C@H](O)C[C@H](O)[C@@H]1C/C=C\\CCCC(O)=O)(O)C", "", true, "A chain-based principal group outranks the ring in this structure; chain-as-parent seniority (P-44.1.1) for this ring/class combination is not yet supported."},
+            {"Task 6B chain (5Z) + demoted ring stereo", "O=C(O)CCC/C=C\\C[C@H]1[C@H](O)C[C@H](O)C1", "(5Z)-7-[(1R,2R,4R)-2,4-dihydroxycyclopentyl]hept-5-enoic acid", false, ""},
+            {"Task 6B Review Focus demoted ring stereocenter", "O[C@H]1CC[C@H](CCC(O)=O)C1", "3-[(1R,3S)-3-hydroxycyclopentyl]propanoic acid", false, ""},
+            {"Task 6B Review Focus chain-wins + branch stereo on demoted ring", "O=C(O)C(C)c1ccc([C@H](O)C)cc1", "2-{4-[(1R)-1-hydroxyethyl]phenyl}propanoic acid", false, ""},
+            {"Task 6B ORNIDAZOLE (N-attached ring tiebreak)", "Cc1[n](CC(CCl)O)c([N+]([O-])=O)cn1", "1-chloro-3-(2-methyl-5-nitroimidazol-1-yl)propan-2-ol", false, ""},
+            {"Task 6B RANITIDINE (gem-diamine N-completeness gate)", "CNC(NCCSCc1oc(CN(C)C)cc1)=C[N+]([O-])=O", "", true, "Branched or ring N-substituents on amines are not supported"},
+            {"Task 6B IBREXAFUNGERP (deferred CIP fast-reject)", "CC([C@H]([C@@]1([C@@H](C(O)=O)[C@@]2(C)[C@]([C@@H]3C(=CC2)[C@@]24C[C@@H]([n]5c(-c6ccncc6)ncn5)[C@H](OC[C@@](C(C)(C)C)(N)C)[C@@](C)([C@@H]2CC3)COC4)(C)CC1)C)C)C", "", true, "Fused, bridged, spiro, or multiple ring systems are not supported in Phase 2."}
         };
         for (const auto &tc : agyCases) {
             int m = indigoLoadMoleculeFromString(tc.smiles.c_str());
