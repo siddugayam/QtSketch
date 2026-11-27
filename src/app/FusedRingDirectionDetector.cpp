@@ -38,7 +38,7 @@ static std::vector<int> buildDirectedCycle(const std::set<int>& rNodes, int u, i
     return cycle;
 }
 
-FusedRingSystemInput detectFusedRingDirections(int mol) {
+FusedRingSystemInput detectFusedRingDirections(int mol, const std::vector<std::set<int>> *ringsOverride) {
     FusedRingSystemInput input;
     
     // 1. Build atom adjacency list
@@ -62,22 +62,26 @@ FusedRingSystemInput detectFusedRingDirections(int mol) {
     
     // 2. Extract SSSR rings
     std::vector<std::set<int>> rings;
-    int sssrIter = indigoIterateSSSR(mol);
-    if (sssrIter > 0) {
-        while (int subMol = indigoNext(sssrIter)) {
-            std::set<int> rNodes;
-            int rAtomIter = indigoIterateAtoms(subMol);
-            if (rAtomIter > 0) {
-                while (int a = indigoNext(rAtomIter)) {
-                    rNodes.insert(indigoIndex(a));
-                    indigoFree(a);
+    if (ringsOverride && !ringsOverride->empty()) {
+        rings = *ringsOverride;
+    } else {
+        int sssrIter = indigoIterateSSSR(mol);
+        if (sssrIter > 0) {
+            while (int subMol = indigoNext(sssrIter)) {
+                std::set<int> rNodes;
+                int rAtomIter = indigoIterateAtoms(subMol);
+                if (rAtomIter > 0) {
+                    while (int a = indigoNext(rAtomIter)) {
+                        rNodes.insert(indigoIndex(a));
+                        indigoFree(a);
+                    }
+                    indigoFree(rAtomIter);
                 }
-                indigoFree(rAtomIter);
+                rings.push_back(rNodes);
+                indigoFree(subMol);
             }
-            rings.push_back(rNodes);
-            indigoFree(subMol);
+            indigoFree(sssrIter);
         }
-        indigoFree(sssrIter);
     }
     
     int numRings = static_cast<int>(rings.size());

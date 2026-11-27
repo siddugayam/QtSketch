@@ -553,6 +553,18 @@ bool skeletonMatchRetainedSystem(int mol, const std::set<int> &ringAtoms,
                     outResult.hydroLocants.append(sys.indicatedHydrogenLocant);
                     std::sort(outResult.hydroLocants.begin(), outResult.hydroLocants.end(), locantLess);
                     outResult.indicatedHydrogenLocant = ketoLocs[0];
+                } else if (indigoCountAtoms(mol) > static_cast<int>(ringAtoms.size()) &&
+                           !bestHydroLocants.contains(sys.indicatedHydrogenLocant) &&
+                           outResult.hydroLocants.size() >= 2 &&
+                           outResult.hydroLocants.size() % 2 == 0) {
+                    // Functionalized substituted/suffixed retained carbazole etc. (P-31.1.4.2.4):
+                    // e.g. 2,3,4,9-tetrahydro-1H-carbazole-6-carboxamide; bare unsubstituted
+                    // tetrahydrocarbazole stays rejected per test 1319.
+                    QString migratedIh = outResult.hydroLocants.first();
+                    outResult.hydroLocants.removeFirst();
+                    outResult.hydroLocants.append(sys.indicatedHydrogenLocant);
+                    std::sort(outResult.hydroLocants.begin(), outResult.hydroLocants.end(), locantLess);
+                    outResult.indicatedHydrogenLocant = migratedIh;
                 } else {
                     success = false;
                 }
