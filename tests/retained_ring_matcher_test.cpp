@@ -329,6 +329,33 @@ int main() {
         }
     }
 
+    // Test 13: 1,2-dihydropyrene
+    {
+        std::cout << "\nTest 13: 1,2-dihydropyrene" << std::endl;
+        int mol = indigoLoadMoleculeFromString("C1CC=c2ccc3cccc4ccc1c2c34");
+        if (mol < 0) {
+            std::cout << "  [FAIL] Could not parse SMILES" << std::endl;
+            ++failed;
+        } else {
+            indigoAromatize(mol);
+            auto result = tryRetainedBaseDecomposition(mol);
+            if (result) {
+                if (result->success && result->baseName == "1,2-dihydropyrene") {
+                    std::cout << "  [PASS] dihydropyrene matched, baseName=" << result->baseName.toStdString() << std::endl;
+                    ++passed;
+                } else {
+                    std::cout << "  [FAIL] dihydropyrene matched but baseName='" << result->baseName.toStdString()
+                              << "' success=" << result->success << std::endl;
+                    ++failed;
+                }
+            } else {
+                std::cout << "  [FAIL] dihydropyrene returned nullopt" << std::endl;
+                ++failed;
+            }
+            indigoFree(mol);
+        }
+    }
+
     std::cout << "\n========================================" << std::endl;
     std::cout << "TOTAL PASSED: " << passed << std::endl;
     std::cout << "TOTAL FAILED: " << failed << std::endl;

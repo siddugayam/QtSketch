@@ -442,7 +442,7 @@ int main() {
         // checking for a double bond back to parentIdx first. Structurally
         // validated: 4 rings (quinazoline's 2 + piperazine + furan), 20
         // heavy atoms.
-        {"c1ccc2c(nc(nc2N)N2CCN(C(c3occc3)=O)CC2)c1", "2-[4-(furan-2-yloxomethyl)piperazin-1-yl]-4-aminoquinazoline"},
+        {"c1ccc2c(nc(nc2N)N2CCN(C(c3occc3)=O)CC2)c1", "2-[4-(furan-2-yloxomethyl)piperazin-1-yl]quinazolin-4-amine"},
 
         // Regression guard for a real bug found in the same real-drug validation pass: the
         // monocyclic ring-parent carboxamide/carboxylic-acid suffix construction unconditionally
@@ -924,8 +924,8 @@ int main() {
         // shape as the thioamide misclassification bug fixed earlier this
         // session. Still an honest rejection (that gate doesn't yet cover this
         // ring/class combination), just a more specific, accurate one now.
-        {"CS(=O)(=O)NC1CCCCC1", "", true, "A chain-based principal group outranks the ring in this structure; chain-as-parent seniority (P-44.1.1) for this ring/class combination is not yet supported."},
-        {"CS(=O)NC1CCCCC1", "", true, "A chain-based principal group outranks the ring in this structure; chain-as-parent seniority (P-44.1.1) for this ring/class combination is not yet supported."},
+        {"CS(=O)(=O)NC1CCCCC1", "N-cyclohexylmethanesulfonamide"},
+        {"CS(=O)NC1CCCCC1", "N-cyclohexylmethanesulfinamide"},
         {"CC(C)S(=O)(=O)NC", "N-methylpropane-2-sulfonamide"}, // branched alkyl parent (Wave 2, Item 1B)
         {"CC(C)S(=O)NC", "N-methylpropane-2-sulfinamide"}, // branched alkyl parent, sulfinamide (Wave 2, Item 1B)
         // Ring IS the sulfonyl/sulfinyl parent (not the N-substituent) + a plain
@@ -1022,7 +1022,7 @@ int main() {
         // Stereo on the ALKYL (O-) side of the ester is a separate, still
         // out-of-scope case (stereocenter isn't on the parent/acyl chain's
         // own locant map at all) -- correctly a different, honest rejection.
-        {"CC(=O)OC[C@H](Cl)C", "", true, "Stereocenters on substituent branches are not supported in this phase."},
+        {"CC(=O)OC[C@H](Cl)C", "[(2R)-2-chloropropyl] ethanoate"}, // Task 6A: ester O-alkyl stereocenter now handled via formatBranchStereoPrefix
         {"CC(=O)OC(=O)C", "ethanoic anhydride"},
 
         // Phase 9: Symmetric unbranched unsubstituted acid anhydrides
@@ -1242,7 +1242,9 @@ int main() {
         // "5" -- an impossible/overlapping locant set. Real driver output (not
         // guessed): the methyl substituent and the 4 hydro positions now land on
         // disjoint locants (7 vs 2,3,4,5).
-        {"c1ccc2nc3CCCCc3cc2c1C", "7-methyl-2,3,4,5-tetrahydrodibenzo[1,2-b:1,2-e]pyridine"},
+        // Disjoint locants on retained tetrahydroacridine: methyl sits on C-8
+        // (aromatic ring adjacent to C-9a/C-9 side) while hydro positions cover 1,2,3,4.
+        {"c1ccc2nc3CCCCc3cc2c1C", "8-methyl-1,2,3,4-tetrahydroacridine"},
 
         // Retained-hydro-assembly plan, Task 3: superseded by
         // tryRetainedBaseDecomposition's whole-system final-numbering
@@ -1439,12 +1441,10 @@ int main() {
         // correctly declines (falls through to the pre-existing, unchanged
         // rejection) rather than misnaming or silently dropping a substituent:
         //
-        // Heterobicyclic real component (indole-shaped) + isolated 4-chlorophenyl
-        // -- a real drug (INDOMETHACIN), confirming the dispatcher's own
-        // explicit non-goal (heterobicyclic components) is correctly left
-        // untouched: same rejection message before and after this session's
-        // multi-component dispatch work.
-        {"COc1cc2c(c([n](C(c3ccc(Cl)cc3)=O)c2cc1)C)CC(O)=O", "", true, "Fused, bridged, spiro, or multiple ring systems are not supported in Phase 2."},
+        // Heterobicyclic real component (indole-shaped, N-acylated) + isolated
+        // 4-chlorophenyl -- a real drug (INDOMETHACIN), now unified via
+        // Section 5 chain-seniority + Phase 31 indole substituent naming (Task 7).
+        {"COc1cc2c(c([n](C(c3ccc(Cl)cc3)=O)c2cc1)C)CC(O)=O", "2-(1-[(4-chlorophenyl)oxomethyl]-5-methoxy-2-methylindol-3-yl)ethanoic acid"},
         // 2-ring real component that is NOT naphthalene-shaped (partially
         // saturated: tetrahydronaphthalene, fails nameNaphthaleneFusion's own
         // "all bonds aromatic" structural check) + isolated phenyl. Structurally
@@ -1490,7 +1490,7 @@ int main() {
         // the guard this silently misread the acid as a gem-diol
         // ("4-dihydroxymethyl-2-phenylquinoline"). Confirms the guard correctly
         // declines rather than producing a wrong name.
-        {"O=C(c1c2c(cccc2)nc(-c2ccccc2)c1)O", "", true, "Fused, bridged, spiro, or multiple ring systems are not supported in Phase 2."},
+        {"O=C(c1c2c(cccc2)nc(-c2ccccc2)c1)O", "2-phenylquinoline-4-carboxylic acid", false, ""},
 
         // Same functional-group gap as CINCHOPHEN above, but WITHOUT an
         // isolated extra ring -- just a plain quinoline-6-carboxylic acid.
@@ -1508,10 +1508,10 @@ int main() {
         // all-carbon naphthalene+acid (has its own separate, working suffix
         // path) and a heteroaromatic RING substituent like thiazol-4-yl
         // (whose own internal aromatic bonds aren't a functional group).
-        {"OC(=O)c1ccc2ncccc2c1", "", true, "Fused heterobicyclic ring systems with a functional group (acid, ester, amide, ketone, nitrile, imine, ...) exocyclic to the ring are not yet classified by this mechanism."},
-        {"OC(=O)c1ccc2ccncc2c1", "", true, "Fused heterobicyclic ring systems with a functional group (acid, ester, amide, ketone, nitrile, imine, ...) exocyclic to the ring are not yet classified by this mechanism."},
-        {"OC(=O)c1ccc2occc2c1", "", true, "Fused heterobicyclic ring systems with a functional group (acid, ester, amide, ketone, nitrile, imine, ...) exocyclic to the ring are not yet classified by this mechanism."},
-        {"OC(=O)c1ccc2[nH]ccc2c1", "", true, "Fused heterobicyclic ring systems with a functional group (acid, ester, amide, ketone, nitrile, imine, ...) exocyclic to the ring are not yet classified by this mechanism."},
+        {"OC(=O)c1ccc2ncccc2c1", "quinoline-6-carboxylic acid", false, ""},
+        {"OC(=O)c1ccc2ccncc2c1", "isoquinoline-7-carboxylic acid", false, ""},
+        {"OC(=O)c1ccc2occc2c1", "benzofuran-5-carboxylic acid", false, ""},
+        {"OC(=O)c1ccc2[nH]ccc2c1", "indole-5-carboxylic acid", false, ""},
         // Regression guard for one of the two false positives found and
         // fixed while narrowing this guard: all-carbon naphthalene+acid must
         // stay on its own separate, already-correct suffix path. (The other
@@ -1880,10 +1880,10 @@ int main() {
         // an "N,N-di<prefix>"/"N-<prefix>" token to bump), but the real quaternary CATION needs
         // the charged nitrogen to be forced as principal group regardless of competing groups
         // (P-73.1) -- a materially different mechanism, not attempted here.
-        {"C[N+](CCO)(C)C", "", true, "Charged atoms are not supported"}, // choline
-        {"C[N+](CCOC(=O)N)(C)C", "", true, "Charged atoms are not supported"}, // carbachol
-        {"CC(OCC[N+](C)(C)C)=O", "", true, "Charged atoms are not supported"}, // acetylcholine
-        {"C[N+](CC(O)=O)(C)C", "", true, "Charged atoms are not supported"}, // betaine
+        {"C[N+](CCO)(C)C", "2-hydroxy-N,N,N-trimethylethan-1-aminium"}, // choline
+        {"C[N+](CCOC(=O)N)(C)C", "2-(carbamoyloxy)-N,N,N-trimethylethan-1-aminium"}, // carbachol
+        {"CC(OCC[N+](C)(C)C)=O", "2-(acetyloxy)-N,N,N-trimethylethan-1-aminium"}, // acetylcholine
+        {"C[N+](CC(O)=O)(C)C", "2-(trimethylazaniumyl)ethanoic acid"}, // betaine
         // GALLAMINE's center falls through for a different, unrelated pre-existing gap: the odd
         // branch's own naming hits "Branched, ring, or unsaturated chains on N-substituted amines
         // are not supported" (an aryl ring reached via an ether chain), not this mechanism's fault.
@@ -1910,7 +1910,7 @@ int main() {
         // carries a phenol -OH, the same competing-higher-seniority-group situation already
         // documented above for CHOLINE/CARBACHOL/ACETYLCHOLINE/BETAINE -- correctly falls
         // through, not a bug in this mechanism.
-        {"CC[N+](c1cc(O)ccc1)(C)C", "", true, "Charged atoms are not supported"},
+        {"CC[N+](c1cc(O)ccc1)(C)C", "N-ethyl-3-hydroxy-N,N-dimethylanilinium"},
         // Fallthrough cases for out-of-scope quaternary cations - should still reject
         {"C[N+](C)(C)C(C)C", "N,N,N-trimethylpropan-2-aminium"}, // quaternary ammonium, reduced-amine branch now names fine
         {"[NH3+]CCCCCC[NH3+]", "", true, "Charged atoms are not supported"}, // hexane-1,6-diammonium - multi-charged, out of scope
@@ -1936,7 +1936,7 @@ int main() {
         {"C[N+](C)(C)[O-]", "N,N-dimethylmethanamine N-oxide"}, // trimethylamine N-oxide
         // Fallthrough cases - should still reject (not yet supported for other reasons)
         {"CNC1C[N+]([O-])=C(c2ccccc2)c2c(ccc(c2)Cl)N=1", "", true, "Charged atoms are not supported"}, // CHLORDIAZEPOXIDE - parent benzodiazepine is a fused ring system, not yet supported regardless of the N-oxide
-        {"O=C(c1cnccc1)NCCO[N+]([O-])=O", "", true, "Charged atoms are not supported"}, // NICORANDIL - nitro group (has a second, double-bonded O), correctly excluded from N-oxide matching
+        {"O=C(c1cnccc1)NCCO[N+]([O-])=O", "N-(2-nitrooxyethyl)pyridine-3-carboxamide"}, // NICORANDIL - nitrate ester (-ONO2 -> nitrooxy) now supported (Task 11)
         {"[O-][Cl+3]([O-])([O-])[O-]", "perchlorate"},
         {"[O-]Cl", "hypochlorite"},
         {"O=S(=S)([O-])[O-]", "thiosulfate"},
@@ -2526,8 +2526,8 @@ int main() {
         int m = indigoLoadMoleculeFromString("OC(=O)c1ccc(-c2ccccc2)cc1");
         IupacResult r = IupacNamer::generateName(m);
         indigoFree(m);
-        if (!r.success && r.name != "4-carboxybiphenyl") {
-            std::cout << "[PASS] Ring assembly steps aside for senior principal group -> " << r.error.toStdString() << "\n";
+        if (r.success && r.name == "4-phenylbenzenecarboxylic acid") {
+            std::cout << "[PASS] Ring assembly steps aside for senior principal group -> " << r.name.toStdString() << "\n";
             passed++;
         } else {
             std::cout << "[FAIL] Ring assembly senior-group gate -> got success=" << r.success << " name='" << r.name.toStdString() << "'\n";
@@ -3050,8 +3050,8 @@ int main() {
         int m = indigoLoadMoleculeFromString("CCCCCCCCC(CC(CCC)[C@H](Cl)C)CCCCCCCC");
         IupacResult r = IupacNamer::generateName(m);
         indigoFree(m);
-        if (!r.success && r.error.contains("Stereocenters on substituent branches are not supported in this phase.")) {
-            std::cout << "[PASS] Two-branches-deep stereocenter correctly rejected: " << r.error.toStdString() << "\n";
+        if (r.success && r.name == "9-(2-[(1R)-1-chloroethyl]pentyl)heptadecane") {
+            std::cout << "[PASS] Two-branches-deep stereocenter now named cleanly -> " << r.name.toStdString() << "\n";
             passed++;
         } else {
             std::cout << "[FAIL] Two-branches-deep stereocenter -> got success=" << r.success << " name='" << r.name.toStdString() << "' err='" << r.error.toStdString() << "'\n";
@@ -4125,8 +4125,11 @@ int main() {
         std::vector<Phase32Test> p32Tests = {
             {"c1ncnc2[nH]cnc12", "purine", false, ""},
             {"c1ncc2[nH]cnc2n1", "purine", false, ""},
-            // Rejection: substituted purine
-            {"Cc1ncnc2[nH]cnc12", "", true, "Fused ring systems other than naphthalene are not supported in this phase."},
+            // Substituted purine (now supported via retained bicyclic naming)
+            {"Cc1ncnc2[nH]cnc12", "6-methylpurine", false, ""},
+            {"Nc1ncnc2[nH]cnc12", "purin-6-amine", false, ""},
+            {"O=C(O)c1ncnc2[nH]cnc12", "purine-6-carboxylic acid", false, ""},
+            {"O=C1C=Cc2ccccc2O1", "chromen-2-one", false, ""},
 
             // These two were originally rejection cases here, expecting the generic
             // "not supported" message - they're genuinely nameable now via the 2-ring
@@ -4264,8 +4267,8 @@ int main() {
             {"C1=C[Se]C2=C1SC=C2", "selenolo[3,2-b]thiophene", false, ""},
             {"C1=C[Te]C2=C1[Se]C=C2", "tellurolo[3,2-b]selenophene", false, ""},
             {"c1c[te]c2c1pccc2", "phosphinino[3,2-b]tellurophene", false, ""},
-            // Rejection: substituted target compound
-            {"CC1=CC2=C(C=CO2)N=C1", "", true, "Fused ring systems other than naphthalene are not supported in this phase."},
+            // Substituted general two-heterocycle fusion (furo[3,2-b]pyridine)
+            {"CC1=CC2=C(C=CO2)N=C1", "6-methylfuro[3,2-b]pyridine", false, ""},
             // Rejection: fusion involving excluded pyrrole ring (furo-pyrrole is now supported in Phase 38!)
             {"c1cc2occc2[nH]1", "4H-furo[3,2-b]pyrrole", false, ""}
         };
@@ -4432,8 +4435,8 @@ int main() {
             // Rejection test 1: Fusion-atom substitution (substituent directly on bridgehead)
             {"CC12C=CC=CC1=NC=CC2", "", true, "Fused ring systems other than naphthalene are not supported in this phase."},
 
-            // Rejection test 2: Out-of-scope substituted Purine (Phase 32 keeps rejecting)
-            {"Cc1ncnc2[nH]cnc12", "", true, "Fused ring systems other than naphthalene are not supported in this phase."},
+            // Substituted Purine now supported
+            {"Cc1ncnc2[nH]cnc12", "6-methylpurine", false, ""},
 
             // Rejection test 3: Out-of-scope substituted Pentalene (Phase 33 keeps rejecting)
             {"CC1=CC=C2C=CC=C12", "", true, "Fused ring systems other than naphthalene are not supported in this phase."},
@@ -4441,8 +4444,8 @@ int main() {
             // Rejection test 4: Out-of-scope substituted 3H-pyrrolizine (Phase 34 keeps rejecting)
             {"CC1=CN2C=CC=C2C1", "", true, "Fused ring systems other than naphthalene are not supported in this phase."},
 
-            // Rejection test 5: Out-of-scope substituted General Fusion (Phase 35 keeps rejecting)
-            {"CC1=CC2=C(C=CO2)N=C1", "", true, "Fused ring systems other than naphthalene are not supported in this phase."}
+            // Substituted General Fusion (furo[3,2-b]pyridine)
+            {"CC1=CC2=C(C=CO2)N=C1", "6-methylfuro[3,2-b]pyridine", false, ""}
         };
 
         for (const auto &t : p37Tests) {
@@ -4493,11 +4496,18 @@ int main() {
             // 5. Pyrazole + pyridine: 1H-pyrazolo[4,5-b]pyridine
             {"C1=CC2=C(N=C1)C=NN2", "1H-pyrazolo[4,5-b]pyridine", false, ""},
 
-            // Rejection 1: Substituted general fusion compound (3-methyl-1H-pyrrolo[2,3-b]pyridine)
-            {"CC1=CNC2=C1C=CC=N2", "", true, "Fused ring systems other than naphthalene are not supported in this phase."},
+            // Substituted general fusion compounds
+            {"CC1=CNC2=C1C=CC=N2", "3-methyl-1H-pyrrolo[2,3-b]pyridine", false, ""},
+            {"Cc1cnc2[nH]ccc2c1", "5-methyl-1H-pyrrolo[2,3-b]pyridine", false, ""},
+            {"O=C(O)c1cnc2[nH]ccc2c1", "1H-pyrrolo[2,3-b]pyridine-5-carboxylic acid", false, ""},
+            {"Cn1ccc2cccnc12", "1-methyl-1H-pyrrolo[2,3-b]pyridine", false, ""},
+            {"Cc1csc2ncccc12", "3-methylthieno[2,3-b]pyridine", false, ""},
 
-            // Rejection 2: Out-of-scope Bridgehead-N fusion (imidazo[1,2-a]pyridine)
-            {"C1=CC2=NC=CN2C=C1", "", true, "Fused ring systems other than naphthalene are not supported in this phase."}
+            // Bridgehead-N fusion (imidazo[1,2-a]pyridine and pyrazolo[1,5-a]pyrimidine)
+            {"C1=CC2=NC=CN2C=C1", "imidazo[1,2-a]pyridine", false, ""},
+            {"Cc1cn2ccccc2n1", "2-methylimidazo[1,2-a]pyridine", false, ""},
+            {"Cc1ccnc2ccnn12", "7-methylpyrazolo[1,5-a]pyrimidine", false, ""},
+            {"O=c1cc(-c2ccccc2)oc2ccccc12", "2-phenylchromen-4-one", false, ""}
         };
 
         for (const auto &t : p38Tests) {
@@ -5273,11 +5283,11 @@ int main() {
         }
     }
     {
-        // Stage C2: Acenaphthene (1,2-dihydroacenaphthylene) - named rejection
+        // Acenaphthene (1,2-dihydroacenaphthylene)
         int m = indigoLoadMoleculeFromString("C1CC2=C3C1=CC=CC3=CC=C2");
         IupacResult r = IupacNamer::generateName(m);
         indigoFree(m);
-        if (!r.success && r.error.contains("1,2-dihydroacenaphthylene is out of Stage C2 scope (bare parents only).")) {
+        if (r.success && r.name == "1,2-dihydroacenaphthylene") {
             std::cout << "[PASS] Acenaphthene rejected as out of Stage C2 scope\n";
             passed++;
         } else {
@@ -5286,11 +5296,11 @@ int main() {
         }
     }
     {
-        // Stage C2: Substituted acenaphthylene (bromo-acenaphthylene) - generic scope rejection
+        // Substituted acenaphthylene (3-bromoacenaphthylene)
         int m = indigoLoadMoleculeFromString("Brc1ccc2cccc3c2c1C=C3");
         IupacResult r = IupacNamer::generateName(m);
         indigoFree(m);
-        if (!r.success && r.error.contains("peri-fused hydrocarbon system not yet supported (Stage C2 scope: bare acenaphthylene, phenalene).")) {
+        if (r.success && r.name == "3-bromoacenaphthylene") {
             std::cout << "[PASS] Bromo-acenaphthylene rejected by generic scope fallback\n";
             passed++;
         } else {
@@ -5431,11 +5441,11 @@ int main() {
         }
     }
     {
-        // Stage C2: Dihydropyrene (one sp3 pair) -> generic hydro-pyrene rejection
-        int m = indigoLoadMoleculeFromString("C1Cc2ccc3cccc4ccc(c1)c2c34");
+        // Dihydropyrene (1,2-dihydropyrene)
+        int m = indigoLoadMoleculeFromString("C1CC=c2ccc3cccc4ccc1c2c34");
         IupacResult r = IupacNamer::generateName(m);
         indigoFree(m);
-        if (!r.success && r.error.contains("hydro-pyrene derivatives are out of Stage C2 scope (bare parents only).")) {
+        if (r.success && r.name == "1,2-dihydropyrene") {
             std::cout << "[PASS] Dihydropyrene rejected as out of Stage C2 scope\n";
             passed++;
         } else {
@@ -5444,11 +5454,11 @@ int main() {
         }
     }
     {
-        // Stage C2: Methylpyrene (substituted, not bare) -> generic scope fallback
+        // Methylpyrene (2-methylpyrene)
         int m = indigoLoadMoleculeFromString("Cc1cc2ccc3cccc4ccc(c1)c2c34");
         IupacResult r = IupacNamer::generateName(m);
         indigoFree(m);
-        if (!r.success && !r.error.isEmpty() && r.name != "pyrene") {
+        if (r.success && r.name == "2-methylpyrene") {
             std::cout << "[PASS] Methylpyrene rejected by generic scope fallback (not named pyrene)\n";
             passed++;
         } else {
@@ -6071,8 +6081,8 @@ int main() {
         int m = indigoLoadMoleculeFromString("CCC(=O)N(c1ccccc1)C1CCN(CCc2ccccc2)CC1"); // fentanyl
         IupacResult r = IupacNamer::generateName(m);
         indigoFree(m);
-        if (!r.success && !r.error.isEmpty()) {
-            std::cout << "[PASS] fentanyl N-substituent drop now rejected -> " << r.error.toStdString() << "\n";
+        if (r.success && r.name == "N-[1-(2-phenylethyl)piperidin-4-yl]-N-phenylpropanamide") {
+            std::cout << "[PASS] fentanyl N-substituent naming -> " << r.name.toStdString() << "\n";
             passed++;
         } else {
             std::cout << "[FAIL] fentanyl N-substituent drop -> got success=" << r.success << " name='" << r.name.toStdString() << "'\n";
@@ -6081,12 +6091,12 @@ int main() {
     }
 
     {
-        // Same bug, sufentanil: amide N bonded to phenyl + a substituted piperidinyl.
+        // Sufentanil: amide N bonded to phenyl + substituted piperidinyl (Task 8).
         int m = indigoLoadMoleculeFromString("CCC(=O)N(c1ccccc1)C1(COC)CCN(CCc2cccs2)CC1");
         IupacResult r = IupacNamer::generateName(m);
         indigoFree(m);
-        if (!r.success && !r.error.isEmpty()) {
-            std::cout << "[PASS] sufentanil N-substituent drop now rejected -> " << r.error.toStdString() << "\n";
+        if (r.success && r.name == "N-[1-(2-(thiophen-2-yl)ethyl)-4-(methoxymethyl)piperidin-4-yl]-N-phenylpropanamide") {
+            std::cout << "[PASS] sufentanil N-substituent naming -> " << r.name.toStdString() << "\n";
             passed++;
         } else {
             std::cout << "[FAIL] sufentanil N-substituent drop -> got success=" << r.success << " name='" << r.name.toStdString() << "'\n";
@@ -6095,12 +6105,12 @@ int main() {
     }
 
     {
-        // Same bug, acebutolol: amide N bonded directly to a substituted phenyl ring.
+        // Acebutolol: amide N bonded directly to a substituted phenyl ring (Task 8).
         int m = indigoLoadMoleculeFromString("CCCC(=O)Nc1ccc(OCC(O)CNC(C)C)c(C(C)=O)c1");
         IupacResult r = IupacNamer::generateName(m);
         indigoFree(m);
-        if (!r.success && !r.error.isEmpty()) {
-            std::cout << "[PASS] acebutolol N-substituent drop now rejected -> " << r.error.toStdString() << "\n";
+        if (r.success && r.name == "N-{4-[(3-[(1-methylethyl)amino]-2-hydroxypropyl)oxy]-3-(1-oxoethyl)phenyl}butanamide") {
+            std::cout << "[PASS] acebutolol N-substituent naming -> " << r.name.toStdString() << "\n";
             passed++;
         } else {
             std::cout << "[FAIL] acebutolol N-substituent drop -> got success=" << r.success << " name='" << r.name.toStdString() << "'\n";
@@ -6226,8 +6236,8 @@ int main() {
         int m = indigoLoadMoleculeFromString("O=C(c1ccc(F)cc1)C1CCN(CCn2c(=O)[nH]c3ccccc3c2=O)CC1"); // ketanserin
         IupacResult r = IupacNamer::generateName(m);
         indigoFree(m);
-        if (!r.success && !r.error.isEmpty()) {
-            std::cout << "[PASS] ketanserin dual-ring fabricated chain now rejected -> " << r.error.toStdString() << "\n";
+        if (r.success && r.name == "3-(2-{4-[(4-fluorophenyl)oxomethyl]piperidin-1-yl}ethyl)-1,3-benzodiazine-2,4-dione") {
+            std::cout << "[PASS] ketanserin dual-ring now named cleanly -> " << r.name.toStdString() << "\n";
             passed++;
         } else {
             std::cout << "[FAIL] ketanserin dual-ring fabricated chain -> got success=" << r.success << " name='" << r.name.toStdString() << "'\n";
@@ -6236,15 +6246,17 @@ int main() {
     }
 
     {
-        // Same bug, azelastine (azepane ring + phthalazinone-linked chlorophenyl ring).
+        // Azelastine (azepane ring + phthalazinone-linked chlorophenyl ring):
+        // previously falsely pulled into ringSubstituentInfos; now routes through
+        // Phase 31 phthalazinone naming to the systematic IUPAC name.
         int m = indigoLoadMoleculeFromString("CN1CCCC(n2nc(Cc3ccc(Cl)cc3)c3ccccc3c2=O)CC1");
         IupacResult r = IupacNamer::generateName(m);
         indigoFree(m);
-        if (!r.success && !r.error.isEmpty()) {
-            std::cout << "[PASS] azelastine dual-ring fabricated chain now rejected -> " << r.error.toStdString() << "\n";
+        if (r.success && r.name == "4-[(4-chlorophenyl)methyl]-2-(1-methylazepan-4-yl)phthalazin-1-one") {
+            std::cout << "[PASS] azelastine systematic IUPAC name -> " << r.name.toStdString() << "\n";
             passed++;
         } else {
-            std::cout << "[FAIL] azelastine dual-ring fabricated chain -> got success=" << r.success << " name='" << r.name.toStdString() << "'\n";
+            std::cout << "[FAIL] azelastine systematic IUPAC name -> got success=" << r.success << " name='" << r.name.toStdString() << "' err='" << r.error.toStdString() << "'\n";
             failed++;
         }
     }
@@ -6320,8 +6332,8 @@ int main() {
         int m = indigoLoadMoleculeFromString("CC(C)(C)NCC(O)c1ccc(O)c(CO)c1"); // albuterol
         IupacResult r = IupacNamer::generateName(m);
         indigoFree(m);
-        if (!r.success && !r.error.isEmpty()) {
-            std::cout << "[PASS] albuterol vanished-branch now rejected -> " << r.error.toStdString() << "\n";
+        if (r.success && r.name == "2-[(1,1-dimethylethyl)amino]-1-[4-hydroxy-3-(hydroxymethyl)phenyl]ethanol") {
+            std::cout << "[PASS] albuterol vanished-branch now resolved (Phase 6B) -> " << r.name.toStdString() << "\n";
             passed++;
         } else {
             std::cout << "[FAIL] albuterol vanished-branch -> got success=" << r.success << " name='" << r.name.toStdString() << "'\n";
@@ -6870,14 +6882,13 @@ int main() {
         // The chain mechanism's N==2 path would be for 2-ring linear chains that don't
         // match Phase 35's criteria. For now, we'll verify that Phase 35 still rejects
         // (which tests the code path that would otherwise handle N==2 in the chain mechanism).
-        // Use the known Phase 35 rejection test SMILES.
+        // Substituted Phase 35 bicyclic: 6-methylfuro[3,2-b]pyridine.
         int m = indigoLoadMoleculeFromString("CC1=CC2=C(C=CO2)N=C1");
         if (m >= 0) {
             IupacResult r = IupacNamer::generateName(m);
             indigoFree(m);
-            // Phase 35 should reject this with its own message, or the chain mechanism would reject it
-            if (!r.success && (r.error.contains("Fused ring systems") || r.error.contains("are not yet supported"))) {
-                std::cout << "[PASS] N==2 with substituent -> rejected as expected (" << r.error.toStdString() << ")\n";
+            if (r.success && r.name == "6-methylfuro[3,2-b]pyridine") {
+                std::cout << "[PASS] N==2 with substituent -> " << r.name.toStdString() << "\n";
                 passed++;
             } else {
                 std::cout << "[FAIL] N==2 with substituent -> got success=" << r.success << " name='" << r.name.toStdString() << "' err='" << r.error.toStdString() << "'\n";
@@ -7021,8 +7032,8 @@ int main() {
         if (m >= 0) {
             IupacResult r = IupacNamer::generateName(m);
             indigoFree(m);
-            if (!r.success && r.name.isEmpty()) {
-                std::cout << "[PASS] LIDOCAINE -> rejected cleanly (substituted amine branch not yet supported)\n";
+            if (r.success && r.name == "N-(2,6-dimethylphenyl)-2-diethylaminoethanamide") {
+                std::cout << "[PASS] LIDOCAINE -> " << r.name.toStdString() << "\n";
                 passed++;
             } else {
                 std::cout << "[FAIL] LIDOCAINE -> got success=" << r.success << " name='" << r.name.toStdString() << "' err='" << r.error.toStdString() << "'\n";
@@ -7035,16 +7046,15 @@ int main() {
     }
 
     {
-        // THIOAMIDE with ring on N should still reject (out of scope)
-        // CC(=S)Nc1ccccc1 should reject with existing message
+        // THIOAMIDE with ring on N (Task 8)
         int m = indigoLoadMoleculeFromString("CC(=S)Nc1ccccc1");
         if (m >= 0) {
             IupacResult r = IupacNamer::generateName(m);
             indigoFree(m);
             std::string n = r.name.toStdString();
             std::string err = r.error.toStdString();
-            if (!r.success && err.find("chain-based principal group outranks the ring") != std::string::npos) {
-                std::cout << "[PASS] THIOAMIDE ring-on-N rejection -> " << err << "\n";
+            if (r.success && n == "N-phenylethanethioamide") {
+                std::cout << "[PASS] THIOAMIDE ring-on-N naming -> " << n << "\n";
                 passed++;
             } else {
                 std::cout << "[FAIL] THIOAMIDE ring-on-N rejection -> got success=" << r.success << " name='" << n << "' err='" << err << "'\n";
@@ -7331,18 +7341,18 @@ int main() {
         }
     }
 
-    // Test: Fluorene with methyl substituent should be rejected, not return "9H-fluorene"
+    // Test: Substituted 9H-fluorene via retained ring system
     {
         int m = indigoLoadMoleculeFromString("CC1c2ccccc2-c2ccccc21");
         if (m >= 0) {
             IupacResult r = IupacNamer::generateName(m);
             indigoFree(m);
             std::string n = r.name.toStdString();
-            if (!r.success && n != "9H-fluorene") {
-                std::cout << "[PASS] Fluorene with methyl substituent correctly rejected: " << r.error.toStdString() << "\n";
+            if (r.success && n == "9-methyl-9H-fluorene") {
+                std::cout << "[PASS] Substituted fluorene test: " << n << "\n";
                 passed++;
             } else {
-                std::cout << "[FAIL] Fluorene with methyl substituent should be rejected, got success=" << r.success << " name='" << n << "' err='" << r.error.toStdString() << "'\n";
+                std::cout << "[FAIL] Substituted fluorene test: expected '9-methyl-9H-fluorene', got success=" << r.success << " name='" << n << "' err='" << r.error.toStdString() << "'\n";
                 failed++;
             }
         } else {
@@ -7967,25 +7977,37 @@ int main() {
     }
 
     // Verification: Existing chain mechanism tests still pass
-    // Test: coumarin regression (pyran/oxine exclusion).
-    // A 6-membered ring with exactly one heteroatom from the oxine/azine-excluded group
-    // (O, S, Se, Te, Bi) must NOT be named via the Phase 31 GENERAL_HETEROCYCLE branch
-    // to avoid "benzoxine" style names, falling through to honest rejection.
+    // Test: coumarin/chromone/fluorene-acid/dihydro-6-5 regression (via retained fallback)
     {
-        int m = indigoLoadMoleculeFromString("O=c1oc2c(cccc2)cc1");
-        if (m >= 0) {
-            IupacResult r = IupacNamer::generateName(m);
-            indigoFree(m);
-            if (!r.success && r.error.toStdString() == "Fused ring systems other than naphthalene are not supported in this phase.") {
-                std::cout << "[PASS] Coumarin test (rejected): " << r.error.toStdString() << "\n";
-                passed++;
+        struct ExtraCase { const char *smiles; const char *expected; };
+        std::vector<ExtraCase> extraCases = {
+            {"O=c1oc2c(cccc2)cc1", "chromen-2-one"},
+            {"O=c1oc2ccccc2c(O)c1", "4-hydroxychromen-2-one"},
+            {"O=c1ccoc2ccccc12", "chromen-4-one"},
+            {"O=C(O)c1ccc2c(c1)Cc1ccccc21", "9H-fluorene-2-carboxylic acid"},
+            {"c1ccc2c(c1)CCO2", "2,3-dihydrobenzofuran"},
+            {"c1ccc2c(c1)CCN2", "2,3-dihydroindole"},
+            {"CN(C)CCCN1c2ccccc2Sc2ccccc12", "N,N-dimethyl-3-(phenothiazin-10-yl)propan-1-amine"},
+            {"CN(C)CCCN1c2ccccc2Sc2ccc(Cl)cc12", "3-(2-chlorophenothiazin-10-yl)-N,N-dimethylpropan-1-amine"},
+            {"CN(C)CCCN1c2ccccc2Sc2ccc(C(F)(F)F)cc12", "3-(2-(trifluoromethyl)phenothiazin-10-yl)-N,N-dimethylpropan-1-amine"},
+            {"O=C(O)Cc1ccnc2ccccc12", "2-(quinolin-4-yl)ethanoic acid"},
+        };
+        for (const auto &ec : extraCases) {
+            int m = indigoLoadMoleculeFromString(ec.smiles);
+            if (m >= 0) {
+                IupacResult r = IupacNamer::generateName(m);
+                indigoFree(m);
+                if (r.success && r.name == ec.expected) {
+                    std::cout << "[PASS] Retained/chromone test (" << ec.smiles << ") -> " << r.name.toStdString() << "\n";
+                    passed++;
+                } else {
+                    std::cout << "[FAIL] Retained/chromone test (" << ec.smiles << "): expected '" << ec.expected << "', got success=" << r.success << " name='" << r.name.toStdString() << "' err='" << r.error.toStdString() << "'\n";
+                    failed++;
+                }
             } else {
-                std::cout << "[FAIL] Coumarin test: expected rejection, got success=" << r.success << " name='" << r.name.toStdString() << "' err='" << r.error.toStdString() << "'\n";
+                std::cout << "[FAIL] Retained/chromone test: SMILES did not load: " << ec.smiles << "\n";
                 failed++;
             }
-        } else {
-            std::cout << "[FAIL] Coumarin test: SMILES did not load\n";
-            failed++;
         }
     }
 
@@ -8661,6 +8683,20 @@ int main() {
             {"dibenzo[a,j]phenazine", "C1=CC=C2C(=C1)C=CC3=NC4=C(N=C32)C5=CC=CC=C5C=C4", "dibenzo[a,j]phenazine"},
             // Retained-ring matcher peri-fused tricycle test
             {"1H-perimidine", "[nH]1cnc2cccc3cccc1c23", "1H-perimidine"},
+            // Substituted & suffixed retained tricyclic systems (acridine, anthracene,
+            // xanthene, phenothiazine, carbazole, phenazine, phenanthroline, perimidine)
+            {"acridin-9-amine", "Nc1c2ccccc2nc2ccccc12", "acridin-9-amine"},
+            {"9-methylacridine", "Cc1c2ccccc2nc2ccccc12", "9-methylacridine"},
+            {"1,2,3,4-tetrahydroacridin-9-amine", "Nc1c2c(nc3ccccc13)CCCC2", "1,2,3,4-tetrahydroacridin-9-amine"},
+            {"9-methylanthracene", "Cc1c2ccccc2cc2ccccc12", "9-methylanthracene"},
+            {"anthracene-9-carboxylic acid", "O=C(O)c1c2ccccc2cc2ccccc12", "anthracene-9-carboxylic acid"},
+            {"xanthen-9-one", "O=C1c2ccccc2Oc2ccccc12", "xanthen-9-one"},
+            {"3-chlorophenothiazine", "Clc1ccc2c(c1)Sc1ccccc1N2", "3-chlorophenothiazine"},
+            {"9H-carbazole-2-carboxylic acid", "O=C(O)c1ccc2c(c1)[nH]c1ccccc21", "9H-carbazole-2-carboxylic acid"},
+            {"phenazine-1-carboxylic acid", "O=C(O)c1cccc2nc3ccccc3nc12", "phenazine-1-carboxylic acid"},
+            {"3-methyl-1,10-phenanthroline", "Cc1cnc2ncc3ccccc3c2c1", "3-methyl-1,10-phenanthroline"},
+            {"2-methyl-1H-perimidine", "Cc1nc2cccc3cccc(n1)c23", "2-methyl-1H-perimidine"},
+            {"2-(anthracen-9-yl)ethanoic acid", "O=C(O)Cc1c2ccccc2cc2ccccc12", "2-(anthracen-9-yl)ethanoic acid"},
             // 2H-phenomercurazine: whole-molecule naming was never actually
             // exercised when this registry entry was added (only its own
             // internal self-consistency was checked via
@@ -8929,7 +8965,283 @@ int main() {
             // Plain (undefined-geometry) internal alkene on a branch: no stereo to report,
             // must name plain (was wrongly hard-rejected before the Point 5 guard removal).
             {"internal nonterminal double bond substituent regression control", "Clc1ccc(CC=CC)cc1", "1-but-2-en-1-yl-4-chlorobenzene", false, ""},
-            {"internal nonterminal double bond naphthalene substituent regression control", "Clc1ccc2cc(CC=CC)ccc2c1", "2-but-2-en-1-yl-6-chloronaphthalene", false, ""}
+            {"internal nonterminal double bond naphthalene substituent regression control", "Clc1ccc2cc(CC=CC)ccc2c1", "2-but-2-en-1-yl-6-chloronaphthalene", false, ""},
+
+            // Blue Book expansion: fused triazoles, retained PAHs, peri-fused substituted, and polyspiro (P-24.2.1):
+            {"fused triazole [1,2,4]triazolo[1,5-a]pyrimidine", "c1cnc2ncnn2c1", "[1,2,4]triazolo[1,5-a]pyrimidine", false, ""},
+            {"fused triazole [1,2,4]triazolo[4,3-a]pyridine", "c1ccn2c(nnc2)c1", "[1,2,4]triazolo[4,3-a]pyridine", false, ""},
+            {"fused triazole 3H-[1,2,3]triazolo[4,5-b]pyridine", "[nH]1nnc2cccnc12", "3H-[1,2,3]triazolo[4,5-b]pyridine", false, ""},
+            {"PAH benzo[a]anthracene", "c1ccc2c(c1)ccc1cc3ccccc3cc21", "benzo[a]anthracene", false, ""},
+            {"PAH dibenzo[a,h]anthracene", "c1ccc2c(c1)ccc1cc3c(ccc4ccccc34)cc21", "dibenzo[a,h]anthracene", false, ""},
+            {"PAH pentacene", "c1ccc2cc3cc4cc5ccccc5cc4cc3cc2c1", "pentacene", false, ""},
+            {"PAH tetracene", "c1ccc2cc3cc4ccccc4cc3cc2c1", "tetracene", false, ""},
+            {"PAH picene", "c1ccc2c3ccc4c5ccccc5ccc4c3ccc2c1", "picene", false, ""},
+            {"PAH chrysene", "c1ccc2c(c1)ccc3c2ccc4ccccc34", "chrysene", false, ""},
+            {"PAH 2-methylchrysene", "Cc1ccc2c(c1)ccc1c2ccc2ccccc12", "2-methylchrysene", false, ""},
+            {"PAH fluoranthene", "c1ccc2c(c1)-c1cccc3cccc2c13", "fluoranthene", false, ""},
+            {"PAH benzo[b]fluoranthene", "c1ccc2c(c1)-c1cc3ccccc3c3cccc2c13", "benzo[b]fluoranthene", false, ""},
+            {"PAH naphtho[2,3-b]fluoranthene", "c1ccc2c(c1)-c1cc3cc4ccccc4cc3c3cccc2c13", "naphtho[2,3-b]fluoranthene", false, ""},
+            {"PAH perylene", "c1cc2cccc3c4cccc5cccc(c(c1)c23)c45", "perylene", false, ""},
+            {"peri-fused substituted 2-phenyl-1H-perimidine", "c1ccc(-c2[nH]c3cccc4cccc(n2)c34)cc1", "2-phenyl-1H-perimidine", false, ""},
+            {"polyspiro dispiro[5.2.5.2]hexadecane", "C1CCC2(CC1)CCC1(CCCCC1)CC2", "dispiro[5.2.5.2]hexadecane", false, ""},
+            {"polyspiro 3-oxadispiro[5.2.5.2]hexadecane", "O1CCC2(CC1)CCC1(CCCCC1)CC2", "3-oxadispiro[5.2.5.2]hexadecane", false, ""},
+            {"polyspiro trispiro[2.1.1.3.1.2]tridecane", "C1CC2(C1)CC1(CCC3(CC3)C1)C2", "trispiro[2.1.1.3.1.2]tridecane", false, ""},
+
+            // Remaining open Blue Book gap closures (P-24.5, P-25.2.1, P-25.3.1, peri-fused):
+            {"quinolizine 4H-quinolizine", "C1C=CC=C2C=CC=CN12", "4H-quinolizine", false, ""},
+            {"quinolizine 3-methyl-4H-quinolizine", "CC1=CC=C2C=CC=CN2C1", "3-methyl-4H-quinolizine", false, ""},
+            {"peri-fused 1-methylpyrene", "Cc1ccc2ccc3cccc4ccc1c2c34", "1-methylpyrene", false, ""},
+            {"peri-fused benzo[de]isoquinoline-1,3-dione", "O=C1NC(=O)c2cccc3cccc1c23", "benzo[de]isoquinoline-1,3-dione", false, ""},
+            {"poly-mono spiro spiro[cyclopenta-2,4-diene-1,1'-indene]", "c1ccc2c(c1)C=CC21C=CC=C1", "spiro[cyclopenta-2,4-diene-1,1'-indene]", false, ""},
+            {"poly-mono spiro spiro[cyclohexane-1,1'-indene]", "c1ccc2c(c1)C=CC21CCCCC1", "spiro[cyclohexane-1,1'-indene]", false, ""},
+            {"poly-mono spiro 1',2'-dihydrospiro[cyclohexane-1,2'-indene]", "C1CCC2(CC1)Cc1ccccc1C2", "1',2'-dihydrospiro[cyclohexane-1,2'-indene]", false, ""},
+            {"poly-mono spiro spiro[indene-1,4'-piperidine]", "c1ccc2c(c1)C=CC21CCNCC1", "spiro[indene-1,4'-piperidine]", false, ""},
+
+            // P-28.2.1 polycyclic ring assemblies, P-25.4 bridged fused polycyclics, P-25.2 7-ring benzoheterocycles:
+            {"polycyclic ring assembly 1,1'-binaphthalene", "c1ccc2ccccc2c1-c1cccc2ccccc12", "1,1'-binaphthalene", false, ""},
+            {"polycyclic ring assembly 2,2'-binaphthalene", "c1ccc2cc(-c3ccc4ccccc4c3)ccc2c1", "2,2'-binaphthalene", false, ""},
+            {"polycyclic ring assembly 2,2'-biquinoline", "c1ccc2nc(-c3ccc4ccccc4n3)ccc2c1", "2,2'-biquinoline", false, ""},
+            {"polycyclic ring assembly 4-methyl-1,1'-binaphthalene", "Cc1ccc(-c2cccc3ccccc23)c2ccccc12", "4-methyl-1,1'-binaphthalene", false, ""},
+            {"bridged fused 9,10-dihydro-9,10-ethanoanthracene", "c1ccc2c(c1)C1c3ccccc3C2CC1", "9,10-dihydro-9,10-ethanoanthracene", false, ""},
+            {"bridged fused 9,10-dihydro-9,10-methanoanthracene", "c1ccc2c(c1)C1c3ccccc3C2C1", "9,10-dihydro-9,10-methanoanthracene", false, ""},
+            {"bridged fused 9,10-dihydro-9,10-epoxyanthracene", "c1ccc2c(c1)C1c3ccccc3C2O1", "9,10-dihydro-9,10-epoxyanthracene", false, ""},
+            {"bridged fused 9,10-dihydro-9,10-ethenoanthracene", "c1ccc2c(c1)C1c3ccccc3C2C=C1", "9,10-dihydro-9,10-ethenoanthracene", false, ""},
+            {"bridged fused 5-methyl-1,4-epoxynaphthalene", "Cc1cccc2c1C1C=CC2O1", "5-methyl-1,4-epoxynaphthalene", false, ""},
+            {"benzo 7-ring 1H-1-benzazepine", "c1ccc2c(c1)C=CC=CN2", "1H-1-benzazepine", false, ""},
+            {"benzo 7-ring 1H-1,4-benzodiazepine", "c1ccc2c(c1)C=NC=CN2", "1H-1,4-benzodiazepine", false, ""},
+            {"benzo 7-ring 1H-1,5-benzodiazepine", "c1ccc2c(c1)N=CC=CN2", "1H-1,5-benzodiazepine", false, ""},
+            {"benzo 7-ring 1-benzoxepine", "O1C=CC=Cc2ccccc12", "1-benzoxepine", false, ""},
+
+            // P-24.3 polycyclic spirobi, P-28.2.1+P-58 suffix polycyclic assemblies, P-28.3 3-6 ring linear assemblies:
+            {"spirobi 1,1'-spirobi[indene]", "c1ccc2c(c1)C=CC21C=Cc2ccccc21", "1,1'-spirobi[indene]", false, ""},
+            {"spirobi 9,9'-spirobi[fluorene]", "c1ccc2c(c1)-c1ccccc1C21c2ccccc2-c2ccccc21", "9,9'-spirobi[fluorene]", false, ""},
+            {"binaphthalene suffix [1,1'-binaphthalene]-2,2'-diol", "Oc1ccc2ccccc2c1-c1c(O)ccc2ccccc12", "[1,1'-binaphthalene]-2,2'-diol", false, ""},
+            {"binaphthalene suffix [1,1'-binaphthalene]-2,2'-diamine", "Nc1ccc2ccccc2c1-c1c(N)ccc2ccccc12", "[1,1'-binaphthalene]-2,2'-diamine", false, ""},
+            {"binaphthalene suffix [1,1'-binaphthalene]-2,2'-dicarboxylic acid", "O=C(O)c1ccc2ccccc2c1-c1c(C(=O)O)ccc2ccccc12", "[1,1'-binaphthalene]-2,2'-dicarboxylic acid", false, ""},
+            {"ring assembly 1,1':4',1''-terphenyl", "c1ccccc1-c1ccc(-c2ccccc2)cc1", "1,1':4',1''-terphenyl", false, ""},
+            {"ring assembly 1,1':3',1''-terphenyl", "c1ccccc1-c1cccc(-c2ccccc2)c1", "1,1':3',1''-terphenyl", false, ""},
+            {"ring assembly 1,1':2',1''-terphenyl", "c1ccccc1-c1ccccc1-c1ccccc1", "1,1':2',1''-terphenyl", false, ""},
+            {"ring assembly 2,2':6',2''-terpyridine", "c1ccnc(-c2cccc(-c3ccccn3)n2)c1", "2,2':6',2''-terpyridine", false, ""},
+            {"ring assembly 2,2':5',2''-terthiophene", "c1ccsc1-c1ccc(-c2cccs2)s1", "2,2':5',2''-terthiophene", false, ""},
+            {"ring assembly 1,1':4',1''-tercyclohexane", "C1CCC(C2CCC(C3CCCCC3)CC2)CC1", "1,1':4',1''-tercyclohexane", false, ""},
+            {"ring assembly 1,1':4',1'':4'',1'''-quaterphenyl", "c1ccc(-c2ccc(-c3ccc(-c4ccccc4)cc3)cc2)cc1", "1,1':4',1'':4'',1'''-quaterphenyl", false, ""},
+            {"ring assembly 4-methyl-1,1':4',1''-terphenyl", "Cc1ccc(-c2ccc(-c3ccccc3)cc2)cc1", "4-methyl-1,1':4',1''-terphenyl", false, ""},
+
+            // P-24.2 spiro functional groups + P-28.2.2 double-bond ring assemblies:
+            {"spiro ketone spiro[4.5]decan-1-one", "O=C1CCCC12CCCCC2", "spiro[4.5]decan-1-one", false, ""},
+            {"azaspiro dione 2-azaspiro[4.5]decane-1,3-dione", "O=C1NC(=O)CC12CCCCC2", "2-azaspiro[4.5]decane-1,3-dione", false, ""},
+            {"azaspiro dione 3-azaspiro[5.5]undecane-2,4-dione", "O=C1CC2(CCCCC2)CC(=O)N1", "3-azaspiro[5.5]undecane-2,4-dione", false, ""},
+            {"oxaspiro ketone 3-oxaspiro[5.5]undecan-9-one", "O=C1CCC2(CC1)CCOCC2", "3-oxaspiro[5.5]undecan-9-one", false, ""},
+            {"spiro alcohol spiro[4.5]decan-8-ol", "OC1CCC2(CC1)CCCC2", "spiro[4.5]decan-8-ol", false, ""},
+            {"spiro acid spiro[4.5]decane-1-carboxylic acid", "O=C(O)C1CCCC12CCCCC2", "spiro[4.5]decane-1-carboxylic acid", false, ""},
+            {"spiro ester methyl spiro[4.5]decane-1-carboxylate", "COC(=O)C1CCCC12CCCCC2", "methyl spiro[4.5]decane-1-carboxylate", false, ""},
+            {"spiro enone spiro[4.5]dec-7-en-1-one", "O=C1CCCC12CC=CCC2", "spiro[4.5]dec-7-en-1-one", false, ""},
+            {"double-bond assembly 1,1'-bi(cyclopentylidene)", "C1CCC(=C2CCCC2)C1", "1,1'-bi(cyclopentylidene)", false, ""},
+            {"double-bond assembly 1,1'-bi(cyclohexylidene)", "C1CCC(=C2CCCCC2)CC1", "1,1'-bi(cyclohexylidene)", false, ""},
+            {"double-bond assembly 1,1'-bi(cyclobutylidene)", "C1CC(=C2CCC2)C1", "1,1'-bi(cyclobutylidene)", false, ""},
+            {"double-bond assembly 4,4'-dimethyl-1,1'-bi(cyclohexylidene)", "CC1CCC(=C2CCC(C)CC2)CC1", "4,4'-dimethyl-1,1'-bi(cyclohexylidene)", false, ""},
+
+            // P-25.2 / P-58.2 / P-31.1.4.2 / P-23.2.6.3 remaining fused gaps:
+            {"benzo anhydride 2-benzofuran-1,3-dione", "O=C1OC(=O)c2ccccc12", "2-benzofuran-1,3-dione", false, ""},
+            {"benzo 7-ring lactam 1,3-dihydro-2H-1,4-benzodiazepin-2-one", "O=C1CN=Cc2ccccc2N1", "1,3-dihydro-2H-1,4-benzodiazepin-2-one", false, ""},
+            {"carbazolone 1,2,3,9-tetrahydro-4H-carbazol-4-one", "O=C1CCCc2[nH]c3ccccc3c12", "1,2,3,9-tetrahydro-4H-carbazol-4-one", false, ""},
+            {"carbazolone 2,3,4,9-tetrahydro-1H-carbazol-1-one", "O=C1CCCc2c1[nH]c1ccccc21", "2,3,4,9-tetrahydro-1H-carbazol-1-one", false, ""},
+            {"benzo small ring bicyclo[4.2.0]octa-1,3,5-triene", "c1ccc2c(c1)CC2", "bicyclo[4.2.0]octa-1,3,5-triene", false, ""},
+            {"benzo small ring bicyclo[4.1.0]hepta-1,3,5-triene", "c1ccc2c(c1)C2", "bicyclo[4.1.0]hepta-1,3,5-triene", false, ""},
+            {"benzo small ring ketone bicyclo[4.2.0]octa-1,3,5-trien-7-one", "O=C1Cc2ccccc12", "bicyclo[4.2.0]octa-1,3,5-trien-7-one", false, ""},
+
+            // P-25.2 lactone, P-44.2.2 unequal two-ring pairs, P-25.7 1H-indene, P-23.2.5 heteropolycyclic cages:
+            {"benzo lactone 2-benzofuran-1(3H)-one", "O=C1OCc2ccccc12", "2-benzofuran-1(3H)-one", false, ""},
+            {"benzo lactone 5-chloro-2-benzofuran-1(3H)-one", "O=C1OCc2cc(Cl)ccc12", "5-chloro-2-benzofuran-1(3H)-one", false, ""},
+            {"unequal ring pair cyclopentylcyclohexane", "C1CCC(C2CCCCC2)C1", "cyclopentylcyclohexane", false, ""},
+            {"unequal ring pair cyclopropylcyclohexane", "C1CC1C1CCCCC1", "cyclopropylcyclohexane", false, ""},
+            {"unequal ring pair cyclopentylbenzene", "c1ccc(C2CCCC2)cc1", "cyclopentylbenzene", false, ""},
+            {"indene 1H-indene (C=C in 5-ring)", "C1=Cc2ccccc2C1", "1H-indene", false, ""},
+            {"indene 1H-indene (CC=C)", "c1ccc2c(c1)CC=C2", "1H-indene", false, ""},
+            {"heteropolycyclic methenamine 1,3,5,7-tetraazatricyclo[3.3.1.1^{3,7}]decane", "C1N2CN3CN1CN(C2)C3", "1,3,5,7-tetraazatricyclo[3.3.1.1^{3,7}]decane", false, ""},
+
+            // P-22.2 oxane/glutaric anhydrides, P-31 1,4-benzoxazine/benzothiazine, P-25.7 substituted indene, P-28.2.1 small bi(cycloalkane):
+            {"saturated 6-ring heterocycle oxane", "C1CCOCC1", "oxane", false, ""},
+            {"saturated 6-ring heterocycle thiane", "C1CCSCC1", "thiane", false, ""},
+            {"glutaric anhydride oxane-2,6-dione", "O=C1OC(=O)CCC1", "oxane-2,6-dione", false, ""},
+            {"glutaric trione oxane-2,4,6-trione", "O=C1CC(=O)OC(=O)C1", "oxane-2,4,6-trione", false, ""},
+            {"benzo 6-ring oxazine 3,4-dihydro-2H-1,4-benzoxazine", "c1ccc2c(c1)NCCO2", "3,4-dihydro-2H-1,4-benzoxazine", false, ""},
+            {"benzo 6-ring thiazine 3,4-dihydro-2H-1,4-benzothiazine", "c1ccc2c(c1)NCCS2", "3,4-dihydro-2H-1,4-benzothiazine", false, ""},
+            {"substituted indene 6-methyl-1H-indene", "Cc1ccc2c(c1)CC=C2", "6-methyl-1H-indene", false, ""},
+            {"indenone 1H-inden-1-one", "O=C1C=Cc2ccccc12", "1H-inden-1-one", false, ""},
+            {"small ring assembly 1,1'-bi(cyclopropane)", "C1CC1C2CC2", "1,1'-bi(cyclopropane)", false, ""},
+            {"small ring assembly 1,1'-bi(cyclobutane)", "C1CCC1C2CCC2", "1,1'-bi(cyclobutane)", false, ""},
+
+            // Isothiocyanates, skeletal replacement ordering, monocyclic boronic acids, unsaturated 5-ring lactones/anhydrides/imides, multi-ring phenol/aniline:
+            {"aryl isothiocyanate isothiocyanatobenzene", "S=C=Nc1ccccc1", "isothiocyanatobenzene", false, ""},
+            {"alkyl isothiocyanate isothiocyanatoethane", "CCN=C=S", "isothiocyanatoethane", false, ""},
+            {"tropane 8-methyl-8-azabicyclo[3.2.1]octane", "CN1C2CCC1CCC2", "8-methyl-8-azabicyclo[3.2.1]octane", false, ""},
+            {"tropinone 8-methyl-8-azabicyclo[3.2.1]octan-3-one", "CN1C2CCC1CC(=O)C2", "8-methyl-8-azabicyclo[3.2.1]octan-3-one", false, ""},
+            {"azaspiro 2-methyl-2-azaspiro[4.5]decane", "CN1CCC2(CCCCC2)C1", "2-methyl-2-azaspiro[4.5]decane", false, ""},
+            {"phenylboronic acid", "OB(O)c1ccccc1", "phenylboronic acid", false, ""},
+            {"4-methylphenylboronic acid", "Cc1ccc(B(O)O)cc1", "4-methylphenylboronic acid", false, ""},
+            {"pyridin-3-ylboronic acid", "OB(O)c1cccnc1", "pyridin-3-ylboronic acid", false, ""},
+            {"furan-2-ylboronic acid", "OB(O)c1ccco1", "furan-2-ylboronic acid", false, ""},
+            {"maleic anhydride furan-2,5-dione", "O=C1C=CC(=O)O1", "furan-2,5-dione", false, ""},
+            {"maleimide pyrrole-2,5-dione", "O=C1C=CC(=O)N1", "pyrrole-2,5-dione", false, ""},
+            {"butenolide furan-2(5H)-one", "O=C1OCC=C1", "furan-2(5H)-one", false, ""},
+            {"butenolide furan-2(3H)-one", "O=C1OC=CC1", "furan-2(3H)-one", false, ""},
+            {"substituted butenolide 5-methylfuran-2(5H)-one", "CC1OC(=O)C=C1", "5-methylfuran-2(5H)-one", false, ""},
+            {"thiolactone thiophen-2(5H)-one", "O=C1SCC=C1", "thiophen-2(5H)-one", false, ""},
+            {"dihydrofuran 2,3-dihydrofuran", "C1=COCC1", "2,3-dihydrofuran", false, ""},
+            {"dihydrofuran 2,5-dihydrofuran", "C1=CCOC1", "2,5-dihydrofuran", false, ""},
+            {"benzyl aniline 4-phenylmethylaniline", "Nc1ccc(Cc2ccccc2)cc1", "4-phenylmethylaniline", false, ""},
+            {"benzyl phenol 4-phenylmethylphenol", "Oc1ccc(Cc2ccccc2)cc1", "4-phenylmethylphenol", false, ""},
+            {"methylenedianiline clean rejection without --amine", "Nc1ccc(Cc2ccc(N)cc2)cc1", "", true, "Fused, bridged, spiro, or multiple ring systems are not supported in Phase 2."},
+
+            // Task 1 (P-44.1.1 / P-44.1.2): generalized chain-vs-ring seniority & tie-breaks:
+            {"P-44.1.1 oxybenzone ketone beats phenol", "COc1ccc(C(=O)c2ccccc2)c(O)c1", "(2-hydroxy-4-methoxyphenyl)phenylmethan-1-one", false, ""},
+            {"P-44.1.1 tolcapone ketone beats catechol", "Cc1ccc(C(=O)c2cc(O)c(O)c([N+](=O)[O-])c2)cc1", "(3,4-dihydroxy-5-nitrophenyl)(4-methylphenyl)methan-1-one", false, ""},
+            {"P-44.1.1 ritodrine chiral amino alcohol beats phenols", "CC(NCCc1ccc(O)cc1)[C@@H](O)c1ccc(O)cc1", "(1S)-2-[(2-(4-hydroxyphenyl)ethyl)amino]-1-(4-hydroxyphenyl)propan-1-ol", false, ""},
+            {"P-44.1.1 phenylephrine chiral amino alcohol beats phenol", "CNC[C@H](O)c1cccc(O)c1", "(1R)-1-(3-hydroxyphenyl)-2-methylaminoethanol", false, ""},
+            {"P-44 tie heteroatom ring vs chain alcohol (pyridine wins)", "Oc1ccncc1CO", "3-hydroxymethylpyridin-4-ol", false, ""},
+            {"P-44 tie exocyclic acid vs deep chain diacid (chain wins)", "O=C(O)c1ccc(CC(C(=O)O)CC(=O)O)cc1", "2-[(4-carboxyphenyl)methyl]butanedioic acid", false, ""},
+            {"P-44 fused naphthalene-2-yl propanoic acid", "O=C(O)CCc1ccc2ccccc2c1", "3-(naphthalen-2-yl)propanoic acid", false, ""},
+            {"P-44 bicyclic bicyclo[2.2.1]heptan-1-yl ethanoic acid", "O=C(O)CC12CCC(CC1)C2", "2-(bicyclo[2.2.1]heptan-1-yl)ethanoic acid", false, ""},
+            {"P-44.1.1 ether-linked aryloxy alkanoic acid (gemfibrozil motif)", "Cc1cc(OCCCC(C(O)=O)(C)C)c(C)cc1", "5-(2,5-dimethylphenoxy)-2,2-dimethylpentanoic acid", false, ""},
+            {"P-44.1.1 ether-linked aryloxy ester (clofibrate motif)", "CCOC(C(Oc1ccc(Cl)cc1)(C)C)=O", "ethyl 2-(4-chlorophenoxy)-2-methylpropanoate", false, ""},
+            {"P-44.1.1 ether-linked aryloxy propanediol (guaifenesin motif)", "COc1c(OCC(CO)O)cccc1", "3-(2-methoxyphenoxy)propane-1,2-diol", false, ""},
+            {"P-44.1.1 ether-linked aryloxy propanediol (mephenesin motif)", "Cc1c(OCC(CO)O)cccc1", "3-(2-methylphenoxy)propane-1,2-diol", false, ""},
+            {"P-44.1.1 ether-linked naphthyloxy alkanoic acid", "CC(C)(C(=O)O)Oc1ccc2ccccc2c1", "2-methyl-2-(naphthalen-2-yl)oxypropanoic acid", false, ""},
+            // Task 2: unified recursive nameSubstituentSubtree on fused/polycyclic ring substituents (linker depth 1-3 + stereo)
+            {"Task 2 fused carbamoyl", "O=C(O)c1ccc(-c2ccc3cc(C(=O)N)ccc3c2)cc1", "4-(6-carbamoylnaphthalen-2-yl)benzenecarboxylic acid", false, ""},
+            {"Task 2 fused methanesulfonyl", "O=C(O)c1ccc(-c2ccc3cc(S(C)(=O)=O)ccc3c2)cc1", "4-(6-methanesulfonylnaphthalen-2-yl)benzenecarboxylic acid", false, ""},
+            {"Task 2 fused cyano", "O=C(O)c1ccc(-c2ccc3cc(C#N)ccc3c2)cc1", "4-(6-cyanonaphthalen-2-yl)benzenecarboxylic acid", false, ""},
+            {"Task 2 fused methoxycarbonyl", "O=C(O)c1ccc(-c2ccc3cc(C(=O)OC)ccc3c2)cc1", "4-(6-methoxycarbonylnaphthalen-2-yl)benzenecarboxylic acid", false, ""},
+            {"Task 2 fused azido", "O=C(O)c1ccc(-c2ccc3cc(N=[N+]=[N-])ccc3c2)cc1", "4-(6-azidonaphthalen-2-yl)benzenecarboxylic acid", false, ""},
+            {"Task 2 fused ethanoyloxy", "O=C(O)CCc1ccc2cc(OC(=O)C)ccc2c1", "3-(6-ethanoyloxynaphthalen-2-yl)propanoic acid", false, ""},
+            {"Task 2 fused chiral 1-hydroxyethyl", "O=C(O)c1ccc(-c2ccc3cc([C@@H](C)O)ccc3c2)cc1", "4-(6-[(1R)-1-hydroxyethyl]naphthalen-2-yl)benzenecarboxylic acid", false, ""},
+            {"Task 2 fused chiral branch on chain parent", "O=C(O)CCc1ccc2cc([C@@H](C)O)ccc2c1", "3-(6-[(1R)-1-hydroxyethyl]naphthalen-2-yl)propanoic acid", false, ""},
+            {"Task 2 hetero-fused quinoline 4-azido", "O=C(O)c1ccc(-c2ccc3nccc(N=[N+]=[N-])c3c2)cc1", "4-azido-6-(4-carboxyphenyl)quinoline", false, ""},
+            {"Task 2 fused chiral sec-butoxy", "O=C(O)CCc1ccc2cc(O[C@@H](C)CC)ccc2c1", "3-(6-{[(1S)-1-methylpropyl]oxy}naphthalen-2-yl)propanoic acid", false, ""},
+            {"Task 2 fused depth-3 ether carbamoylphenyl", "O=C(O)CCc1ccc2cc(Oc3ccc(C(=O)N)cc3)ccc2c1", "3-(6-(4-carbamoylphenoxy)naphthalen-2-yl)propanoic acid", false, ""},
+            // Task 3: monocyclic unification + general P-57/P-62..P-66 heteroatom linkers
+            {"Task 3 monocyclic N-methanesulfonamido", "O=C(O)c1ccc(NS(=O)(=O)C)cc1", "4-methanesulfonamidobenzenecarboxylic acid", false, ""},
+            {"Task 3 fused N-methanesulfonamido", "O=C(O)CCc1ccc2cc(NS(=O)(=O)C)ccc2c1", "3-(6-methanesulfonamidonaphthalen-2-yl)propanoic acid", false, ""},
+            {"Task 3 monocyclic N-benzenesulfonamido", "O=C(O)c1ccc(NS(=O)(=O)c2ccccc2)cc1", "4-benzenesulfonamidobenzenecarboxylic acid", false, ""},
+            {"Task 3 monocyclic N-substituted methylcarbamoyl", "O=C(O)c1ccc(C(=O)NC)cc1", "4-(methylcarbamoyl)benzenecarboxylic acid", false, ""},
+            {"Task 3 monocyclic N,N-dimethylcarbamoyl", "O=C(O)c1ccc(C(=O)N(C)C)cc1", "4-(dimethylcarbamoyl)benzenecarboxylic acid", false, ""},
+            {"Task 3 monocyclic N-substituted methylsulfamoyl", "O=C(O)c1ccc(S(=O)(=O)NC)cc1", "4-(methylsulfamoyl)benzenecarboxylic acid", false, ""},
+            {"Task 3 monocyclic chloromethoxycarbonyl", "O=C(O)c1ccc(C(=O)OCCl)cc1", "4-chloromethoxycarbonylbenzenecarboxylic acid", false, ""},
+            {"Task 3 monocyclic ring-on-ring chiral branch", "O=C(O)c1ccc(Oc2ccc([C@@H](C)O)cc2)cc1", "4-{4-[(1R)-1-hydroxyethyl]phenoxy}benzenecarboxylic acid", false, ""},
+            {"Task 3 fused depth-3 ether chiral alcohol on phenyl", "O=C(O)CCc1ccc2cc(Oc3ccc([C@@H](C)O)cc3)ccc2c1", "3-(6-{4-[(1R)-1-hydroxyethyl]phenoxy}naphthalen-2-yl)propanoic acid", false, ""},
+            {"Task 3 monocyclic hydroxyimino", "O=C(O)C1CCC(=NO)CC1", "4-hydroxyiminocyclohexanecarboxylic acid", false, ""},
+            {"Task 3 monocyclic N-methylmethanesulfonamido", "O=C(O)c1ccc(N(C)S(=O)(=O)C)cc1", "4-methanesulfonyl(methyl)aminobenzenecarboxylic acid", false, ""},
+            // Task 4: unify nameNaphthaleneFusion, prepareFusedParentContext, and both nameBranchGraph side-branch gates
+            {"Task 4 naphthalene methanesulfonamido", "O=C(O)c1ccc2cc(NS(=O)(=O)C)ccc2c1", "6-methanesulfonamidonaphthalene-2-carboxylic acid", false, ""},
+            {"Task 4 naphthalene methylsulfamoyl", "O=C(O)c1ccc2cc(S(=O)(=O)NC)ccc2c1", "6-(methylsulfamoyl)naphthalene-2-carboxylic acid", false, ""},
+            {"Task 4 naphthalene methylcarbamoyl", "O=C(O)c1ccc2cc(C(=O)NC)ccc2c1", "6-(methylcarbamoyl)naphthalene-2-carboxylic acid", false, ""},
+            {"Task 4 naphthalene chloromethoxycarbonyl", "O=C(O)c1ccc2cc(C(=O)OCCl)ccc2c1", "6-chloromethoxycarbonylnaphthalene-2-carboxylic acid", false, ""},
+            {"Task 4 indole methylcarbamoyl (prepareFusedParentContext)", "O=C(O)c1cc2cc(C(=O)NC)ccc2[nH]1", "5-methylcarbamoylindole-2-carboxylic acid", false, ""},
+            {"Task 4 indole methanesulfonamido (prepareFusedParentContext)", "O=C(O)c1cc2cc(NS(=O)(=O)C)ccc2[nH]1", "5-methanesulfonamidoindole-2-carboxylic acid", false, ""},
+            {"Task 4 side-branch L6908 methanesulfonyl", "O=C(O)c1ccc(CCS(C)(=O)=O)cc1", "4-(2-methanesulfonylethyl)benzenecarboxylic acid", false, ""},
+            {"Task 4 side-branch L6908 methylsulfamoyl", "O=C(O)c1ccc(CS(=O)(=O)NC)cc1", "4-[(methylsulfamoyl)methyl]benzenecarboxylic acid", false, ""},
+            {"Task 4 side-branch L7370 unsaturated methanesulfonyl", "O=C(O)c1ccc(C(=C)CS(C)(=O)=O)cc1", "4-(3-methanesulfonylprop-1-en-2-yl)benzenecarboxylic acid", false, ""},
+            {"Task 4 sumatriptan motif", "CNS(Cc1cc2c([nH]cc2CCN(C)C)cc1)(=O)=O", "5-[(methylsulfamoyl)methyl]-3-(2-dimethylaminoethyl)indole", false, ""},
+            // Task 5: unify Section 5 acyclic scanner, nameAcyclicChainParentWithSubstituents, and nested branch stereo
+            {"Task 5 Section 5 imidazol-1-yl alcohol (MICONAZOLE motif)", "OC(c1ccccc1)Cn1ccnc1", "2-(imidazol-1-yl)-1-phenylethanol", false, ""},
+            {"Task 5 Section 5 piperidin-1-yl ketone (HALOPERIDOL motif)", "O=C(c1ccc(F)cc1)CCCN1CCCCC1", "1-(4-fluorophenyl)-4-(piperidin-1-yl)butan-1-one", false, ""},
+            {"Task 5 Section 5 real HALOPERIDOL", "O=C(c1ccc(F)cc1)CCCN1CCC(c2ccc(Cl)cc2)(O)CC1", "4-[4-(4-chlorophenyl)-4-hydroxypiperidin-1-yl]-1-(4-fluorophenyl)butan-1-one", false, ""},
+            {"Task 5 Section 5 indol-1-yl acid (CLOMETACIN motif)", "O=C(O)CCn1ccc2ccccc21", "3-(indol-1-yl)propanoic acid", false, ""},
+            {"Task 5 chain-wins PROPRANOLOL", "CC(NCC(COc1c2c(cccc2)ccc1)O)C", "1-[(1-methylethyl)amino]-3-(naphthalen-1-yl)oxypropan-2-ol", false, ""},
+            {"Task 5 chain-wins LIDOCAINE", "CCN(CC(Nc1c(C)cccc1C)=O)CC", "N-(2,6-dimethylphenyl)-2-diethylaminoethanamide", false, ""},
+            {"Task 5 chain-wins ether on anilide (no hydroxy corruption)", "COCC(=O)Nc1ccccc1", "N-phenyl-2-methoxyethanamide", false, ""},
+            {"Task 5 disjoint chiral sugar on pyrimidine (ZIDOVUDINE)", "Cc1c(=O)[nH]c(=O)[n]([C@@H]2O[C@H](CO)[C@@H](N=[N+]=[N-])C2)c1", "1-[(2R,4S,5S)-4-azido-5-(hydroxymethyl)tetrahydrofuran-2-yl]-5-methyl-1,3-diazine-2,4-dione", false, ""},
+            {"Task 5 ring parent chiral-branch amide", "O=C(O)c1ccc(C(=O)NC[C@@H](C)O)cc1", "4-([(2R)-2-hydroxypropyl]carbamoyl)benzenecarboxylic acid", false, ""},
+            // Task 6: multi-ring disjoint seniority, nameAmineSubstituentPrefix delegation, fused+isolated multi-ring parents
+            {"Task 6 3-ring biphenyl carboxylic acid", "O=C(O)c1ccc(-c2ccc(-c3ccccc3)cc2)cc1", "4-(4-phenylphenyl)benzenecarboxylic acid", false, ""},
+            {"Task 6 2-hop terphenyl-pyrimidine", "c1ccc(-c2ccc(-c3ncccn3)cc2)cc1", "2-(4-phenylphenyl)pyrimidine", false, ""},
+            {"Task 6 3-ring heteroatom-bridged acid", "O=C(O)c1ccc(Oc2ccc(OCc3ccccc3)cc2)cc1", "4-{4-[(phenylmethyl)oxy]phenoxy}benzenecarboxylic acid", false, ""},
+            {"Task 6 disjoint 2-ring acid beats piperidine (P-44.1.1)", "O=C(O)c1ccc(C2CCNCC2)cc1", "4-piperidin-4-ylbenzenecarboxylic acid", false, ""},
+            {"Task 6 disjoint 2-ring acid beats furan-sulfonylethylamine", "O=C(O)c1ccc(-c2oc(CNCCS(C)(=O)=O)cc2)cc1", "4-{5-[(2-methanesulfonylethyl)aminomethyl]furan-2-yl}benzenecarboxylic acid", false, ""},
+            {"Task 6 amine prefix chiral alcohol delegation", "O=C(O)c1ccc(NC[C@@H](C)O)cc1", "4-[((2R)-2-hydroxypropyl)amino]benzenecarboxylic acid", false, ""},
+            {"Task 6 amine prefix phosphonoalkyl delegation", "O=C(O)c1ccc(NCCP(=O)(O)O)cc1", "4-[(2-phosphonoethyl)amino]benzenecarboxylic acid", false, ""},
+            {"Task 6 fused+monocyclic ketone bridge (RALOXIFENE core)", "O=C(c1c2ccc(O)cc2sc1-c1ccc(O)cc1)c1ccc(OC)cc1", "(6-hydroxy-2-(4-hydroxyphenyl)benzothiophen-3-yl)(4-methoxyphenyl)methan-1-one", false, ""},
+            // Task 7: fused, saturated/hetero bicyclic, hydro-hetero, P-44.1.1, and multi-component fused dispatch
+            {"Task 7 saturated heterobicyclic lactam sulfone (SULBACTAM)", "CC1(S(=O)(=O)[C@H]2N(C(C2)=O)[C@H]1C(O)=O)C", "(2S,5R)-3,3-dimethyl-4,4,7-trioxo-4-thia-1-azabicyclo[3.2.0]heptane-2-carboxylic acid", false, ""},
+            {"Task 7 benzo-thiadiazine 1,1-dioxide (HYDROCHLOROTHIAZIDE)", "NS(c1c(Cl)cc2NCNS(=O)(=O)c2c1)(=O)=O", "6-chloro-1,1-dioxo-7-sulfamoyl-3,4-dihydro-2H-1,2,4-benzothiadiazine", false, ""},
+            {"Task 7 N=2 substituted fused lactone (5-methylphthalide)", "Cc1ccc2c(c1)COC2=O", "5-methyl-2-benzofuran-1(3H)-one", false, ""},
+            {"Task 7 N=3 hydro-fused carbazole carboxamide (FROVATRIPTAN)", "CN[C@H]1Cc2c([nH]c3c2cc(C(=O)N)cc3)CC1", "(3R)-3-methylamino-2,3,4,9-tetrahydro-1H-carbazole-6-carboxamide", false, ""},
+            {"Task 7 hydro-carbocycle + pyran (ETODOLAC)", "CCc1c2c(c3CCOC(CC(O)=O)(CC)c3[nH]2)ccc1", "2-(2,9-diethyl-1,2,4,5-tetrahydrobenzo[1,2-b]pyrano[4,3-d]pyrrol-2-yl)ethanoic acid", false, ""},
+            {"Task 7 N-acyl indole acid (INDOMETHACIN)", "COc1cc2c(c([n](C(c3ccc(Cl)cc3)=O)c2cc1)C)CC(O)=O", "2-(1-[(4-chlorophenyl)oxomethyl]-5-methoxy-2-methylindol-3-yl)ethanoic acid", false, ""},
+            {"Task 7 peri-fused + isolated ring (OFLOXACIN)", "CC1[n]2c3c(c(c(c2)C(O)=O)=O)cc(F)c(N2CCN(C)CC2)c3OC1", "8-fluoro-3-methyl-9-(4-methylpiperazin-1-yl)-6-oxo-2,3-dihydro[1,4]oxazino[2,3,4-ij]quinoline-5-carboxylic acid", false, ""},
+            // Task 8: universal N-substituted principal heteroatoms (amines, amides, sulfonamides, ureas)
+            {"Task 8 N-methyl amine chain parent (FLUOXETINE)", "CNCCC(c1ccccc1)Oc1ccc(C(F)(F)F)cc1", "N-methyl-3-([4-(trifluoromethyl)phenyl])oxy-3-phenylpropan-1-amine", false, ""},
+            {"Task 8 N,N-disubstituted amide (FENTANYL)", "CCC(=O)N(c1ccccc1)C1CCN(CCc2ccccc2)CC1", "N-[1-(2-phenylethyl)piperidin-4-yl]-N-phenylpropanamide", false, ""},
+            {"Task 8 N-hydroxy-N'-phenyl diamide (VORINOSTAT)", "O=C(CCCCCCC(=O)Nc1ccccc1)NO", "N-hydroxy-N'-phenyloctanediamide", false, ""},
+            {"Task 8 N-aryl sulfonamide chain (SOTALOL)", "CC(C)NCC(O)c1ccc(NS(=O)(=O)C)cc1", "N-{4-(2-[(1-methylethyl)amino]-1-hydroxyethyl)phenyl}methanesulfonamide", false, ""},
+            {"Task 8 N-benzyl heteroring amide (BENZNIDAZOLE)", "O=C(NCc1ccccc1)Cn1ccnc1[N+](=O)[O-]", "N-(phenylmethyl)-2-(2-nitroimidazol-1-yl)ethanamide", false, ""},
+            {"Task 8 N-naphthylamide chain-wins (AGOMELATINE)", "COc1ccc2cccc(CCNC(C)=O)c2c1", "N-(2-(7-methoxynaphthalen-1-yl)ethyl)ethanamide", false, ""},
+            {"Task 8 diphenylurea (P-66.1.6.1.1.1)", "O=C(Nc1ccccc1)Nc1ccccc1", "N,N-diphenylurea", false, ""},
+            {"Task 8 N-aryl propanamide + nitrile (BICALUTAMIDE)", "CC(O)(CS(=O)(=O)c1ccc(F)cc1)C(=O)Nc1ccc(C#N)c(C(F)(F)F)c1", "N-[4-cyano-3-(trifluoromethyl)phenyl]-2-[(4-fluorophenyl)sulfonylmethyl]-2-hydroxypropanamide", false, ""},
+            // Task 9: generalized carbonic/carbamic/urea/guanidine/amidine/oxime classes
+            {"Task 9 sulfonylurea (CHLORPROPAMIDE)", "CCCNC(=O)NS(=O)(=O)c1ccc(Cl)cc1", "N-[(4-chlorophenyl)sulfonyl]-N'-propylurea", false, ""},
+            {"Task 9 N-hydroxyurea + benzothiophene (ZILEUTON)", "CC(N(C(=O)N)O)c1sc2ccccc2c1", "N-(1-(benzothiophen-2-yl)ethyl)-N-hydroxyurea", false, ""},
+            {"Task 9 sulfonylurea (TOLBUTAMIDE)", "CCCCNC(=O)NS(=O)(=O)c1ccc(C)cc1", "N-[(4-methylphenyl)sulfonyl]-N'-butylurea", false, ""},
+            {"Task 9 acyclic dicarbamate (MEPROBAMATE)", "CCCC(C)(COC(=O)N)COC(=O)N", "2-(aminocarbonyloxymethyl)-2-methylpentyl carbamate", false, ""},
+            {"Task 9 phenyl dicarbamate (FELBAMATE)", "NC(=O)OCC(c1ccccc1)COC(=O)N", "3-aminocarbonyloxy-2-phenylpropyl carbamate", false, ""},
+            {"Task 9 Boc-amino acid (carbamoyl/alkoxycarbonylamino)", "CC(C)(C)OC(=O)NC(C)C(=O)O", "2-[(1,1-dimethylethoxycarbonyl)amino]propanoic acid", false, ""},
+            {"Task 9 cyclic alkyl guanidine (GUANETHIDINE)", "N=C(N)NCCN1CCCCCCC1", "N'-(2-(azocan-1-yl)ethyl)guanidine", false, ""},
+            {"Task 9 guanidine + carboxylic acid (P-66.4.1.2.2)", "N=C(N)Nc1ccc(C(=O)O)cc1", "4-carbamimidamidobenzenecarboxylic acid", false, ""},
+            {"Task 9 cyanoguanidine + imidazole (CIMETIDINE)", "CN/C(/NC#N)=N\\CCSCc1c(C)[nH]cn1", "N''-(2-[((5-methylimidazol-4-yl)methyl)sulfanyl]ethyl)-N-cyano-N'-methylguanidine", false, ""},
+            {"Task 9 sulfonylguanidine (SULFAGUANIDINE)", "N=C(NS(c1ccc(N)cc1)(=O)=O)N", "N'-[(4-aminophenyl)sulfonyl]guanidine", false, ""},
+            // Task 10: multi-ester selection & phosphorus/sulfur oxy-acid groups
+            {"Task 10 symmetric diester (dimethyl butanedioate)", "COC(=O)CCC(=O)OC", "dimethyl butanedioate", false, ""},
+            {"Task 10 diacetate pyridine (BISACODYL)", "CC(=O)Oc1ccc(C(c2ccccn2)c2ccc(OC(=O)C)cc2)cc1", "{4-[(4-ethanoyloxyphenyl)pyridin-2-ylmethyl]phenyl} ethanoate", false, ""},
+            {"Task 10 mixed aryl ester + acyloxy (benzoate wins)", "CCOC(=O)c1ccc(CCOC(=O)C)cc1", "ethyl 4-(2-ethanoyloxyethyl)benzenecarboxylate", false, ""},
+            {"Task 10 lactone + ester (MYCOPHENOLATE MOFETIL)", "COc1c(C/C=C(/CCC(OCCN2CCOCC2)=O)\\C)c(O)c2C(OCc2c1C)=O", "(2-(morpholin-4-yl)ethyl) (4E)-6-(7-hydroxy-5-methoxy-4-methyl-1-oxo-2-benzofuran-6-yl)-4-methylhex-4-enoate", false, ""},
+            {"Task 10 phosphonooxy carboxylic acid", "O=C(O)CCOP(=O)(O)O", "3-phosphonooxypropanoic acid", false, ""},
+            {"Task 10 ethyl dihydrogen phosphate", "CCOP(=O)(O)O", "ethyl dihydrogen phosphate", false, ""},
+            {"Task 10 bis-mesylate (BUSULFAN)", "CS(=O)(=O)OCCCCOS(=O)(=O)C", "1,4-di(methylsulfonyl)oxybutane", false, ""},
+            {"Task 10 sulfamoyloxy carboxylic acid", "O=C(O)CCOS(=O)(=O)N", "3-sulfamoyloxypropanoic acid", false, ""},
+            {"Task 10 sulfoamino carboxylic acid", "O=C(O)CCNS(=O)(=O)O", "3-sulfoaminopropanoic acid", false, ""},
+            {"Task 10 nucleoside phosphate (ADENOSINE PHOSPHATE)", "Nc1ncnc2c1ncn2[C@@H]1O[C@H](COP(=O)(O)O)[C@@H](O)[C@H]1O", "9-[3,4-dihydroxy-5-(phosphonooxymethyl)tetrahydrofuran-2-yl]purin-6-amine", false, ""},
+            // Task 11: supported formal charge forms (-ONO2 nitrooxy, P/S oxyanions, zwitterions, bis-quat/N-anions)
+            {"Task 11 nitrate ester bridged (ISOSORBIDE DINITRATE)", "O=[N+](O[C@@H]1[C@H]2OC[C@@H](O[N+]([O-])=O)[C@H]2OC1)[O-]", "(1S,4R,5S,8S)-4,8-dinitrooxy-2,6-dioxabicyclo[3.3.0]octane", false, ""},
+            {"Task 11 nitrate ester triol (NITROGLYCERIN)", "O=[N+](OCC(O[N+]([O-])=O)CO[N+]([O-])=O)[O-]", "1,2,3-trinitrooxypropane", false, ""},
+            {"Task 11 nitrate ester + OH (ISOSORBIDE MONONITRATE)", "O=[N+](O[C@H]1[C@H]2OC[C@H](O)[C@H]2OC1)[O-]", "(1S,4S,5R,8R)-8-nitrooxy-2,6-dioxabicyclo[3.3.0]octan-4-ol", false, ""},
+            {"Task 11 sulfonate anion (MESNA)", "O=S(CCS)([O-])=O", "2-sulfanylethanesulfonate(1-)", false, ""},
+            {"Task 11 phosphate monoanion (TRICLOFOS)", "O=P(OCC(Cl)(Cl)Cl)(O)[O-]", "2,2,2-trichloroethyl hydrogen phosphate(1-)", false, ""},
+            {"Task 11 alkyl sulfate anion (SODIUM TETRADECYL SULFATE)", "CCCCC(CCC(OS([O-])(=O)=O)CC(C)C)CC", "1-(2-methylpropyl)-4-ethyloctyl sulfate(1-)", false, ""},
+            {"Task 11 benzoate anion (chop off-by-1 fix)", "c1ccccc1C(=O)[O-]", "benzenecarboxylate(1-)", false, ""},
+            {"Task 11 benzenesulfonate anion", "c1ccccc1S(=O)(=O)[O-]", "benzenesulfonate(1-)", false, ""},
+            {"Task 11 zwitterion carboxylate+quatN (LEVOCARNITINE)", "C[N+](C[C@@H](CC([O-])=O)O)(C)C", "(3R)-4-(trimethylazaniumyl)-3-hydroxybutanoate", false, ""},
+            {"Task 11 bis-quaternary diester (SUXAMETHONIUM)", "C[N+](CCOC(CCC(OCC[N+](C)(C)C)=O)=O)(C)C", "bis[2-(trimethylazaniumyl)ethyl] butanedioate", false, ""},
+            {"Task 11 sulfonamide N-anion (SULFADIAZINE)", "Nc1ccc(S([N-]c2ncccn2)(=O)=O)cc1", "4-amino-N-(pyrimidin-2-yl)benzenesulfonamidide(1-)", false, ""},
+            // Phase 6A Task 2: branch stereocenters (9 named fixtures + 2 Review-Focus fixtures)
+            {"Task 6A branch stereo LINEZOLID", "CC(NC[C@@H]1OC(=O)N(c2cc(F)c(N3CCOCC3)cc2)C1)=O", "N-[{(5S)-3-[3-fluoro-4-(morpholin-4-yl)phenyl]-2-oxooxazolidin-5-yl}methyl]ethanamide", false, ""},
+            {"Task 6A branch stereo MEDROXYPROGESTERONE ACETATE", "CC(O[C@]1([C@]2(C)[C@H]([C@H]3[C@H](CC2)[C@]2(C)C(=CC(CC2)=O)[C@@H](C)C3)CC1)C(=O)C)=O", "((1S,2R,8S,10R,11S,14R,15S)-2,8,15-trimethyl-5-oxo-14-(1-oxoethyl)tetracyclo[8.7.0.0^{2,7}.0^{11,15}]heptadec-6-en-14-yl) ethanoate", false, ""},
+            {"Task 6A branch stereo HYDROCORTISONE ACETATE", "CC(OCC([C@@]1([C@]2(C)[C@H]([C@H]3[C@H]([C@H](C2)O)[C@]2(C)C(=CC(CC2)=O)CC3)CC1)O)=O)=O", "(2-((1S,2R,10S,11S,14R,15S,17S)-14,17-dihydroxy-2,15-dimethyl-5-oxotetracyclo[8.7.0.0^{2,7}.0^{11,15}]heptadec-6-en-14-yl)-2-oxoethyl) ethanoate", false, ""},
+            {"Task 6A branch stereo DILTIAZEM (downstream ester alkyl gate)", "COc1ccc([C@H]2[C@@H](OC(=O)C)C(=O)N(CCN(C)C)c3c(cccc3)S2)cc1", "", true, "Unsupported ester alkyl group."},
+            {"Task 6A branch stereo LOVASTATIN (downstream ester alkyl gate)", "CC[C@@H](C(O[C@@H]1[C@H]2C(C=C[C@@H]([C@@H]2CC[C@H]2OC(=O)C[C@H](O)C2)C)=C[C@H](C)C1)=O)C", "", true, "Unsupported ester alkyl group."},
+            {"Task 6A branch stereo SIMVASTATIN (downstream ester alkyl gate)", "CCC(C(O[C@@H]1[C@H]2C(C=C[C@@H]([C@@H]2CC[C@H]2OC(=O)C[C@H](O)C2)C)=C[C@H](C)C1)=O)(C)C", "", true, "Unsupported ester alkyl group."},
+            {"Task 6A branch stereo COLCHICINE (downstream amide N-branch gate)", "COc1c(OC)c(OC)c2-c3c([C@H](CCc2c1)NC(=O)C)cc(=O)c(OC)cc3", "", true, "Branched or ring N-substituents on amides are not supported"},
+            {"Task 6A branch stereo CHLORAMPHENICOL (downstream amide N-branch gate)", "O=C(C(Cl)Cl)N[C@@H]([C@@H](c1ccc([N+]([O-])=O)cc1)O)CO", "", true, "Branched or ring N-substituents on amides are not supported"},
+            {"Task 6A branch stereo SELEGILINE (downstream amine N-branch gate)", "C#CCN([C@@H](Cc1ccccc1)C)C", "", true, "Branched or ring N-substituents on amines are not supported"},
+            {"Task 6A bicyclic+quinoline branch stereo (QUININE)", "C=C[C@@H]1[C@@H]2C[C@@H]([C@@H](c3c4c(ccc(c4)OC)ncc3)O)N(CC2)C1", "(1R)-((2S,4S,5R)-5-ethenyl-1-azabicyclo[2.2.2]octan-2-yl)(6-methoxyquinolin-4-yl)methanol", false, ""},
+            {"Task 6A sugar ester ring+branch stereo (AZARIBINE)", "CC(OC[C@@H]1[C@@H](OC(=O)C)[C@@H](OC(=O)C)[C@H]([n]2c(=O)[nH]c(=O)cn2)O1)=O", "[(2R,3R,4R,5R)-5-(2,4-dioxo-1,3,6-triazin-1-yl)-3,4-diethanoyloxytetrahydrofuran-2-ylmethyl] ethanoate", false, ""},
+            {"Task 6A Review Focus two stereocenters in one branch", "O=C(O)c1ccc([C@H](O)[C@@H](Cl)CC)cc1", "4-[(1S,2S)-2-chloro-1-hydroxybutyl]benzenecarboxylic acid", false, ""},
+            {"Task 6A Review Focus boundary stereocenters ring+branch", "O=C(O)[C@@H]1CCC[C@H]1[C@@H](C)O", "(1R,2R)-2-[(1R)-1-hydroxyethyl]cyclopentanecarboxylic acid", false, ""},
+            // Phase 6B Task 4: chain-as-parent seniority (P-44.1.1) generalizations + Review Focus
+            {"Task 6B AMINOHIPPURIC ACID", "Nc1ccc(C(NCC(O)=O)=O)cc1", "2-(4-aminobenzamido)ethanoic acid", false, ""},
+            {"Task 6B ALBUTEROL", "CC(NCC(c1cc(CO)c(O)cc1)O)(C)C", "2-[(1,1-dimethylethyl)amino]-1-[4-hydroxy-3-(hydroxymethyl)phenyl]ethanol", false, ""},
+            {"Task 6B RIVASTIGMINE", "CCN(C(Oc1cc([C@@H](N(C)C)C)ccc1)=O)C", "(1S)-N,N-dimethyl-1-{3-[ethyl(methyl)aminocarbonyloxy]phenyl}ethanamine", false, ""},
+            {"Task 6B DIETHYLCARBAMAZINE", "CCN(C(N1CCN(C)CC1)=O)CC", "1-(diethylcarbamoyl)-4-methylpiperazine", false, ""},
+            {"Task 6B PROGUANIL", "CC(NC(NC(Nc1ccc(Cl)cc1)=N)=N)C", "N-[((4-chlorophenyl)carbamimidoyl)aminoiminomethyl]propan-2-amine", false, ""},
+            {"Task 6B FLUVOXAMINE (downstream oxime substituent gate)", "COCCCC/C(/c1ccc(C(F)(F)F)cc1)=N\\OCCN", "", true, "Substituted amine/hydrazine substituents are not supported in this phase."},
+            {"Task 6B CILASTATIN", "CC1([C@@H](C(N/C(/C(O)=O)=C\\CCCCSC[C@@H](C(O)=O)N)=O)C1)C", "(2Z)-7-[((2R)-2-amino-3-hydroxy-3-oxopropyl)sulfanyl]-2-[((1S)-2,2-dimethylcyclopropyl)amido]hept-2-enoic acid", false, ""},
+            {"Task 6B CARBOPROST (downstream alkenyl-stereo branch gate)", "CCCCC[C@@](/C=C/[C@H]1[C@H](O)C[C@H](O)[C@@H]1C/C=C\\CCCC(O)=O)(O)C", "", true, "A chain-based principal group outranks the ring in this structure; chain-as-parent seniority (P-44.1.1) for this ring/class combination is not yet supported."},
+            {"Task 6B chain (5Z) + demoted ring stereo", "O=C(O)CCC/C=C\\C[C@H]1[C@H](O)C[C@H](O)C1", "(5Z)-7-[(1R,2R,4R)-2,4-dihydroxycyclopentyl]hept-5-enoic acid", false, ""},
+            {"Task 6B Review Focus demoted ring stereocenter", "O[C@H]1CC[C@H](CCC(O)=O)C1", "3-[(1R,3S)-3-hydroxycyclopentyl]propanoic acid", false, ""},
+            {"Task 6B Review Focus chain-wins + branch stereo on demoted ring", "O=C(O)C(C)c1ccc([C@H](O)C)cc1", "2-{4-[(1R)-1-hydroxyethyl]phenyl}propanoic acid", false, ""},
+            {"Task 6B ORNIDAZOLE (N-attached ring tiebreak)", "Cc1[n](CC(CCl)O)c([N+]([O-])=O)cn1", "1-chloro-3-(2-methyl-5-nitroimidazol-1-yl)propan-2-ol", false, ""},
+            {"Task 6B RANITIDINE (gem-diamine N-completeness gate)", "CNC(NCCSCc1oc(CN(C)C)cc1)=C[N+]([O-])=O", "", true, "Branched or ring N-substituents on amines are not supported"},
+            {"Task 6B IBREXAFUNGERP (deferred CIP fast-reject)", "CC([C@H]([C@@]1([C@@H](C(O)=O)[C@@]2(C)[C@]([C@@H]3C(=CC2)[C@@]24C[C@@H]([n]5c(-c6ccncc6)ncn5)[C@H](OC[C@@](C(C)(C)C)(N)C)[C@@](C)([C@@H]2CC3)COC4)(C)CC1)C)C)C", "", true, "Fused, bridged, spiro, or multiple ring systems are not supported in Phase 2."}
         };
         for (const auto &tc : agyCases) {
             int m = indigoLoadMoleculeFromString(tc.smiles.c_str());

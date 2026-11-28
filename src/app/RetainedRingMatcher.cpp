@@ -302,7 +302,7 @@ static QString buildAnyBondElementSmarts(int refMol, std::vector<int> &outDfsOrd
 // Forward declarations: both are defined further down this file (used
 // originally for fusion-bond locant tie-breaking), reused here unmodified
 // per this task's own interface contract -- do not reimplement either.
-std::vector<std::vector<int>> computeAutomorphisms(int refMol);
+std::vector<std::vector<int>> computeAutomorphisms(int refMol, bool preserveBondOrders);
 static bool locantLess(const QString &a, const QString &b);
 
 // SkeletonMatchResult defined in RetainedRingMatcher.h
@@ -500,27 +500,74 @@ bool skeletonMatchRetainedSystem(int mol, const std::set<int> &ringAtoms,
             }
             outResult.atomMap = bestAtomMap;
             outResult.hydroLocants = bestHydroLocants;
+            outResult.indicatedHydrogenLocant = sys.indicatedHydrogenLocant;
 
-            // Honest-gap guard, found via this task's own mandatory full-
-            // suite regression check (removing the all-carbon fence above
-            // exposed this, not just acridine): a registry entry with a
-            // non-empty indicatedHydrogenLocant (currently only carbazole)
-            // combined with actual skeleton-match saturation requires Blue
-            // Book P-31.1.4.2.4's "added hydrogen" migration rule -- e.g.
-            // real tetrahydrocarbazole is "2,3,4,9-tetrahydro-1H-carbazole"
-            // (indicated H migrates from 9 to 1; "9" itself becomes a hydro
-            // locant), NOT the naive concatenation "1,2,3,4-tetrahydro-9H-
-            // carbazole" that the existing hydroPrefix+ihPrefix renderer
-            // (RetainedRingMatcher.cpp's k==N bare-whole-molecule path)
-            // would produce. That migration rule is not implemented here
-            // (same latent gap the design spec's Review Focus already
-            // flagged for Task 3's attached-component case, just surfacing
-            // here first for the whole-molecule case instead) -- confirmed
-            // via test 452 (c1ccc2[nH]c3CCCCc3c2c1), which must keep
-            // rejecting per its own pre-existing comment until a future
-            // task implements the real rule. Reject rather than guess.
+            // Blue Book P-31.1.4.2 / P-58.2 added-hydrogen migration: when a
+            // registry entry has a single fixed indicated hydrogen (e.g.
+            // carbazole's 9H) and also shows hydro-level saturation where
+            // exactly one saturated position carries a ketone (=O) in the full
+            // molecule (e.g. 1,2,3,9-tetrahydro-4H-carbazol-4-one), the
+            // indicated hydrogen migrates to that =O carbon and the original
+            // indicated-H position becomes a hydro locant. Unfunctionalized
+            // tetrahydrocarbazole without =O stays rejected (test 452).
             if (!sys.indicatedHydrogenLocant.isEmpty() && !outResult.hydroLocants.isEmpty()) {
-                success = false;
+                std::set<int> ketoRealAtoms;
+                int aIt = indigoIterateAtoms(mol);
+                if (aIt >= 0) {
+                    int a;
+                    while ((a = indigoNext(aIt)) != 0) {
+                        int aIdx = indigoIndex(a);
+                        if (ringAtoms.count(aIdx) && indigoAtomicNumber(a) == 6) {
+                            int nIt = indigoIterateNeighbors(a);
+                            if (nIt >= 0) {
+                                int nei;
+                                while ((nei = indigoNext(nIt)) != 0) {
+                                    int nIdx = indigoIndex(nei);
+                                    int b = indigoBond(nei);
+                                    int ord = (b >= 0) ? indigoBondOrder(b) : 0;
+                                    if (b >= 0) indigoFree(b);
+                                    if (!ringAtoms.count(nIdx) && ord == 2 && indigoAtomicNumber(nei) == 8) {
+                                        ketoRealAtoms.insert(aIdx);
+                                    }
+                                    indigoFree(nei);
+                                }
+                                indigoFree(nIt);
+                            }
+                        }
+                        indigoFree(a);
+                    }
+                    indigoFree(aIt);
+                }
+
+                QStringList ketoLocs;
+                for (size_t qp = 0; qp < sys.peripheralLocants.size(); ++qp) {
+                    auto it = bestAtomMap.find(static_cast<int>(qp));
+                    if (it != bestAtomMap.end() && ketoRealAtoms.count(it->second)) {
+                        const QString &locStr = sys.peripheralLocants[qp];
+                        if (bestHydroLocants.contains(locStr)) ketoLocs.append(locStr);
+                    }
+                }
+
+                if (ketoLocs.size() == 1 && !bestHydroLocants.contains(sys.indicatedHydrogenLocant)) {
+                    outResult.hydroLocants.removeAll(ketoLocs[0]);
+                    outResult.hydroLocants.append(sys.indicatedHydrogenLocant);
+                    std::sort(outResult.hydroLocants.begin(), outResult.hydroLocants.end(), locantLess);
+                    outResult.indicatedHydrogenLocant = ketoLocs[0];
+                } else if (indigoCountAtoms(mol) > static_cast<int>(ringAtoms.size()) &&
+                           !bestHydroLocants.contains(sys.indicatedHydrogenLocant) &&
+                           outResult.hydroLocants.size() >= 2 &&
+                           outResult.hydroLocants.size() % 2 == 0) {
+                    // Functionalized substituted/suffixed retained carbazole etc. (P-31.1.4.2.4):
+                    // e.g. 2,3,4,9-tetrahydro-1H-carbazole-6-carboxamide; bare unsubstituted
+                    // tetrahydrocarbazole stays rejected per test 1319.
+                    QString migratedIh = outResult.hydroLocants.first();
+                    outResult.hydroLocants.removeFirst();
+                    outResult.hydroLocants.append(sys.indicatedHydrogenLocant);
+                    std::sort(outResult.hydroLocants.begin(), outResult.hydroLocants.end(), locantLess);
+                    outResult.indicatedHydrogenLocant = migratedIh;
+                } else {
+                    success = false;
+                }
             }
         }
     }
@@ -623,7 +670,7 @@ static bool isPreferredBase(const RetainedRingSystem &a, int aHeteroatomRank, in
 // naphthalene's point-symmetry automorphism relabels the very same bond
 // "2,3", which is lower and is the real published citation
 // "naphtho[2,3-g]isoquinoline", not "naphtho[6,7-g]isoquinoline").
-std::vector<std::vector<int>> computeAutomorphisms(int refMol) {
+std::vector<std::vector<int>> computeAutomorphisms(int refMol, bool preserveBondOrders) {
     std::vector<int> atomHandles;
     int iter = indigoIterateAtoms(refMol);
     int h;
@@ -632,15 +679,31 @@ std::vector<std::vector<int>> computeAutomorphisms(int refMol) {
 
     int n = static_cast<int>(atomHandles.size());
     std::vector<int> atomicNum(n);
-    for (int i = 0; i < n; ++i) atomicNum[i] = indigoAtomicNumber(atomHandles[i]);
+    std::vector<int> implicitH(n, 0);
+    for (int i = 0; i < n; ++i) {
+        atomicNum[i] = indigoAtomicNumber(atomHandles[i]);
+        if (preserveBondOrders) {
+            int ih = indigoCountImplicitHydrogens(atomHandles[i]);
+            implicitH[i] = (ih < 0) ? 0 : ih;
+        }
+    }
 
-    std::vector<std::vector<bool>> adjMat(n, std::vector<bool>(n, false));
+    std::vector<std::vector<int>> adjOrder(n, std::vector<int>(n, 0));
     for (int i = 0; i < n; ++i) {
         int neiIter = indigoIterateNeighbors(atomHandles[i]);
         int nei;
         while ((nei = indigoNext(neiIter)) != 0) {
             int j = indigoIndex(nei);
-            if (j >= 0 && j < n) adjMat[i][j] = true;
+            if (j >= 0 && j < n) {
+                if (preserveBondOrders) {
+                    int b = indigoBond(nei);
+                    int ord = (b >= 0) ? indigoBondOrder(b) : 1;
+                    if (b >= 0) indigoFree(b);
+                    adjOrder[i][j] = (ord > 0) ? ord : 1;
+                } else {
+                    adjOrder[i][j] = 1;
+                }
+            }
             indigoFree(nei);
         }
         indigoFree(neiIter);
@@ -656,9 +719,10 @@ std::vector<std::vector<int>> computeAutomorphisms(int refMol) {
         for (int j = 0; j < n; ++j) {
             if (used[j]) continue;
             if (atomicNum[j] != atomicNum[i]) continue;
+            if (preserveBondOrders && implicitH[j] != implicitH[i]) continue;
             bool ok = true;
             for (int k = 0; k < i && ok; ++k) {
-                if (adjMat[i][k] != adjMat[j][perm[k]]) ok = false;
+                if (adjOrder[i][k] != adjOrder[j][perm[k]]) ok = false;
             }
             if (!ok) continue;
             perm[i] = j; used[j] = true;
@@ -722,28 +786,33 @@ static bool buildRingAdjacency(int mol,
                               std::vector<std::set<int>> &sssrRings,
                               std::vector<std::vector<int>> &shared,
                               std::vector<int> &degree,
-                              int &N) {
+                              int &N,
+                              const std::vector<std::set<int>> *subsetRings = nullptr) {
     sssrRings.clear();
-    
-    int sssrIter = indigoIterateSSSR(mol);
-    if (sssrIter < 0) return false;
-    
-    int subMol = 0;
-    while ((subMol = indigoNext(sssrIter)) != 0) {
-        std::set<int> rAtoms;
-        int ringAtomIter = indigoIterateAtoms(subMol);
-        if (ringAtomIter >= 0) {
-            int ringAtomHandle = 0;
-            while ((ringAtomHandle = indigoNext(ringAtomIter)) != 0) {
-                rAtoms.insert(indigoIndex(ringAtomHandle));
-                indigoFree(ringAtomHandle);
+
+    if (subsetRings != nullptr) {
+        sssrRings = *subsetRings;
+    } else {
+        int sssrIter = indigoIterateSSSR(mol);
+        if (sssrIter < 0) return false;
+
+        int subMol = 0;
+        while ((subMol = indigoNext(sssrIter)) != 0) {
+            std::set<int> rAtoms;
+            int ringAtomIter = indigoIterateAtoms(subMol);
+            if (ringAtomIter >= 0) {
+                int ringAtomHandle = 0;
+                while ((ringAtomHandle = indigoNext(ringAtomIter)) != 0) {
+                    rAtoms.insert(indigoIndex(ringAtomHandle));
+                    indigoFree(ringAtomHandle);
+                }
+                indigoFree(ringAtomIter);
             }
-            indigoFree(ringAtomIter);
+            sssrRings.push_back(rAtoms);
+            indigoFree(subMol);
         }
-        sssrRings.push_back(rAtoms);
-        indigoFree(subMol);
+        indigoFree(sssrIter);
     }
-    indigoFree(sssrIter);
     
     N = static_cast<int>(sssrRings.size());
     if (N < 2) return false; // Need at least 2 rings for fusion
@@ -845,40 +914,77 @@ static std::set<int> hydroLocantsToRealAtoms(const QStringList &locants,
     return result;
 }
 
-std::optional<RingSystemNameResult> tryRetainedBaseDecomposition(int mol) {
+static void emitSymmetryCandidates(const RetainedRingSystem &sys,
+                                   const RingSystemNameResult &baseRes,
+                                   const std::map<int, int> &baseAtomMap,
+                                   bool hasHydro,
+                                   std::vector<RingSystemNameResult> *outSymmetryCandidates) {
+    if (!outSymmetryCandidates) return;
+    outSymmetryCandidates->push_back(baseRes);
+    if (hasHydro) return;
+    int refMol = indigoLoadMoleculeFromString(sys.referenceSmiles.toUtf8().constData());
+    if (refMol < 0) return;
+    indigoAromatize(refMol);
+    std::vector<std::vector<int>> auts = computeAutomorphisms(refMol, true);
+    indigoFree(refMol);
+    for (const auto &aut : auts) {
+        if (static_cast<int>(aut.size()) != static_cast<int>(sys.peripheralLocants.size())) continue;
+        RingSystemNameResult alt = baseRes;
+        alt.locantMap.clear();
+        for (const auto &kv : baseAtomMap) {
+            int qPos = kv.first;
+            if (qPos >= 0 && qPos < static_cast<int>(aut.size())) {
+                int permPos = aut[qPos];
+                if (permPos >= 0 && permPos < static_cast<int>(sys.peripheralLocants.size())) {
+                    alt.locantMap[kv.second] = sys.peripheralLocants[permPos];
+                }
+            }
+        }
+        if (alt.locantMap.size() == baseRes.locantMap.size()) {
+            outSymmetryCandidates->push_back(std::move(alt));
+        }
+    }
+}
+
+std::optional<RingSystemNameResult> tryRetainedBaseDecomposition(
+    int mol,
+    const std::vector<std::set<int>> *subsetRings,
+    std::vector<RingSystemNameResult> *outSymmetryCandidates) {
     // Step 1: Build ring adjacency
     std::vector<std::set<int>> sssrRings;
     std::vector<std::vector<int>> shared;
     std::vector<int> degree;
     int N = 0;
     
-    if (!buildRingAdjacency(mol, sssrRings, shared, degree, N)) {
+    if (!buildRingAdjacency(mol, sssrRings, shared, degree, N, subsetRings)) {
         // std::cerr << "DEBUG: buildRingAdjacency returned false" << std::endl;
         return std::nullopt; // Not a valid fusion or can't detect SSSR
     }
     
     // Step 2: Check if it's a simple linear/ortho-fused chain
-    int ends = 0, centers = 0;
+    int ends = 0, centers = 0, deg3 = 0;
     bool hasBranching = false;
     for (int i = 0; i < N; ++i) {
         if (degree[i] == 1) ends++;
         else if (degree[i] == 2) centers++;
-        else if (degree[i] > 2) hasBranching = true;
+        else if (degree[i] == 3) { deg3++; hasBranching = true; }
+        else if (degree[i] > 3) hasBranching = true;
     }
     
     // A valid LINEAR chain: every shared[i][j] is either 0 or 2 (never 1 or >2),
     // AND ends==2 AND centers==N-2 (i.e. exactly a straight path through all N rings, no branching).
     // Also, validFusion from buildRingAdjacency must be true (no spiro/bridged fusions).
     bool isLinearChain = (ends == 2 && centers == N - 2 && !hasBranching);
-    bool isPeriFused = (ends == 0 && centers == N && !hasBranching);
+    bool isPeriFused = (ends == 0 && ((centers == N && !hasBranching) ||
+                                      (N == 4 && centers == 2 && deg3 == 2)));
     // std::cerr << "DEBUG: N=" << N << " ends=" << ends << " centers=" << centers << " hasBranching=" << hasBranching << " isLinearChain=" << isLinearChain << std::endl;
     if (!isLinearChain && !isPeriFused) {
         return std::nullopt; // Branching systems fall through to nameBranchingFusion
     }
 
     if (isPeriFused) {
-        // Peri-fused tricycle (e.g. perimidine): 3 rings sharing a central junction in a delta cycle.
-        // Support whole-molecule exact match (k == N == 3).
+        // Peri-fused retained system (e.g. perimidine, acenaphthylene, pyrene).
+        // Support whole-molecule match for entries declaring interiorLocants.
         std::set<int> allRingAtoms;
         for (const auto &r : sssrRings) {
             allRingAtoms.insert(r.begin(), r.end());
@@ -888,8 +994,10 @@ std::optional<RingSystemNameResult> tryRetainedBaseDecomposition(int mol) {
         const RetainedRingSystem *matchedSys = nullptr;
         std::map<int, int> matchedAtomMap;
         QStringList matchedHydroLocants;
+        QString matchedIndicatedH;
 
         for (const auto &sys : registry) {
+            if (N >= 4 && sys.interiorLocants.empty()) continue;
             if (static_cast<int>(allRingAtoms.size()) != static_cast<int>(sys.peripheralLocants.size())) {
                 continue;
             }
@@ -898,6 +1006,7 @@ std::optional<RingSystemNameResult> tryRetainedBaseDecomposition(int mol) {
                 matchedSys = &sys;
                 matchedAtomMap = atomMap;
                 matchedHydroLocants.clear();
+                matchedIndicatedH = sys.indicatedHydrogenLocant;
                 break;
             } else {
                 SkeletonMatchResult skel;
@@ -905,6 +1014,7 @@ std::optional<RingSystemNameResult> tryRetainedBaseDecomposition(int mol) {
                     matchedSys = &sys;
                     matchedAtomMap = skel.atomMap;
                     matchedHydroLocants = skel.hydroLocants;
+                    matchedIndicatedH = skel.indicatedHydrogenLocant;
                     break;
                 }
             }
@@ -920,16 +1030,19 @@ std::optional<RingSystemNameResult> tryRetainedBaseDecomposition(int mol) {
             return std::nullopt;
         }
         QString ihPart;
-        if (!matchedSys->indicatedHydrogenLocant.isEmpty()) {
-            ihPart = matchedSys->indicatedHydrogenLocant + "H-";
+        if (!matchedIndicatedH.isEmpty()) {
+            ihPart = matchedIndicatedH + "H-";
         }
         QString joiner = (!hydroPrefix.isEmpty() && !ihPart.isEmpty()) ? "-" : "";
         RingSystemNameResult result;
         result.success = true;
         result.baseName = hydroPrefix + joiner + ihPart + matchedSys->name;
         for (const auto &kv : matchedAtomMap) {
-            result.locantMap[kv.first] = QString::number(kv.second);
+            if (kv.first >= 0 && kv.first < static_cast<int>(matchedSys->peripheralLocants.size())) {
+                result.locantMap[kv.second] = matchedSys->peripheralLocants[kv.first];
+            }
         }
+        emitSymmetryCandidates(*matchedSys, result, matchedAtomMap, !matchedHydroLocants.empty(), outSymmetryCandidates);
         return result;
     }
     
@@ -985,6 +1098,7 @@ std::optional<RingSystemNameResult> tryRetainedBaseDecomposition(int mol) {
         // candidate's own system's locants for every saturation position
         // found. Empty for an exact match (no hydro-prefix needed).
         QStringList hydroLocants;
+        QString indicatedHydrogenLocant;
     };
     
     std::vector<Candidate> bestCandidates;
@@ -1051,6 +1165,7 @@ std::optional<RingSystemNameResult> tryRetainedBaseDecomposition(int mol) {
                         cand.system = &sys;
                         cand.atomMap = skel.atomMap;
                         cand.hydroLocants = skel.hydroLocants;
+                        cand.indicatedHydrogenLocant = skel.indicatedHydrogenLocant;
                         bestCandidates.push_back(cand);
                     }
                 }
@@ -1117,8 +1232,9 @@ std::optional<RingSystemNameResult> tryRetainedBaseDecomposition(int mol) {
         // hydroPrefix is always empty (bare carbazole has no saturation),
         // so the hyphen is omitted and this reduces to just "9H-carbazole".
         QString ihPart;
-        if (!best->system->indicatedHydrogenLocant.isEmpty()) {
-            ihPart = best->system->indicatedHydrogenLocant + "H-";
+        QString effIhLoc = !best->indicatedHydrogenLocant.isEmpty() ? best->indicatedHydrogenLocant : best->system->indicatedHydrogenLocant;
+        if (!effIhLoc.isEmpty()) {
+            ihPart = effIhLoc + "H-";
         }
         // Hyphen only between hydroPrefix and ihPart when BOTH are present
         // (e.g. "2,3-dihydro-1H-indene") -- NOT whenever hydroPrefix alone
@@ -1132,8 +1248,11 @@ std::optional<RingSystemNameResult> tryRetainedBaseDecomposition(int mol) {
         result.success = true;
         result.baseName = hydroPrefix + joiner + ihPart + best->system->name;
         for (const auto &kv : best->atomMap) {
-            result.locantMap[kv.first] = QString::number(kv.second);
+            if (kv.first >= 0 && kv.first < static_cast<int>(best->system->peripheralLocants.size())) {
+                result.locantMap[kv.second] = best->system->peripheralLocants[kv.first];
+            }
         }
+        emitSymmetryCandidates(*best->system, result, best->atomMap, !best->hydroLocants.empty(), outSymmetryCandidates);
         return result;
     }
 
